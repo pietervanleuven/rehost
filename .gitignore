@@ -1,0 +1,11 @@
+# IDE
+.idea/
+.vscode/
+
+# Build artifacts
+/rehost
+/dist/
+*.test
+
+# OS
+.DS_Store
