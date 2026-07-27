@@ -7,6 +7,7 @@ package tui
 import (
 	"io"
 
+	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -19,10 +20,12 @@ const (
 	ModeJSON
 )
 
-// HostReport pairs probed capabilities with the host's role in the migration.
+// HostReport pairs a host's role with what was found on it: probed
+// capabilities and any detected framework installs.
 type HostReport struct {
-	Role string // "source" or "destination"
-	Caps *ssh.Capabilities
+	Role     string // "source" or "destination"
+	Caps     *ssh.Capabilities
+	Installs []detect.Install
 }
 
 // Renderer writes rehost reports in one output mode.
