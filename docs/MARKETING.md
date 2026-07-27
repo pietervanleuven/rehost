@@ -253,6 +253,9 @@ brandability — a hosting forum comment saying "just use rehost" needs no expla
 Register `rehost.dev` (docs) and `rehost.sh` (install script: `curl rehost.sh | sh`).
 If domains/trademark fail the check, fall back to `decamp`.
 
+**Decided (2026-07-27):** the name is `rehost` and the domain will be **`rehost.sh`**
+(docs + install script on one domain; `rehost.dev` optional later).
+
 ## 6. Success metrics
 
 | Phase | Metric |

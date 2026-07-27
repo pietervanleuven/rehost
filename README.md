@@ -36,7 +36,7 @@ over SSH — never through a third-party cloud.
 Requires Go 1.26+.
 
 ```bash
-git clone <this-repo> && cd migrate-cli
+git clone <this-repo> && cd rehost-cli
 make build          # produces ./rehost
 ```
 
