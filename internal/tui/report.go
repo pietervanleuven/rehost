@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -56,6 +57,9 @@ func (r styledRenderer) CapabilityReport(reports []HostReport) error {
 		for _, inst := range hr.Installs {
 			label, detail := formatInstall(inst)
 			fmt.Fprintf(r.out, "    %s %s\n", okStyle.Render(label), dimStyle.Render(detail))
+			for _, line := range inventoryLines(hr.Inventories[inst.Root]) {
+				fmt.Fprintf(r.out, "      %s\n", dimStyle.Render(line))
+			}
 		}
 	}
 	return nil
@@ -95,9 +99,40 @@ func (r plainRenderer) CapabilityReport(reports []HostReport) error {
 		for _, inst := range hr.Installs {
 			label, detail := formatInstall(inst)
 			fmt.Fprintf(w, "  framework:\t%s\t%s\n", label, detail)
+			for _, line := range inventoryLines(hr.Inventories[inst.Root]) {
+				fmt.Fprintf(w, "  \t\t%s\n", line)
+			}
 		}
 	}
 	return w.Flush()
+}
+
+// inventoryLines renders an install's size picture: the total with the
+// largest directories, and the framework caches/backups worth excluding.
+func inventoryLines(inv *inventory.Inventory) []string {
+	if inv == nil || inv.TotalKB == 0 {
+		return nil
+	}
+	line := inventory.HumanKB(inv.TotalKB)
+	if len(inv.Top) > 0 {
+		var parts []string
+		for i, e := range inv.Top {
+			if i == 3 {
+				break
+			}
+			parts = append(parts, fmt.Sprintf("%s %s", e.Path, inventory.HumanKB(e.SizeKB)))
+		}
+		line += " · largest: " + strings.Join(parts, ", ")
+	}
+	lines := []string{line}
+	if len(inv.Suggested) > 0 {
+		var parts []string
+		for _, e := range inv.Suggested {
+			parts = append(parts, fmt.Sprintf("%s %s", e.Path, inventory.HumanKB(e.SizeKB)))
+		}
+		lines = append(lines, "suggested excludes: "+strings.Join(parts, ", "))
+	}
+	return lines
 }
 
 // formatInstall renders one install as a label ("wordpress 6.5.2") and a
@@ -152,7 +187,8 @@ type jsonRenderer struct{ out io.Writer }
 type jsonHost struct {
 	Role string `json:"role"`
 	*ssh.Capabilities
-	Installs []detect.Install `json:"installs"`
+	Installs    []detect.Install                `json:"installs"`
+	Inventories map[string]*inventory.Inventory `json:"inventories,omitempty"`
 }
 
 // Envelope is the versioned JSON output shape of the capability report.
@@ -168,7 +204,7 @@ func (r jsonRenderer) CapabilityReport(reports []HostReport) error {
 		if installs == nil {
 			installs = []detect.Install{}
 		}
-		env.Hosts = append(env.Hosts, jsonHost{Role: hr.Role, Capabilities: hr.Caps, Installs: installs})
+		env.Hosts = append(env.Hosts, jsonHost{Role: hr.Role, Capabilities: hr.Caps, Installs: installs, Inventories: hr.Inventories})
 	}
 	enc := json.NewEncoder(r.out)
 	enc.SetIndent("", "  ")
