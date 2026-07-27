@@ -9,6 +9,7 @@ package check
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -50,6 +51,11 @@ type Input struct {
 	// SourceCreds maps install root → credentials extracted on the source
 	// (nil value = extraction failed for that site). nil map = not gathered.
 	SourceCreds map[string]*db.Credentials
+
+	// SourceDBs maps install root → inspection made with that site's
+	// credentials. nil map = not gathered (no credentials or no mysql
+	// client on the source).
+	SourceDBs map[string]*db.Inspection
 }
 
 // Run evaluates every rule in stable order.
@@ -63,6 +69,8 @@ func Run(in Input) []Result {
 	checkTransfer(in, add)
 	checkDatabase(in, add)
 	checkCredentials(in, add)
+	checkDBConnect(in, add)
+	checkCharset(in, add)
 	checkPHP(in, add)
 	checkExtensions(in, add)
 	checkDisk(in, add)
@@ -183,6 +191,98 @@ func checkCredentials(in Input, add addFunc) {
 	add("db.credentials", title, Ok, strings.Join(found, "; "))
 }
 
+// checkDBConnect reports whether each site's database answered to its
+// extracted credentials. A database that cannot even be reached on the
+// source cannot be dumped, so a failure blocks.
+func checkDBConnect(in Input, add addFunc) {
+	const title = "Database connectivity (source)"
+	withCreds := installsWithCreds(in)
+	if len(withCreds) == 0 {
+		return // nothing to connect to; the credentials rule already reported
+	}
+	if in.SourceDBs == nil {
+		add("db.connect", title, Info, "not inspected — no mysql client on the source")
+		return
+	}
+	var ok, failed []string
+	for _, inst := range withCreds {
+		insp := in.SourceDBs[inst.Root]
+		switch {
+		case insp == nil:
+			failed = append(failed, inst.Root+": not inspected")
+		case !insp.Connected:
+			failed = append(failed, inst.Root+": "+insp.Reason)
+		default:
+			detail := fmt.Sprintf("%s: MySQL %s · %d tables · %s", inst.Root, insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
+			if insp.Charset != "" {
+				detail += " · " + insp.Charset
+			}
+			ok = append(ok, detail)
+		}
+	}
+	if len(failed) > 0 {
+		add("db.connect", title, Blocker, strings.Join(failed, "; "))
+		return
+	}
+	add("db.connect", title, Ok, strings.Join(ok, "; "))
+}
+
+// checkCharset flags utf8mb4 usage on the source when the destination's
+// MySQL tooling predates it (client version as proxy — the destination
+// server is not reachable before migration creates its database).
+func checkCharset(in Input, add addFunc) {
+	const title = "Character set (utf8mb4)"
+	var mb4 int
+	for _, insp := range in.SourceDBs {
+		if insp != nil {
+			mb4 += insp.UTF8MB4Tables
+		}
+	}
+	if mb4 == 0 || !in.Destination.Has("mysql") {
+		return // nothing to compare, or db.import already blocked
+	}
+	version := mysqlToolVersion(in.Destination.Tools["mysql"].Version)
+	switch {
+	case version == "":
+		add("db.charset", title, Info,
+			fmt.Sprintf("source uses utf8mb4 (%d tables); could not read the destination MySQL version — verify it is 5.5.3+", mb4))
+	case !versionAtLeast(version, "5.5.3"):
+		add("db.charset", title, Blocker,
+			fmt.Sprintf("source uses utf8mb4 (%d tables) but the destination MySQL %s predates utf8mb4 (5.5.3)", mb4, version))
+	default:
+		add("db.charset", title, Ok,
+			fmt.Sprintf("source uses utf8mb4 (%d tables); destination MySQL %s supports it", mb4, version))
+	}
+}
+
+// installsWithCreds returns the DB-backed installs whose credentials were
+// successfully extracted.
+func installsWithCreds(in Input) []detect.Install {
+	var out []detect.Install
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB {
+			continue
+		}
+		if c := in.SourceCreds[inst.Root]; c != nil && c.Name != "" {
+			out = append(out, inst)
+		}
+	}
+	return out
+}
+
+// mysqlToolVersion pulls the server-ish version out of a mysql client
+// version line. MariaDB's client reports its own version first
+// ("Ver 15.1 Distrib 10.6.18-MariaDB"), so the last number wins.
+func mysqlToolVersion(line string) string {
+	matches := versionPattern.FindAllString(line, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[len(matches)-1]
+}
+
+var versionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
+
 func checkPHP(in Input, add addFunc) {
 	const title = "PHP on the destination"
 	minPHP, needer := strictestMinPHP(in.Installs)
@@ -256,18 +356,29 @@ func checkExtensions(in Input, add addFunc) {
 
 func checkDisk(in Input, add addFunc) {
 	const title = "Disk space on the destination"
+	var dbKB int64
+	for _, insp := range in.SourceDBs {
+		if insp != nil {
+			dbKB += insp.SizeKB
+		}
+	}
+	needed := in.SourceSitesKB + dbKB
+	what := fmt.Sprintf("%s of site data", humanKB(in.SourceSitesKB))
+	if dbKB > 0 {
+		what = fmt.Sprintf("%s of site data + %s of database", humanKB(in.SourceSitesKB), humanKB(dbKB))
+	}
 	switch {
 	case in.SourceSitesKB == 0 || in.DestFreeKB == 0:
 		add("disk.space", title, Info, "could not measure site size or free space")
-	case in.DestFreeKB < in.SourceSitesKB:
+	case in.DestFreeKB < needed:
 		add("disk.space", title, Blocker,
-			fmt.Sprintf("sites need %s but only %s is free", humanKB(in.SourceSitesKB), humanKB(in.DestFreeKB)))
-	case in.DestFreeKB < in.SourceSitesKB*3/2:
+			fmt.Sprintf("%s needed but only %s is free", what, humanKB(in.DestFreeKB)))
+	case in.DestFreeKB < needed*3/2:
 		add("disk.space", title, Warning,
-			fmt.Sprintf("tight: sites need %s, %s free — dumps and temp files need headroom", humanKB(in.SourceSitesKB), humanKB(in.DestFreeKB)))
+			fmt.Sprintf("tight: %s needed, %s free — dumps and temp files need headroom", what, humanKB(in.DestFreeKB)))
 	default:
 		add("disk.space", title, Ok,
-			fmt.Sprintf("%s free for %s of site data", humanKB(in.DestFreeKB), humanKB(in.SourceSitesKB)))
+			fmt.Sprintf("%s free for %s", humanKB(in.DestFreeKB), what))
 	}
 }
 

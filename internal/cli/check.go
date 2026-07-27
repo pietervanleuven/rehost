@@ -123,6 +123,30 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		if len(creds) > 0 {
 			in.SourceCreds = creds
 		}
+
+		// Inspect each database with its credentials; sites sharing one
+		// database (same name/host/user) are inspected once.
+		if len(creds) > 0 && caps.Has("mysql") {
+			progress("source: inspecting databases…")
+			in.SourceDBs = map[string]*db.Inspection{}
+			byIdentity := map[string]*db.Inspection{}
+			for root, c := range creds {
+				if c == nil || c.Name == "" {
+					continue
+				}
+				key := c.Name + "\x00" + c.Host + "\x00" + c.User
+				insp, seen := byIdentity[key]
+				if !seen {
+					var err error
+					insp, err = db.Inspect(ctx, client, c)
+					if err != nil {
+						return fmt.Errorf("source: inspecting database %s: %w", c.Name, err)
+					}
+					byIdentity[key] = insp
+				}
+				in.SourceDBs[root] = insp
+			}
+		}
 		return nil
 	}
 
