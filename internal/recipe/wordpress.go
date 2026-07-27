@@ -17,6 +17,11 @@ type WordPress struct{}
 
 func (WordPress) Name() string { return "wordpress" }
 
+// Markers fingerprint a WordPress root by its core version file.
+func (WordPress) Markers() []string {
+	return []string{"wp-includes/version.php"}
+}
+
 var (
 	wpVersion     = regexp.MustCompile(`\$wp_version\s*=\s*'([^']+)'`)
 	wpTablePrefix = regexp.MustCompile(`\$table_prefix\s*=\s*['"]([^'"]+)['"]`)
@@ -63,8 +68,17 @@ func (WordPress) findConfig(ctx context.Context, fs detect.FS, dir string) (stri
 		return inRoot, nil
 	}
 	// WordPress reads wp-config.php from the parent when absent from the
-	// docroot and no wp-settings.php sits beside it there.
-	aboveRoot := path.Join(path.Dir(dir), "wp-config.php")
+	// docroot. But if the parent is itself a WordPress root (a nested install),
+	// that config belongs to the parent site, not this one — don't borrow it.
+	parent := path.Dir(dir)
+	parentIsWP, err := fs.Exists(ctx, path.Join(parent, "wp-includes", "version.php"))
+	if err != nil {
+		return "", err
+	}
+	if parentIsWP {
+		return "", nil
+	}
+	aboveRoot := path.Join(parent, "wp-config.php")
 	ok, err = fs.Exists(ctx, aboveRoot)
 	if err != nil {
 		return "", err

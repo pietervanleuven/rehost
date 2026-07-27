@@ -124,6 +124,22 @@ func TestWordPressConfigAboveDocroot(t *testing.T) {
 	}
 }
 
+func TestWordPressNestedDoesNotBorrowParentConfig(t *testing.T) {
+	// A blog nested inside another WordPress site, with no wp-config of its own.
+	fs, _ := tree(t, map[string]string{
+		"httpdocs/wp-includes/version.php":      "<?php $wp_version = '6.5';",
+		"httpdocs/wp-config.php":                "<?php $table_prefix = 'wp_';",
+		"httpdocs/blog/wp-includes/version.php": "<?php $wp_version = '6.4';",
+	})
+	got := detectAt(t, WordPress{}, fs, "httpdocs/blog")
+	if got == nil {
+		t.Fatal("nested WordPress should still be detected")
+	}
+	if got.ConfigFile != "" {
+		t.Errorf("nested site must not borrow the parent site's wp-config, got %q", got.ConfigFile)
+	}
+}
+
 func TestStaticMatchesIndexOnly(t *testing.T) {
 	withIndex, _ := tree(t, map[string]string{"public_html/index.html": "<h1>hi</h1>"})
 	if got := detectAt(t, Static{}, withIndex, "public_html"); got == nil {
