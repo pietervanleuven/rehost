@@ -20,9 +20,10 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability probe,
 project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (see PLAN.md §6)
-in progress: framework detection + recursive site discovery and the `init` wizard
-are done; next up are the `check` compatibility gate, credential extraction, and
-DB inspection.
+in progress: framework detection + recursive site discovery, the `init` wizard,
+and the `check` compatibility gate (blockers-vs-warnings model in
+`internal/check`) are done; next up are credential extraction, DB inspection,
+and the DNS snapshot module.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -37,10 +38,12 @@ field that can hold one, passwords are prompted at runtime.
 - `rehost plan [user@host[:port]]` — connect + capability + site detection report;
   `--json` for machine output, plain text on non-TTY.
 - `rehost init` — interactive wizard (TTY only): both hosts, connectivity test,
-  writes migrate.yaml. `check`, `migrate`, `status`, `unlock` are stubs that
-  exit non-zero.
+  writes migrate.yaml.
+- `rehost check` — compatibility gate (PHP version/extensions per framework,
+  DB tooling, transfer strategy, disk space); exits non-zero while blockers
+  remain. `migrate`, `status`, `unlock` are stubs that exit non-zero.
 
-## Architecture (Phase 0)
+## Architecture
 
 - `cmd/rehost` — thin main; version via goreleaser ldflags.
 - `internal/cli` — cobra commands; output mode (styled/plain/JSON) resolved from
@@ -53,9 +56,19 @@ field that can hold one, passwords are prompted at runtime.
 - `internal/project` — migrate.yaml schema v1, strict decode (unknown/secret
   fields rejected with guidance), atomic 0600 writes.
 - `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
-  `NonInteractivePrompter`; tui imports ssh, never the reverse.
-- `internal/detect`, `internal/db`, `internal/transfer`, `internal/dns` do not
-  exist yet — created in the phase that gives them content.
+  `NonInteractivePrompter` + the init/plan wizard forms (huh stays out of cli);
+  tui imports ssh, never the reverse.
+- `internal/detect` — framework discovery over an `FS` abstraction (shell-based
+  `SSHFS` + local for tests): marker `Find` with walk fallback, `Scan`,
+  realpath de-dup.
+- `internal/recipe` — pluggable framework recipes (drupal, wordpress, static):
+  detection fingerprints + destination `Requirements` (min PHP, extensions,
+  needs-DB).
+- `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
+  blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
+  all remote I/O stays in the caller or behind the `runner` seam.
+- `internal/db`, `internal/transfer`, `internal/dns` do not exist yet —
+  created in the phase that gives them content.
 
 ## Key Decisions (do not relitigate without the user)
 

@@ -24,10 +24,11 @@ over SSH — never through a third-party cloud.
   changes — Terraform-style ergonomics for migrations.
 
 > **Status: early development.** The connection layer, capability probing,
-> framework detection, the `init` wizard, and `rehost plan` work today.
-> `check`, `migrate`, `status`, and `unlock` are placeholders that exit
-> with a "not implemented yet" message. See [`docs/PLAN.md`](docs/PLAN.md) for the
-> full spec and roadmap. There are no packaged binaries yet — build from source.
+> framework detection, the `init` wizard, `rehost plan`, and the `rehost check`
+> compatibility gate work today. `migrate`, `status`, and `unlock` are
+> placeholders that exit with a "not implemented yet" message. See
+> [`docs/PLAN.md`](docs/PLAN.md) for the full spec and roadmap. There are no
+> packaged binaries yet — build from source.
 
 ## Install
 
@@ -47,8 +48,10 @@ init  ──▶  check  ──▶  plan  ──▶  migrate  ──▶  cutover
 ```
 
 Every command re-derives its state from the live hosts rather than trusting a
-cache, so any of them is safe to rerun at any point. Today only `plan` (connect +
-capability + framework report) and `version` do real work.
+cache, so any of them is safe to rerun at any point. Today `init` (wizard),
+`plan` (connect + capability + framework report), and `check` (compatibility
+gate) do real work; `check` exits non-zero while blockers remain, so rerun it
+until it is green.
 
 ## Usage
 
