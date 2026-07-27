@@ -71,3 +71,13 @@ func (d dirFS) List(_ context.Context, dir string) ([]string, error) {
 func (d dirFS) Find(ctx context.Context, roots, markers []string, opts FindOptions) ([]string, error) {
 	return WalkFind(ctx, d, roots, markers, opts)
 }
+
+// RealPath resolves symlinks under the root; on failure it returns the input
+// path so callers can still compare it consistently.
+func (d dirFS) RealPath(_ context.Context, p string) (string, error) {
+	real, err := filepath.EvalSymlinks(d.resolve(p))
+	if err != nil {
+		return p, nil
+	}
+	return real, nil
+}
