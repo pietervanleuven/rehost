@@ -67,6 +67,13 @@ field that can hold one, passwords are prompted at runtime.
 - **Framework priority:** Drupal first (maintainer's main CMS), WordPress and static
   alongside in Tier 1; build Drupal + WordPress recipes in lockstep so the engine never
   gets WP-shaped. Frameworks are pluggable *recipes*, not engine branches.
+- **No AI/LLM in the engine** (resolved July 2026; PLAN.md §2.2, §7 and MARKETING.md §1.4a).
+  Detection and every migration step are procedural — matches all production migration tools
+  (Plesk, cPanel, WP Engine: AI-free) and the fingerprinting state of the art (Plesk Wappspector
+  is the reference). An *advisory-only* LLM helper (explain a failure, BYOK, off by default,
+  never in the execution path) and any paid AI tier are **deferred**, not designed in — revisit
+  only if field data shows edge cases an LLM would close. Do not add AI to detection, planning,
+  or execution without the user.
 - **MVP scope guard:** the tool migrates site files + database. Mail, DNS, SSL, cron are
   a *report with instructions*, not migration targets.
 - **Destination-state policy: UNDECIDED** (PLAN.md §7, design questions 4–5). What
