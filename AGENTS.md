@@ -11,6 +11,9 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 - `docs/PLAN.md` — **the living spec**: competitive analysis, stack decision, framework
   support matrix, command flow, feature set, phased plan, risks. Read this first.
+- `docs/TODO.md` — the living work list: field-validation gate, open decisions,
+  phase checklists, known gaps. Keep it current when finishing or deferring work;
+  PLAN.md stays the source of truth on scope conflicts.
 - `docs/IDEA.md` — the seed idea; kept consistent with PLAN.md but PLAN.md wins on conflict.
 - `docs/MARKETING.md` — business model & go-to-market: open-source local CLI (Apache-2.0)
   as the moat, open-core combo later, positioning ("Terraform for website migrations"),
