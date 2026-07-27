@@ -101,6 +101,80 @@ func TestScanSkipsMissingRoots(t *testing.T) {
 	}
 }
 
+// markerRecipe also declares its marker so Discover can find it.
+func (m markerRecipe) Markers() []string { return []string{m.marker} }
+
+func TestDiscoverRecursive(t *testing.T) {
+	root := t.TempDir()
+	mkfile(t, root, "httpdocs/marker_a")         // one level down
+	mkfile(t, root, "sub/nested/deep/marker_b")  // several levels down
+	mkfile(t, root, "node_modules/pkg/marker_a") // pruned: must not count
+
+	recipes := []Recipe{
+		markerRecipe{name: "a", marker: "marker_a"},
+		markerRecipe{name: "b", marker: "marker_b"},
+	}
+	got, err := Discover(context.Background(), NewDirFS(root), []string{"."}, recipes,
+		FindOptions{Prune: DefaultPrune})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 installs (node_modules pruned), got %d: %+v", len(got), got)
+	}
+	roots := map[string]string{got[0].Framework: got[0].Root, got[1].Framework: got[1].Root}
+	if roots["a"] != "httpdocs" {
+		t.Errorf("install a root = %q, want httpdocs", roots["a"])
+	}
+	if roots["b"] != "sub/nested/deep" {
+		t.Errorf("install b root = %q, want sub/nested/deep", roots["b"])
+	}
+}
+
+func TestDiscoverFindsNestedSites(t *testing.T) {
+	root := t.TempDir()
+	mkfile(t, root, "httpdocs/marker_a")         // main site
+	mkfile(t, root, "httpdocs/staging/marker_a") // a second site nested inside it
+
+	got, err := Discover(context.Background(), NewDirFS(root), []string{"."},
+		[]Recipe{markerRecipe{name: "a", marker: "marker_a"}}, FindOptions{})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("nested sites should both be found, got %d: %+v", len(got), got)
+	}
+}
+
+func TestDiscoverRespectsMaxDepth(t *testing.T) {
+	root := t.TempDir()
+	mkfile(t, root, "a/b/c/d/e/f/marker_a") // deeper than the budget
+
+	got, err := Discover(context.Background(), NewDirFS(root), []string{"."},
+		[]Recipe{markerRecipe{name: "a", marker: "marker_a"}}, FindOptions{MaxDepth: 2})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("marker below MaxDepth should not be found, got %+v", got)
+	}
+}
+
+func TestRootFromMarker(t *testing.T) {
+	markers := []string{"wp-includes/version.php", "index.html"}
+	cases := map[string]string{
+		"/home/u/public_html/wp-includes/version.php": "/home/u/public_html",
+		"/var/www/site/index.html":                    "/var/www/site",
+		"index.html":                                  ".",
+		"/x/unrelated.txt":                            "",
+	}
+	for hit, want := range cases {
+		if got := rootFromMarker(hit, markers); got != want {
+			t.Errorf("rootFromMarker(%q) = %q, want %q", hit, got, want)
+		}
+	}
+}
+
 func TestDirFSConfinement(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(filepath.Dir(root), "secret.txt")

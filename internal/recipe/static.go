@@ -17,6 +17,9 @@ type Static struct{}
 
 func (Static) Name() string { return "static" }
 
+// Markers let discovery surface plain static sites by their entry document.
+func (Static) Markers() []string { return staticIndexFiles }
+
 var staticIndexFiles = []string{"index.html", "index.htm"}
 
 func (s Static) Detect(ctx context.Context, fs detect.FS, dir string) (*detect.Install, error) {
