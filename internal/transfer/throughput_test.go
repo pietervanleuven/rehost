@@ -70,6 +70,28 @@ func TestThroughputTarFailure(t *testing.T) {
 	}
 }
 
+func TestThroughputDiedMidStreamFails(t *testing.T) {
+	// Bytes flowed, then the pipeline was killed before the cap: however
+	// much arrived, the sample cannot be trusted.
+	s := &fakeStreamer{chunk: bytes.Repeat([]byte("x"), 1<<20), chunks: 2,
+		res: ssh.Result{ExitCode: 137, Stderr: "Killed\n"}}
+	_, err := Throughput(context.Background(), s, "/site", nil, DefaultByteCap, time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "exit 137") {
+		t.Errorf("killed pipeline must fail with the exit code, got %v", err)
+	}
+}
+
+func TestThroughputUnreadableFileNoiseTolerated(t *testing.T) {
+	// GNU tar exit 1: some files changed/unreadable while reading — the
+	// archive stream is still a valid throughput sample.
+	s := &fakeStreamer{chunk: bytes.Repeat([]byte("y"), 200<<10), chunks: 1,
+		res: ssh.Result{ExitCode: 1, Stderr: "tar: ./tmp/lock: file changed as we read it\n"}}
+	stats, err := Throughput(context.Background(), s, "/site", nil, DefaultByteCap, time.Minute)
+	if err != nil || stats.Bytes != 200<<10 {
+		t.Errorf("tar exit 1 should be tolerated: %v, %+v", err, stats)
+	}
+}
+
 func TestThroughputTransportFailure(t *testing.T) {
 	failing := streamerFunc(func(context.Context, string, io.Writer) (ssh.Result, error) {
 		return ssh.Result{}, errors.New("connection lost")
