@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -21,6 +22,10 @@ func sampleReports() []HostReport {
 					"php":   {Name: "php", Found: true, Path: "/usr/bin/php", Version: "PHP 8.3.11 (cli)"},
 					"drush": {Name: "drush", Found: false},
 				},
+			},
+			Installs: []detect.Install{
+				{Framework: "wordpress", Root: "public_html", Version: "6.5.2", ConfigFile: "public_html/wp-config.php"},
+				{Framework: "drupal", Root: "sub", Version: "10.3.1", Sites: []string{"default", "example.com"}},
 			},
 		},
 	}
@@ -40,6 +45,9 @@ func TestPlainReport(t *testing.T) {
 		"rsync",
 		"[missing]",
 		"drush",
+		"wordpress 6.5.2",
+		"drupal 10.3.1",
+		"multisite: default, example.com",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plain output missing %q:\n%s", want, out)
@@ -67,6 +75,25 @@ func TestJSONReport(t *testing.T) {
 	}
 	if !env.Hosts[0].Has("rsync") {
 		t.Error("rsync should survive the JSON round trip as found")
+	}
+	if len(env.Hosts[0].Installs) != 2 {
+		t.Fatalf("want 2 installs in JSON, got %+v", env.Hosts[0].Installs)
+	}
+	if env.Hosts[0].Installs[0].Framework != "wordpress" || env.Hosts[0].Installs[0].Version != "6.5.2" {
+		t.Errorf("install[0] = %+v", env.Hosts[0].Installs[0])
+	}
+}
+
+func TestJSONReportEmptyInstalls(t *testing.T) {
+	reports := sampleReports()
+	reports[0].Installs = nil
+	var buf bytes.Buffer
+	if err := New(ModeJSON, &buf).CapabilityReport(reports); err != nil {
+		t.Fatalf("CapabilityReport: %v", err)
+	}
+	// nil installs must serialize as [] so parsers can index without a null check.
+	if !strings.Contains(buf.String(), `"installs": []`) {
+		t.Errorf("empty installs should render as [], got:\n%s", buf.String())
 	}
 }
 
