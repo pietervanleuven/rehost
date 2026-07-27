@@ -24,6 +24,7 @@ import (
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/placeholder/rehost/internal/state"
 	"github.com/placeholder/rehost/internal/transfer"
 	"github.com/placeholder/rehost/internal/tui"
 )
@@ -264,6 +265,18 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 			}
 			add("dryrun.dump:"+site, "Database dump", sev, site+": "+detail)
 		}
+	}
+
+	// Leave a trace in the source's hidden state folder: the history the
+	// status/history commands will read in Phase 3.
+	_, warnings := check.Summarize(results)
+	entry := state.Entry{Event: "dry-run", Details: map[string]string{
+		"sites":    strconv.Itoa(len(installs)),
+		"warnings": strconv.Itoa(warnings),
+	}}
+	if err := state.Record(ctx, client, caps.Home, entry); err != nil {
+		add("dryrun.state", "Run history (source)", check.Warning,
+			fmt.Sprintf("could not record the run in %s: %v", state.Dir(caps.Home), err))
 	}
 	return results, nil
 }
