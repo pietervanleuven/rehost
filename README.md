@@ -8,6 +8,21 @@ for website hosting.
 It runs entirely on your machine. Your data flows directly between the two hosts
 over SSH — never through a third-party cloud.
 
+## Highlights
+
+- **Uses the SSH you already have.** Agent keys, `~/.ssh/config` aliases, and
+  `known_hosts` all work out of the box — if `ssh user@host` works, so does
+  rehost. No new keys, config, or daemons. [Details ▾](#ssh-authentication)
+- **Local and private.** No third-party cloud, no phone-home, no account. Data
+  moves host-to-host over your own SSH connection.
+- **Framework auto-detection.** Recognizes WordPress, Drupal (7 / 8+, incl.
+  multisite), and static sites from file fingerprints — no manual configuration.
+- **Capability probing with graceful fallbacks.** Detects what each host offers
+  (`rsync`, `mysqldump`, framework CLIs, shell type, PHP version) and adapts,
+  rather than assuming tools exist on a shared host.
+- **A real `plan` step.** See exactly what a host is and what's on it before any
+  changes — Terraform-style ergonomics for migrations.
+
 > **Status: early development.** The connection layer, capability probing, and
 > framework detection work today; `rehost plan` is the only fully wired command.
 > `init`, `check`, `migrate`, `status`, and `unlock` are placeholders that exit
