@@ -34,7 +34,6 @@ func (s ThroughputStats) BytesPerSec() float64 {
 const (
 	DefaultByteCap = 32 << 20 // 32 MiB compressed is enough for a rate
 	DefaultTimeCap = 15 * time.Second
-	minMeasurement = 64 << 10 // below this the rate is noise
 )
 
 // errCapReached stops the stream once enough bytes arrived.
@@ -65,10 +64,14 @@ func Throughput(ctx context.Context, s db.Streamer, root string, excludes []stri
 		return stats, nil // stopped on purpose with a valid sample
 	case err != nil:
 		return stats, err
-	case res.ExitCode != 0 && stats.Bytes < minMeasurement:
-		return stats, fmt.Errorf("tar failed on the source: %s", firstLine(res.Stderr))
-	default:
+	case res.ExitCode == 0 || res.ExitCode == 1:
+		// 1 is GNU tar's "some files changed/were unreadable while
+		// reading" — noise on a live site; the stream itself is a valid
+		// sample. Anything worse means the pipeline died mid-run and the
+		// sample cannot be trusted, however many bytes arrived.
 		return stats, nil
+	default:
+		return stats, fmt.Errorf("tar failed on the source (exit %d): %s", res.ExitCode, firstLine(res.Stderr))
 	}
 }
 

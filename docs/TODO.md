@@ -72,13 +72,13 @@ hosting and verify:
 
 ## 4. Known gaps & deferred polish (fine to ship Phase 3 without)
 
-- [ ] Give the remaining dry-run collectors the manifest-grade rigor pass
+- [x] Give the remaining dry-run collectors the manifest-grade rigor pass
       from 79c397c (exit-code semantics, odd filenames, partial output):
-      `inventory` still TrimSpaces paths, splits on newlines, ignores exit
-      codes, and its `du -sk <root>/*/` breakdown misses dot-directories;
-      `transfer.Throughput` ignores tar's exit status once bytes flowed.
-      Lower stakes than manifests (informational, not synced from) — but
-      the exclusion advice feeds real transfers in Phase 3.
+      inventory now lists NUL-first (`du -sk -0`) with a newline fallback,
+      keeps paths byte-exact, includes dot-directories in the breakdown,
+      and drops output from a du killed mid-run; Throughput tolerates
+      tar's exit 1 noise but fails on anything worse regardless of bytes
+      received.
 - [ ] Manifest has no checksums yet — size+mtime only (rsync's quick check);
       optional checksum mode for paranoid mode later
 - [ ] Drupal multisite: credentials/dump/manifest cover the default site
