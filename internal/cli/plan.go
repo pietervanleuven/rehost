@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
@@ -60,7 +62,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	// terminal; in plain/JSON mode nothing may ever block a pipe.
 	interactive := mode == tui.ModeStyled
 
-	targets, err := planTargets(opts.projectFile, args, interactive, cmd.ErrOrStderr())
+	targets, projFile, err := planTargets(opts.projectFile, args, interactive, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
@@ -109,9 +111,20 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: detecting frameworks: %w", t.role, err)
 		}
-		progress("%s: found %s on %s", t.role, pluralizeSites(len(installs)), caps.Target())
+		progress("%s: found %s on %s — measuring sizes…", t.role, pluralizeSites(len(installs)), caps.Target())
 
-		reports[i] = tui.HostReport{Role: t.role, Caps: caps, Installs: installs}
+		// 4. Inventory each install: total size, largest directories, and
+		// the framework caches/backups worth excluding from transfer.
+		inventories := map[string]*inventory.Inventory{}
+		for _, inst := range installs {
+			inv, err := inventory.Take(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst))
+			if err != nil {
+				return fmt.Errorf("%s: measuring %s: %w", t.role, inst.Root, err)
+			}
+			inventories[inst.Root] = inv
+		}
+
+		reports[i] = tui.HostReport{Role: t.role, Caps: caps, Installs: installs, Inventories: inventories}
 		return nil
 	}
 
@@ -134,19 +147,53 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 			return err
 		}
 	}
+
+	// Persist what was detected: later commands (check, migrate) read the
+	// sites from the project file. Only when plan ran from one.
+	if projFile != nil {
+		if updated, err := writeSites(projFile, opts.projectFile, reports); err != nil {
+			return fmt.Errorf("updating %s: %w", opts.projectFile, err)
+		} else if updated {
+			progress("updated %s with the detected sites", opts.projectFile)
+		}
+	}
 	return renderer.CapabilityReport(reports)
+}
+
+// writeSites refreshes the project file's sites section from the source
+// scan. It reports whether a write happened — an unchanged detection result
+// leaves the file untouched.
+func writeSites(f *project.File, path string, reports []tui.HostReport) (bool, error) {
+	var sites []project.Site
+	for _, hr := range reports {
+		if hr.Role != "source" {
+			continue
+		}
+		for _, inst := range hr.Installs {
+			sites = append(sites, project.Site{Framework: inst.Framework, Root: inst.Root, Version: inst.Version})
+		}
+	}
+	if slices.Equal(f.Sites, sites) {
+		return false, nil
+	}
+	f.Sites = sites
+	if err := f.Save(path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // planTargets resolves what to probe: an explicit CLI target, the source
 // (+ destination) from the project file, or — interactively — a host form
-// when neither exists.
-func planTargets(projectFile string, args []string, interactive bool, errOut io.Writer) ([]target, error) {
+// when neither exists. The project file is returned when the targets came
+// from one, so plan can write its findings back.
+func planTargets(projectFile string, args []string, interactive bool, errOut io.Writer) ([]target, *project.File, error) {
 	if len(args) == 1 {
 		cfg, err := parseTarget(args[0])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return []target{{role: "source", cfg: cfg}}, nil
+		return []target{{role: "source", cfg: cfg}}, nil, nil
 	}
 	f, err := project.Load(projectFile)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -155,23 +202,23 @@ func planTargets(projectFile string, args []string, interactive bool, errOut io.
 			var h project.Host
 			if err := tui.HostForm("source", &h); err != nil {
 				if errors.Is(err, tui.ErrAborted) {
-					return nil, errors.New("plan cancelled — no host to probe")
+					return nil, nil, errors.New("plan cancelled — no host to probe")
 				}
-				return nil, err
+				return nil, nil, err
 			}
-			return []target{{role: "source", cfg: h.SSHConfig()}}, nil
+			return []target{{role: "source", cfg: h.SSHConfig()}}, nil, nil
 		}
 		fmt.Fprintf(errOut, "No project file at %s. Create one like this:\n\n%s\n…or probe a host directly: rehost plan user@host\n\n", projectFile, project.Example())
-		return nil, fmt.Errorf("no project file at %s", projectFile)
+		return nil, nil, fmt.Errorf("no project file at %s", projectFile)
 	}
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	targets := []target{{role: "source", cfg: f.Source.SSHConfig()}}
 	if f.Destination != nil {
 		targets = append(targets, target{role: "destination", cfg: f.Destination.SSHConfig()})
 	}
-	return targets, nil
+	return targets, f, nil
 }
 
 // targetLabel is the user@host identity for pre-connect progress, or just the

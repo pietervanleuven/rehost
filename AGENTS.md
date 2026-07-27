@@ -18,15 +18,19 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 ## Current State
 
-Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability probe,
-project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (see PLAN.md §6)
-in progress: framework detection + recursive site discovery, the `init` wizard,
-the `check` compatibility gate (blockers-vs-warnings model in `internal/check`),
-layered DB credential extraction (wp-cli/drush → PHP helper → regex), DB
-inspection (connectivity, server version, size, charset/utf8mb4), and the DNS
-snapshot with mail-points-at-source warning (optional `domain:` in
-migrate.yaml) are done; next up are the file inventory with suggested
-exclusions and `plan` writing its findings into the project file.
+Phase 0 (foundation) and Phase 1 (check, scan & detect — PLAN.md §6) are
+implemented: SSH layer with capability probe, framework detection + recursive
+site discovery, the `init` wizard, the `check` compatibility gate
+(blockers-vs-warnings in `internal/check`), layered DB credential extraction
+(wp-cli/drush → PHP helper → regex), DB inspection (connectivity, version,
+size, charset/utf8mb4), the DNS snapshot with mail-points-at-source warning
+(optional `domain:` in migrate.yaml), file inventories with suggested
+exclusions, and `plan` persisting detected sites into the project file.
+
+Phase 1's exit criteria (correct results against a real Drupal and a real
+WordPress site on shared hosting, zero manual input beyond credentials) still
+need field validation. Phase 2 (dry-run collection: streamed DB dump, tar-pipe
+throughput test, file manifest for convergence — PLAN.md §6) is next.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -38,8 +42,10 @@ field that can hold one, passwords are prompted at runtime.
 - `make build` / `go build -o rehost ./cmd/rehost` — build the binary.
 - `make test` (`go test -race ./...`), `make vet`, `make lint` (golangci-lint),
   `make snapshot` (goreleaser cross-build, publishes nothing).
-- `rehost plan [user@host[:port]]` — connect + capability + site detection report;
-  `--json` for machine output, plain text on non-TTY.
+- `rehost plan [user@host[:port]]` — connect + capability + site detection +
+  file inventory report; `--json` for machine output, plain text on non-TTY.
+  When run from a project file it rewrites its `sites:` section (note:
+  re-encoding drops hand-written YAML comments outside the header).
 - `rehost init` — interactive wizard (TTY only): both hosts, connectivity test,
   writes migrate.yaml.
 - `rehost check` — compatibility gate (PHP version/extensions per framework,
@@ -79,6 +85,8 @@ field that can hold one, passwords are prompted at runtime.
 - `internal/dns` — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
   MX targets resolved to IPs) over miekg/dns using the system resolvers;
   rehost never changes DNS.
+- `internal/inventory` — per-site size picture over `du` (total, largest
+  subdirectories, framework cache/backup dirs worth excluding), best-effort.
 - `internal/transfer` does not exist yet — created in the phase that gives it
   content.
 

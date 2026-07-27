@@ -16,6 +16,7 @@ import (
 	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/dns"
+	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
 )
@@ -469,13 +470,4 @@ func strictestMinPHP(installs []detect.Install) (minPHP, needer string) {
 }
 
 // humanKB renders a KiB count for humans.
-func humanKB(kb int64) string {
-	switch {
-	case kb >= 1024*1024:
-		return fmt.Sprintf("%.1f GiB", float64(kb)/(1024*1024))
-	case kb >= 1024:
-		return fmt.Sprintf("%.1f MiB", float64(kb)/1024)
-	default:
-		return fmt.Sprintf("%d KiB", kb)
-	}
-}
+func humanKB(kb int64) string { return inventory.HumanKB(kb) }
