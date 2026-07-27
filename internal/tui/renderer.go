@@ -34,11 +34,11 @@ type HostReport struct {
 
 // Renderer writes rehost reports in one output mode.
 type Renderer interface {
-	CapabilityReport(reports []HostReport) error
+	// PlanReport renders the capability/detection report and — when a dry
+	// run was performed — its results. One call so JSON consumers get one
+	// document, never two.
+	PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error
 	CheckReport(results []check.Result) error
-	// DryRunReport renders dry-run collection results in the same
-	// checklist shape as CheckReport (its own JSON schema).
-	DryRunReport(results []check.Result) error
 	Error(err error)
 }
 

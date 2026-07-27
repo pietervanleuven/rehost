@@ -85,8 +85,9 @@ hosting and verify:
       only; per-subsite `--uri` and per-site databases unhandled
 - [ ] PHP dump fallback skips views and does not dump routines/triggers
       (the mysqldump path does) — document or close the gap
-- [ ] `plan --dry-run --json` emits two JSON documents (capability +
-      dry-run) — consider a single envelope in a v2 schema
+- [x] `plan --dry-run --json` emits two JSON documents (capability +
+      dry-run) — merged into the single `rehost.plan-report.v2` envelope
+      with an optional `dry_run` section
 - [ ] `plan` rewriting migrate.yaml drops hand-written YAML comments
       (yaml.v3 re-encode) — comment-preserving writes or a separate state
       file
