@@ -9,14 +9,16 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/placeholder/rehost/internal/check"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
-// reportSchema versions the JSON envelope so later phases can extend it
-// without breaking parsers.
-const reportSchema = "rehost.capability-report.v1"
+// planSchema versions the JSON envelope so later phases can extend it
+// without breaking parsers. v2 folded the dry-run results into the same
+// document (v1 printed them as a second one).
+const planSchema = "rehost.plan-report.v2"
 
 // --- styled ---
 
@@ -31,7 +33,18 @@ var (
 	errStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
 )
 
-func (r styledRenderer) CapabilityReport(reports []HostReport) error {
+func (r styledRenderer) PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error {
+	if err := r.capabilityReport(reports); err != nil {
+		return err
+	}
+	if !ranDryRun {
+		return nil
+	}
+	fmt.Fprintln(r.out)
+	return r.checklist("Dry run", dryRun)
+}
+
+func (r styledRenderer) capabilityReport(reports []HostReport) error {
 	for i, hr := range reports {
 		if i > 0 {
 			fmt.Fprintln(r.out)
@@ -73,7 +86,19 @@ func (r styledRenderer) Error(err error) {
 
 type plainRenderer struct{ out io.Writer }
 
-func (r plainRenderer) CapabilityReport(reports []HostReport) error {
+func (r plainRenderer) PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error {
+	if err := r.capabilityReport(reports); err != nil {
+		return err
+	}
+	if !ranDryRun {
+		return nil
+	}
+	fmt.Fprintln(r.out)
+	fmt.Fprintln(r.out, "dry run:")
+	return r.checklist(dryRun)
+}
+
+func (r plainRenderer) capabilityReport(reports []HostReport) error {
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	for i, hr := range reports {
 		if i > 0 {
@@ -191,20 +216,37 @@ type jsonHost struct {
 	Inventories map[string]*inventory.Inventory `json:"inventories,omitempty"`
 }
 
-// Envelope is the versioned JSON output shape of the capability report.
+// Envelope is the versioned JSON output shape of the plan report.
 type Envelope struct {
 	Schema string     `json:"schema"`
 	Hosts  []jsonHost `json:"hosts"`
+	// DryRun is present only when plan ran with --dry-run.
+	DryRun *DryRunSection `json:"dry_run,omitempty"`
 }
 
-func (r jsonRenderer) CapabilityReport(reports []HostReport) error {
-	env := Envelope{Schema: reportSchema}
+// DryRunSection carries the dry-run results inside the plan envelope.
+type DryRunSection struct {
+	Results  []check.Result `json:"results"`
+	Blockers int            `json:"blockers"`
+	Warnings int            `json:"warnings"`
+	Green    bool           `json:"green"`
+}
+
+func (r jsonRenderer) PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error {
+	env := Envelope{Schema: planSchema}
 	for _, hr := range reports {
 		installs := hr.Installs
 		if installs == nil {
 			installs = []detect.Install{}
 		}
 		env.Hosts = append(env.Hosts, jsonHost{Role: hr.Role, Capabilities: hr.Caps, Installs: installs, Inventories: hr.Inventories})
+	}
+	if ranDryRun {
+		if dryRun == nil {
+			dryRun = []check.Result{}
+		}
+		blockers, warnings := check.Summarize(dryRun)
+		env.DryRun = &DryRunSection{Results: dryRun, Blockers: blockers, Warnings: warnings, Green: blockers == 0}
 	}
 	enc := json.NewEncoder(r.out)
 	enc.SetIndent("", "  ")
