@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	cryptossh "golang.org/x/crypto/ssh"
 )
@@ -17,14 +19,43 @@ type Result struct {
 	ExitCode int // -1 when the session ended without reporting a status
 }
 
+// DefaultRunTimeout bounds every buffered command (Run): those are bounded
+// by intent — probes, listings, size measurements — and a hung one must not
+// hang a non-interactive run forever. Streamed transfers (Stream) carry no
+// default deadline: dumps and tar pipes legitimately run for hours.
+const DefaultRunTimeout = 10 * time.Minute
+
 // Run executes one command in a fresh session. A non-zero exit status is not
 // a Go error — capability probes expect commands to fail; only transport and
-// session failures are returned as errors.
+// session failures are returned as errors. Commands are cut off after
+// DefaultRunTimeout (or the caller's earlier deadline).
 func (c *Client) Run(ctx context.Context, cmd string) (Result, error) {
+	ctx, cancel := runContext(ctx)
+	defer cancel()
 	var stdout bytes.Buffer
 	res, err := c.Stream(ctx, cmd, &stdout)
 	res.Stdout = stdout.String()
 	return res, err
+}
+
+// runContext applies DefaultRunTimeout; a caller deadline that is already
+// sooner wins (context.WithTimeout keeps the earlier of the two).
+func runContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, DefaultRunTimeout)
+}
+
+// FirstLine returns the trimmed first line of command output — the useful
+// part of stderr for an error message — or "no error output" when there is
+// none.
+func FirstLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if s == "" {
+		return "no error output"
+	}
+	return s
 }
 
 // Stream executes cmd, writing its stdout to w as the data arrives — for

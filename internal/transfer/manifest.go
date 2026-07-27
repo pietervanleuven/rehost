@@ -101,10 +101,10 @@ func TakeManifest(ctx context.Context, r runner, root string, excludes []string)
 			continue // no output: the predicate was likely not understood
 		default:
 			// Killed (128+sig, -1) or a hard failure: any stdout is suspect.
-			return nil, fmt.Errorf("find failed on %s (exit %d): %s", root, res.ExitCode, firstLine(res.Stderr))
+			return nil, fmt.Errorf("find failed on %s (exit %d): %s", root, res.ExitCode, ssh.FirstLine(res.Stderr))
 		}
 	}
-	return nil, fmt.Errorf("find failed on %s: %s", root, firstLine(last.Stderr))
+	return nil, fmt.Errorf("find failed on %s: %s", root, ssh.FirstLine(last.Stderr))
 }
 
 // findCmd builds the listing command. Excluded directories are pruned so

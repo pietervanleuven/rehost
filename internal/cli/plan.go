@@ -7,25 +7,19 @@ import (
 	"io"
 	"io/fs"
 	"net"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
-	"golang.org/x/term"
 
 	"github.com/placeholder/rehost/internal/check"
-	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
-	"github.com/placeholder/rehost/internal/state"
-	"github.com/placeholder/rehost/internal/transfer"
 	"github.com/placeholder/rehost/internal/tui"
 )
 
@@ -51,8 +45,7 @@ destination: it records a file manifest of every detected site into
 .rehost/manifests/ next to the project file (reruns report the
 added/changed/removed delta against the previous run), streams a verified
 database dump into .rehost/dumps/, and measures the achievable tar-pipe
-transfer rate (capped sample). With --json this prints a second JSON document
-(schema rehost.dryrun-report.v1) after the capability report.`,
+transfer rate (capped sample).`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPlan(cmd, opts, args, docroots, dryRun)
@@ -70,30 +63,11 @@ type target struct {
 }
 
 func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string, dryRun bool) error {
-	mode := opts.outputMode()
-	renderer := tui.New(mode, cmd.OutOrStdout())
+	u := newUI(cmd, opts)
 
-	// Prompts (passwords, TOFU, the host form) only exist on an interactive
-	// terminal; in plain/JSON mode nothing may ever block a pipe.
-	interactive := mode == tui.ModeStyled
-
-	targets, projFile, err := planTargets(opts.projectFile, args, interactive, cmd.ErrOrStderr())
+	targets, projFile, err := planTargets(opts.projectFile, args, u.interactive, cmd.ErrOrStderr())
 	if err != nil {
 		return err
-	}
-	var prompter ssh.Prompter
-	if interactive {
-		prompter = tui.HuhPrompter{}
-	} else {
-		prompter = tui.NonInteractivePrompter{}
-	}
-
-	// Progress goes to stderr so the report on stdout stays clean; JSON mode
-	// stays silent so nothing but the document reaches a consumer.
-	progress := func(format string, a ...any) {
-		if mode != tui.ModeJSON {
-			fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", a...)
-		}
 	}
 
 	reports := make([]tui.HostReport, len(targets))
@@ -102,8 +76,8 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		t := targets[i]
 
 		// 1. Connect — the step most likely to fail or need a prompt.
-		progress("%s: connecting to %s…", t.role, targetLabel(t.cfg))
-		client, err := ssh.Dial(ctx, t.cfg, prompter)
+		u.progress("%s: connecting to %s…", t.role, targetLabel(t.cfg))
+		client, err := ssh.Dial(ctx, t.cfg, u.prompter)
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
@@ -114,7 +88,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
-		progress("%s: connected to %s (%s) — scanning for websites…", t.role, caps.Target(), caps.Summary())
+		u.progress("%s: connected to %s (%s) — scanning for websites…", t.role, caps.Target(), caps.Summary())
 
 		// 3. Scan for sites — the potentially slow recursive step.
 		fsys := detect.NewSSHFS(client)
@@ -127,7 +101,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: detecting frameworks: %w", t.role, err)
 		}
-		progress("%s: found %s on %s — measuring sizes…", t.role, pluralizeSites(len(installs)), caps.Target())
+		u.progress("%s: found %s on %s — measuring sizes…", t.role, pluralizeSites(len(installs)), caps.Target())
 
 		// 4. Inventory each install: total size, largest directories, and
 		// the framework caches/backups worth excluding from transfer.
@@ -145,7 +119,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		// 5. Dry-run collection (source only): verified DB dump + tar-pipe
 		// throughput, while the connection is still open.
 		if dryRun && t.role == "source" {
-			results, err := collectDryRun(ctx, client, caps, installs, opts.projectFile, progress)
+			results, err := collectDryRun(ctx, client, caps, installs, opts.projectFile, u.progress)
 			if err != nil {
 				return fmt.Errorf("%s: dry run: %w", t.role, err)
 			}
@@ -154,7 +128,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		return nil
 	}
 
-	if interactive {
+	if u.interactive {
 		// Sequential so prompts from two hosts never interleave.
 		for i := range targets {
 			if err := probeOne(cmd.Context(), i); err != nil {
@@ -167,8 +141,8 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 			g.Go(func() error { return probeOne(ctx, i) })
 		}
 		if err := g.Wait(); err != nil {
-			if mode == tui.ModeJSON {
-				renderer.Error(err) // keep stdout machine-readable
+			if u.mode == tui.ModeJSON {
+				u.renderer.Error(err) // keep stdout machine-readable
 			}
 			return err
 		}
@@ -180,10 +154,10 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if updated, err := writeSites(projFile, opts.projectFile, reports); err != nil {
 			return fmt.Errorf("updating %s: %w", opts.projectFile, err)
 		} else if updated {
-			progress("updated %s with the detected sites", opts.projectFile)
+			u.progress("updated %s with the detected sites", opts.projectFile)
 		}
 	}
-	if err := renderer.CapabilityReport(reports); err != nil {
+	if err := u.renderer.CapabilityReport(reports); err != nil {
 		return err
 	}
 	if dryRun {
@@ -191,169 +165,12 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		for _, r := range dryResults {
 			all = append(all, r...)
 		}
-		if mode != tui.ModeJSON {
+		if u.mode != tui.ModeJSON {
 			fmt.Fprintln(cmd.OutOrStdout())
 		}
-		return renderer.DryRunReport(all)
+		return u.renderer.DryRunReport(all)
 	}
 	return nil
-}
-
-// collectDryRun proves the collection pipeline for each detected site: a
-// capped tar-pipe throughput sample, and a streamed, verified database dump
-// written under .rehost/dumps/ next to the project file. Failures become
-// warnings in the report — a dry run informs, it does not gate.
-func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabilities,
-	installs []detect.Install, projectFile string, progress func(string, ...any)) ([]check.Result, error) {
-
-	var results []check.Result
-	add := func(id, title string, sev check.Severity, detail string) {
-		results = append(results, check.Result{ID: id, Title: title, Severity: sev, Detail: detail})
-	}
-	fsys := detect.NewSSHFS(client)
-	stateDir := filepath.Join(filepath.Dir(projectFile), ".rehost")
-	dumpDir := filepath.Join(stateDir, "dumps")
-
-	for _, inst := range installs {
-		site := inst.Root
-
-		// File manifest: the convergence bookkeeping a rerun diffs against.
-		if caps.Has("find") {
-			progress("source: building file manifest for %s…", site)
-			manifestResult(ctx, client, caps.Target(), inst, stateDir, add)
-		} else {
-			add("dryrun.manifest:"+site, "File manifest", check.Warning,
-				site+": no find on the source — reruns cannot compute deltas")
-		}
-
-		// Throughput sample over the tar pipe the real migration would use.
-		if caps.Has("tar") {
-			progress("source: sampling transfer rate for %s…", site)
-			st, err := transfer.Throughput(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst), 0, 0)
-			if err != nil {
-				add("dryrun.transfer:"+site, "Transfer rate", check.Warning, fmt.Sprintf("%s: %v", site, err))
-			} else {
-				detail := fmt.Sprintf("%s: %s compressed in %.1fs (~%s/s)", site,
-					inventory.HumanKB(st.Bytes/1024), st.Duration.Seconds(), inventory.HumanKB(int64(st.BytesPerSec())/1024))
-				if st.Capped {
-					detail += ", sampled"
-				}
-				add("dryrun.transfer:"+site, "Transfer rate", check.Ok, detail)
-			}
-		} else {
-			add("dryrun.transfer:"+site, "Transfer rate", check.Warning, site+": no tar on the source — cannot sample")
-		}
-
-		// Verified database dump.
-		ex := recipe.ExtractorFor(inst.Framework)
-		if ex == nil {
-			continue // static site: no database to dump
-		}
-		creds, err := ex.ExtractCredentials(ctx, db.Host{Run: client, FS: fsys, Caps: caps}, inst)
-		if err != nil {
-			return nil, err
-		}
-		switch {
-		case creds == nil || creds.Name == "":
-			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": credentials not readable — cannot dump")
-		case !caps.Has("mysqldump") && !caps.Has("php"):
-			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": neither mysqldump nor php on the source — cannot dump")
-		default:
-			// mysqldump when present; the PHP helper is the fallback for
-			// hosts that only have PHP.
-			dump, method := db.Dump, "mysqldump"
-			if !caps.Has("mysqldump") {
-				dump, method = db.DumpPHP, "php fallback"
-			}
-			progress("source: dumping database %s (%s)…", creds.Name, method)
-			detail, ok := dumpToFile(ctx, client, creds, dumpDir, dump)
-			sev := check.Ok
-			if !ok {
-				sev = check.Warning
-			}
-			add("dryrun.dump:"+site, "Database dump", sev, fmt.Sprintf("%s: %s (%s)", site, detail, method))
-		}
-	}
-
-	// Leave a trace in the source's hidden state folder: the history the
-	// status/history commands will read in Phase 3.
-	_, warnings := check.Summarize(results)
-	entry := state.Entry{Event: "dry-run", Details: map[string]string{
-		"sites":    strconv.Itoa(len(installs)),
-		"warnings": strconv.Itoa(warnings),
-	}}
-	if err := state.Record(ctx, client, caps.Home, entry); err != nil {
-		add("dryrun.state", "Run history (source)", check.Warning,
-			fmt.Sprintf("could not record the run in %s: %v", state.Dir(caps.Home), err))
-	}
-	return results, nil
-}
-
-// manifestResult takes the site's file manifest, reports the delta against
-// the previous run when one exists, and persists the new manifest — the
-// proof that reruns are incremental. It emits exactly one result per site:
-// consumers key the JSON report by id.
-func manifestResult(ctx context.Context, client *ssh.Client, source string, inst detect.Install, stateDir string, add func(id, title string, sev check.Severity, detail string)) {
-	site := inst.Root
-	id := "dryrun.manifest:" + site
-	m, err := transfer.TakeManifest(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst))
-	if err != nil {
-		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: %v", site, err))
-		return
-	}
-	manifestPath := filepath.Join(stateDir, "manifests", transfer.ManifestFilename(source, inst.Root))
-	sev := check.Ok
-	prev, prevErr := transfer.LoadManifest(manifestPath)
-
-	detail := fmt.Sprintf("%s: %d files", site, len(m.Files))
-	if m.Complete {
-		detail += ", " + inventory.HumanKB(m.TotalBytes()/1024)
-	} else {
-		detail += " (paths only — no GNU find, deltas degrade to presence)"
-	}
-	switch {
-	case prevErr != nil:
-		detail += fmt.Sprintf(" — previous manifest unreadable (%v), delta lost, baseline reset", prevErr)
-		sev = check.Warning
-	case prev == nil:
-		detail += " — first manifest saved"
-	default:
-		d := transfer.Diff(prev, m)
-		detail += fmt.Sprintf(" — since last run: %d to transfer (+%d new, %d changed), %d removed, %d unchanged",
-			d.Total(), len(d.Added), len(d.Changed), len(d.Removed), d.Unchanged)
-	}
-	if err := transfer.SaveManifest(m, manifestPath); err != nil {
-		detail += fmt.Sprintf("; saving manifest failed: %v", err)
-		sev = check.Warning
-	}
-	add(id, "File manifest", sev, detail)
-}
-
-// dumpToFile streams one verified dump to disk (0600 — it holds site data)
-// and describes the outcome. A failed verification removes the file so a
-// truncated dump can never be mistaken for a good one.
-func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, dumpDir string,
-	dump func(context.Context, db.Streamer, *db.Credentials, io.Writer) (*db.DumpStats, error)) (detail string, ok bool) {
-	if err := os.MkdirAll(dumpDir, 0o700); err != nil {
-		return err.Error(), false
-	}
-	path := filepath.Join(dumpDir, creds.Name+".sql.gz")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err.Error(), false
-	}
-	stats, dumpErr := dump(ctx, client, creds, f)
-	closeErr := f.Close()
-	if dumpErr != nil || closeErr != nil {
-		os.Remove(path)
-		if dumpErr == nil {
-			dumpErr = closeErr
-		}
-		return dumpErr.Error(), false
-	}
-	return fmt.Sprintf("wrote %s — %s SQL (%s compressed), %d tables, verified, %.1fs",
-		path, inventory.HumanKB(stats.Bytes/1024), inventory.HumanKB(stats.CompressedBytes/1024),
-		stats.Tables, stats.Duration.Seconds()), true
 }
 
 // writeSites refreshes the project file's sites section from the source
@@ -464,19 +281,4 @@ func parseTarget(s string) (ssh.Config, error) {
 		return cfg, fmt.Errorf("invalid target %q — expected user@host[:port]", s)
 	}
 	return cfg, nil
-}
-
-// outputMode picks the renderer: --json wins, then plain for non-TTY or
-// suppressed color, styled otherwise.
-func (o *options) outputMode() tui.Mode {
-	if o.json {
-		return tui.ModeJSON
-	}
-	if o.noColor || os.Getenv("NO_COLOR") != "" {
-		return tui.ModePlain
-	}
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
-		return tui.ModePlain
-	}
-	return tui.ModeStyled
 }
