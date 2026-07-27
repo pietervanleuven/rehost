@@ -9,6 +9,7 @@ import (
 
 	"github.com/placeholder/rehost/internal/check"
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -22,11 +23,13 @@ const (
 )
 
 // HostReport pairs a host's role with what was found on it: probed
-// capabilities and any detected framework installs.
+// capabilities, detected framework installs, and their file inventories
+// (keyed by install root; entries may be missing when not measured).
 type HostReport struct {
-	Role     string // "source" or "destination"
-	Caps     *ssh.Capabilities
-	Installs []detect.Install
+	Role        string // "source" or "destination"
+	Caps        *ssh.Capabilities
+	Installs    []detect.Install
+	Inventories map[string]*inventory.Inventory
 }
 
 // Renderer writes rehost reports in one output mode.

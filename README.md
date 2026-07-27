@@ -49,9 +49,10 @@ init  ──▶  check  ──▶  plan  ──▶  migrate  ──▶  cutover
 
 Every command re-derives its state from the live hosts rather than trusting a
 cache, so any of them is safe to rerun at any point. Today `init` (wizard),
-`plan` (connect + capability + framework report), and `check` (compatibility
-gate) do real work; `check` exits non-zero while blockers remain, so rerun it
-until it is green.
+`plan` (capability + framework + size report, persists detected sites into
+migrate.yaml), and `check` (compatibility gate: PHP, extensions, database
+reachability and charset, disk space, DNS/mail) do real work; `check` exits
+non-zero while blockers remain, so rerun it until it is green.
 
 ## Usage
 

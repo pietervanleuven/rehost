@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/project"
+	"github.com/placeholder/rehost/internal/tui"
 )
 
 func run(t *testing.T, args ...string) (stdout, stderr string, err error) {
@@ -135,6 +139,45 @@ func TestCheckRequiresDestination(t *testing.T) {
 	_, _, err := run(t, "check", "-f", file)
 	if err == nil || !strings.Contains(err.Error(), "destination") {
 		t.Errorf("check without a destination should say so, got: %v", err)
+	}
+}
+
+func TestWriteSites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "migrate.yaml")
+	f := &project.File{Version: project.SchemaVersion, Source: project.Host{Host: "src.example.com"}}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	reports := []tui.HostReport{
+		{Role: "source", Installs: []detect.Install{
+			{Framework: "wordpress", Root: "/home/u/public_html", Version: "6.5.2"},
+		}},
+		{Role: "destination", Installs: []detect.Install{
+			{Framework: "static", Root: "/home/d/www"}, // never persisted
+		}},
+	}
+	updated, err := writeSites(f, path, reports)
+	if err != nil || !updated {
+		t.Fatalf("writeSites = %v, %v", updated, err)
+	}
+
+	loaded, err := project.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Sites) != 1 || loaded.Sites[0].Framework != "wordpress" ||
+		loaded.Sites[0].Root != "/home/u/public_html" || loaded.Sites[0].Version != "6.5.2" {
+		t.Errorf("persisted sites = %+v", loaded.Sites)
+	}
+
+	// Unchanged detection must not rewrite the file.
+	updated, err = writeSites(loaded, path, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated {
+		t.Error("identical sites should not trigger a write")
 	}
 }
 
