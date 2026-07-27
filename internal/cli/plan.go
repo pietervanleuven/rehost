@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,35 +17,46 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
 
+	"github.com/placeholder/rehost/internal/check"
+	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/inventory"
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/placeholder/rehost/internal/transfer"
 	"github.com/placeholder/rehost/internal/tui"
 )
 
 func newPlanCmd(opts *options) *cobra.Command {
 	var docroots []string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "plan [user@host[:port]]",
 		Short: "Connect to the hosts and report their capabilities",
 		Long: `plan connects to the source (and destination, when configured), probes
 what the hosts offer (shell type, PHP version, availability of rsync,
-mysqldump, tar, gzip, wp, drush and find), and detects the websites installed
-on them — including multiple sites under one account.
+mysqldump, tar, gzip, wp, drush and find), detects the websites installed
+on them — including multiple sites under one account — and measures each
+site's size with suggested transfer exclusions.
 
 By default it searches recursively from the SSH account's home directory. Pass
 --docroot to point the search at a specific path instead (repeatable). A host
 target may be given directly (rehost plan user@host) or read from the project
 file; with neither, an interactive terminal asks for the connection details.
-The deep source scan and dry-run land in a later phase.`,
+
+--dry-run additionally proves the collection pipeline without touching a
+destination: it streams a verified database dump of every detected site into
+.rehost/dumps/ next to the project file, and measures the achievable tar-pipe
+transfer rate (capped sample). With --json this prints a second JSON document
+(schema rehost.dryrun-report.v1) after the capability report.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPlan(cmd, opts, args, docroots)
+			return runPlan(cmd, opts, args, docroots, dryRun)
 		},
 	}
 	cmd.Flags().StringArrayVar(&docroots, "docroot", nil, "website root(s) to search instead of the account home (repeatable)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "stream a verified DB dump per site into .rehost/dumps/ and measure transfer throughput")
 	return cmd
 }
 
@@ -54,7 +66,7 @@ type target struct {
 	cfg  ssh.Config
 }
 
-func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string) error {
+func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string, dryRun bool) error {
 	mode := opts.outputMode()
 	renderer := tui.New(mode, cmd.OutOrStdout())
 
@@ -82,6 +94,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	}
 
 	reports := make([]tui.HostReport, len(targets))
+	dryResults := make([][]check.Result, len(targets))
 	probeOne := func(ctx context.Context, i int) error {
 		t := targets[i]
 
@@ -125,6 +138,16 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		}
 
 		reports[i] = tui.HostReport{Role: t.role, Caps: caps, Installs: installs, Inventories: inventories}
+
+		// 5. Dry-run collection (source only): verified DB dump + tar-pipe
+		// throughput, while the connection is still open.
+		if dryRun && t.role == "source" {
+			results, err := collectDryRun(ctx, client, caps, installs, opts.projectFile, progress)
+			if err != nil {
+				return fmt.Errorf("%s: dry run: %w", t.role, err)
+			}
+			dryResults[i] = results
+		}
 		return nil
 	}
 
@@ -157,7 +180,108 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 			progress("updated %s with the detected sites", opts.projectFile)
 		}
 	}
-	return renderer.CapabilityReport(reports)
+	if err := renderer.CapabilityReport(reports); err != nil {
+		return err
+	}
+	if dryRun {
+		var all []check.Result
+		for _, r := range dryResults {
+			all = append(all, r...)
+		}
+		if mode != tui.ModeJSON {
+			fmt.Fprintln(cmd.OutOrStdout())
+		}
+		return renderer.DryRunReport(all)
+	}
+	return nil
+}
+
+// collectDryRun proves the collection pipeline for each detected site: a
+// capped tar-pipe throughput sample, and a streamed, verified database dump
+// written under .rehost/dumps/ next to the project file. Failures become
+// warnings in the report — a dry run informs, it does not gate.
+func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabilities,
+	installs []detect.Install, projectFile string, progress func(string, ...any)) ([]check.Result, error) {
+
+	var results []check.Result
+	add := func(id, title string, sev check.Severity, detail string) {
+		results = append(results, check.Result{ID: id, Title: title, Severity: sev, Detail: detail})
+	}
+	fsys := detect.NewSSHFS(client)
+	dumpDir := filepath.Join(filepath.Dir(projectFile), ".rehost", "dumps")
+
+	for _, inst := range installs {
+		site := inst.Root
+
+		// Throughput sample over the tar pipe the real migration would use.
+		if caps.Has("tar") {
+			progress("source: sampling transfer rate for %s…", site)
+			st, err := transfer.Throughput(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst), 0, 0)
+			if err != nil {
+				add("dryrun.transfer:"+site, "Transfer rate", check.Warning, fmt.Sprintf("%s: %v", site, err))
+			} else {
+				detail := fmt.Sprintf("%s: %s compressed in %.1fs (~%s/s)", site,
+					inventory.HumanKB(st.Bytes/1024), st.Duration.Seconds(), inventory.HumanKB(int64(st.BytesPerSec())/1024))
+				if st.Capped {
+					detail += ", sampled"
+				}
+				add("dryrun.transfer:"+site, "Transfer rate", check.Ok, detail)
+			}
+		} else {
+			add("dryrun.transfer:"+site, "Transfer rate", check.Warning, site+": no tar on the source — cannot sample")
+		}
+
+		// Verified database dump.
+		ex := recipe.ExtractorFor(inst.Framework)
+		if ex == nil {
+			continue // static site: no database to dump
+		}
+		creds, err := ex.ExtractCredentials(ctx, db.Host{Run: client, FS: fsys, Caps: caps}, inst)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case creds == nil || creds.Name == "":
+			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": credentials not readable — cannot dump")
+		case !caps.Has("mysqldump"):
+			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": no mysqldump on the source (PHP fallback is a later phase)")
+		default:
+			progress("source: dumping database %s…", creds.Name)
+			detail, ok := dumpToFile(ctx, client, creds, dumpDir)
+			sev := check.Ok
+			if !ok {
+				sev = check.Warning
+			}
+			add("dryrun.dump:"+site, "Database dump", sev, site+": "+detail)
+		}
+	}
+	return results, nil
+}
+
+// dumpToFile streams one verified dump to disk (0600 — it holds site data)
+// and describes the outcome. A failed verification removes the file so a
+// truncated dump can never be mistaken for a good one.
+func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, dumpDir string) (detail string, ok bool) {
+	if err := os.MkdirAll(dumpDir, 0o700); err != nil {
+		return err.Error(), false
+	}
+	path := filepath.Join(dumpDir, creds.Name+".sql.gz")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err.Error(), false
+	}
+	stats, dumpErr := db.Dump(ctx, client, creds, f)
+	closeErr := f.Close()
+	if dumpErr != nil || closeErr != nil {
+		os.Remove(path)
+		if dumpErr == nil {
+			dumpErr = closeErr
+		}
+		return dumpErr.Error(), false
+	}
+	return fmt.Sprintf("wrote %s — %s SQL (%s compressed), %d tables, verified, %.1fs",
+		path, inventory.HumanKB(stats.Bytes/1024), inventory.HumanKB(stats.CompressedBytes/1024),
+		stats.Tables, stats.Duration.Seconds()), true
 }
 
 // writeSites refreshes the project file's sites section from the source

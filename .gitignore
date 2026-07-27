@@ -7,8 +7,9 @@
 /dist/
 *.test
 
-# Local test migrations — a real project file never belongs in this repo
+# Local test migrations — a real project file or dump never belongs in this repo
 /migrate.yaml
+/.rehost/
 
 # OS
 .DS_Store
