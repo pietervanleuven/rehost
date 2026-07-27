@@ -15,7 +15,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
 
+	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/project"
+	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
 	"github.com/placeholder/rehost/internal/tui"
 )
@@ -77,7 +79,12 @@ func runPlan(cmd *cobra.Command, opts *options, args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
-		reports[i] = tui.HostReport{Role: t.role, Caps: caps}
+		fsys := detect.NewSSHFS(client)
+		installs, err := detect.Scan(ctx, fsys, detect.DocrootCandidates(caps.Home), recipe.All())
+		if err != nil {
+			return fmt.Errorf("%s: detecting frameworks: %w", t.role, err)
+		}
+		reports[i] = tui.HostReport{Role: t.role, Caps: caps, Installs: installs}
 		return nil
 	}
 

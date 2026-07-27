@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -47,6 +49,14 @@ func (r styledRenderer) CapabilityReport(reports []HostReport) error {
 				fmt.Fprintf(r.out, "  %s %-10s %s\n", missingStyle.Render("✗"), name, dimStyle.Render("not found"))
 			}
 		}
+		fmt.Fprintf(r.out, "  %s\n", dimStyle.Render("frameworks:"))
+		if len(hr.Installs) == 0 {
+			fmt.Fprintf(r.out, "    %s\n", dimStyle.Render("none detected"))
+		}
+		for _, inst := range hr.Installs {
+			label, detail := formatInstall(inst)
+			fmt.Fprintf(r.out, "    %s %s\n", okStyle.Render(label), dimStyle.Render(detail))
+		}
 	}
 	return nil
 }
@@ -79,8 +89,32 @@ func (r plainRenderer) CapabilityReport(reports []HostReport) error {
 				fmt.Fprintf(w, "  [missing]\t%s\t\n", name)
 			}
 		}
+		if len(hr.Installs) == 0 {
+			fmt.Fprintf(w, "  framework:\tnone detected\t\n")
+		}
+		for _, inst := range hr.Installs {
+			label, detail := formatInstall(inst)
+			fmt.Fprintf(w, "  framework:\t%s\t%s\n", label, detail)
+		}
 	}
 	return w.Flush()
+}
+
+// formatInstall renders one install as a label ("wordpress 6.5.2") and a
+// detail string (root plus multisite/config notes).
+func formatInstall(inst detect.Install) (label, detail string) {
+	label = inst.Framework
+	if inst.Version != "" {
+		label += " " + inst.Version
+	}
+	detail = inst.Root
+	if len(inst.Sites) > 1 {
+		detail += " · multisite: " + strings.Join(inst.Sites, ", ")
+	}
+	if inst.ConfigFile != "" {
+		detail += " · config " + inst.ConfigFile
+	}
+	return label, detail
 }
 
 func (r plainRenderer) Error(err error) {
@@ -118,6 +152,7 @@ type jsonRenderer struct{ out io.Writer }
 type jsonHost struct {
 	Role string `json:"role"`
 	*ssh.Capabilities
+	Installs []detect.Install `json:"installs"`
 }
 
 // Envelope is the versioned JSON output shape of the capability report.
@@ -129,7 +164,11 @@ type Envelope struct {
 func (r jsonRenderer) CapabilityReport(reports []HostReport) error {
 	env := Envelope{Schema: reportSchema}
 	for _, hr := range reports {
-		env.Hosts = append(env.Hosts, jsonHost{Role: hr.Role, Capabilities: hr.Caps})
+		installs := hr.Installs
+		if installs == nil {
+			installs = []detect.Install{}
+		}
+		env.Hosts = append(env.Hosts, jsonHost{Role: hr.Role, Capabilities: hr.Caps, Installs: installs})
 	}
 	enc := json.NewEncoder(r.out)
 	enc.SetIndent("", "  ")
