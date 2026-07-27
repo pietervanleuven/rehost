@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/placeholder/rehost/internal/check"
+	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
@@ -86,7 +87,8 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		if len(startRoots) == 0 {
 			startRoots = []string{homeOrDot(caps.Home)}
 		}
-		installs, err := detect.Discover(ctx, detect.NewSSHFS(client), startRoots, recipe.All(),
+		fsys := detect.NewSSHFS(client)
+		installs, err := detect.Discover(ctx, fsys, startRoots, recipe.All(),
 			detect.FindOptions{Prune: detect.DefaultPrune})
 		if err != nil {
 			return fmt.Errorf("source: detecting frameworks: %w", err)
@@ -99,6 +101,28 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		}
 		in.Source, in.Installs = caps, installs
 		in.SourceSitesKB = check.DirsSizeKB(ctx, client, roots)
+
+		// Credentials stay in memory for this run only — never stored,
+		// never printed; check only reports whether they were readable.
+		host := db.Host{Run: client, FS: fsys, Caps: caps}
+		creds := map[string]*db.Credentials{}
+		for _, inst := range installs {
+			ex := recipe.ExtractorFor(inst.Framework)
+			if ex == nil {
+				continue
+			}
+			if len(creds) == 0 {
+				progress("source: reading database credentials…")
+			}
+			c, err := ex.ExtractCredentials(ctx, host, inst)
+			if err != nil {
+				return fmt.Errorf("source: extracting credentials for %s: %w", inst.Root, err)
+			}
+			creds[inst.Root] = c
+		}
+		if len(creds) > 0 {
+			in.SourceCreds = creds
+		}
 		return nil
 	}
 
