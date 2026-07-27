@@ -37,6 +37,7 @@ type Tool struct {
 // check gate and framework recipes.
 type Capabilities struct {
 	Host       string          `json:"host"`
+	User       string          `json:"user,omitempty"`
 	Shell      string          `json:"shell,omitempty"`
 	Uname      string          `json:"uname,omitempty"`
 	Home       string          `json:"home,omitempty"`
@@ -48,6 +49,16 @@ type Capabilities struct {
 func (c *Capabilities) Has(tool string) bool {
 	t, ok := c.Tools[tool]
 	return ok && t.Found
+}
+
+// Target is the user@host identity of the probed host, or just the host when
+// no user is known. Which sites exist can differ per user (vhost setups), so
+// the user is part of a host's identity in reports.
+func (c *Capabilities) Target() string {
+	if c.User != "" {
+		return c.User + "@" + c.Host
+	}
+	return c.Host
 }
 
 // Summary is a compact one-line host descriptor (shell and PHP) for progress
@@ -82,7 +93,12 @@ type runner interface {
 // trip — shared hosts are slow and may cap sessions) and degrades to one
 // command per session for restricted shells.
 func Probe(ctx context.Context, client *Client) (*Capabilities, error) {
-	return probeWith(ctx, client, client.Config.Host)
+	caps, err := probeWith(ctx, client, client.Config.Host)
+	if err != nil {
+		return nil, err
+	}
+	caps.User = client.Config.User
+	return caps, nil
 }
 
 func probeWith(ctx context.Context, r runner, host string) (*Capabilities, error) {
