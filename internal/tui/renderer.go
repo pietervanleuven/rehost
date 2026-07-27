@@ -36,6 +36,9 @@ type HostReport struct {
 type Renderer interface {
 	CapabilityReport(reports []HostReport) error
 	CheckReport(results []check.Result) error
+	// DryRunReport renders dry-run collection results in the same
+	// checklist shape as CheckReport (its own JSON schema).
+	DryRunReport(results []check.Result) error
 	Error(err error)
 }
 

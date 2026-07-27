@@ -1,0 +1,126 @@
+package db
+
+import (
+	"compress/gzip"
+	"context"
+	"fmt"
+	"io"
+	"strings"
+	"time"
+
+	"github.com/placeholder/rehost/internal/ssh"
+)
+
+// Streamer executes a remote command with streaming stdout; *ssh.Client
+// satisfies it.
+type Streamer interface {
+	Stream(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error)
+}
+
+// DumpStats describes a completed (and verified) dump.
+type DumpStats struct {
+	CompressedBytes int64         `json:"compressed_bytes"`
+	Bytes           int64         `json:"bytes"` // uncompressed SQL
+	Tables          int           `json:"tables"`
+	FooterOK        bool          `json:"footer_ok"`
+	Duration        time.Duration `json:"duration_ns"`
+}
+
+// dumpCmd builds the remote pipeline. --single-transaction --quick keeps a
+// consistent InnoDB snapshot without buffering; --no-tablespaces avoids the
+// PROCESS-privilege error shared hosts hit on MySQL 8; gzip compresses on
+// the wire. Credentials travel like Inspect's: defaults file on stdin.
+func dumpCmd(creds *Credentials) string {
+	return "mysqldump --defaults-extra-file=/dev/stdin --single-transaction --quick --no-tablespaces --routines --triggers " +
+		ssh.ShellQuote(creds.Name) +
+		" | gzip <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+}
+
+// Dump streams a gzipped mysqldump of the database into w while verifying
+// it on the fly: the stream is gunzipped in memory to count bytes and
+// tables and to confirm mysqldump's completion footer — the guard against
+// a silently truncated dump (the shell reports gzip's exit status, not
+// mysqldump's). A verification failure returns the stats alongside the
+// error so callers can report what did arrive.
+func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*DumpStats, error) {
+	stats := &DumpStats{}
+	start := time.Now()
+
+	pr, pw := io.Pipe()
+	analyzed := make(chan struct{})
+	go func() {
+		defer close(analyzed)
+		analyzeDump(pr, stats)
+	}()
+
+	counted := &countingWriter{}
+	res, err := s.Stream(ctx, dumpCmd(creds), io.MultiWriter(w, counted, pw))
+	pw.Close()
+	<-analyzed
+	stats.CompressedBytes = counted.n
+	stats.Duration = time.Since(start)
+
+	if err != nil {
+		return stats, err
+	}
+	if res.ExitCode != 0 {
+		return stats, fmt.Errorf("mysqldump failed: %s", sanitizeReason(res.Stderr, creds.Password))
+	}
+	if !stats.FooterOK {
+		return stats, fmt.Errorf("dump of %s is incomplete — mysqldump's completion footer is missing (%s of SQL received)",
+			creds.Name, humanBytes(stats.Bytes))
+	}
+	return stats, nil
+}
+
+// analyzeDump gunzips the stream, counting SQL bytes and CREATE TABLE
+// statements and watching the tail for mysqldump's completion footer.
+func analyzeDump(r io.Reader, stats *DumpStats) {
+	defer io.Copy(io.Discard, r) // never stall the writer side
+
+	gz, err := gzip.NewReader(r)
+	if err != nil {
+		return // empty or non-gzip stream: nothing to verify
+	}
+	defer gz.Close()
+
+	const tailKeep = 512
+	var tail []byte
+	buf := make([]byte, 64*1024)
+	for {
+		n, err := gz.Read(buf)
+		if n > 0 {
+			stats.Bytes += int64(n)
+			stats.Tables += strings.Count(string(buf[:n]), "\nCREATE TABLE")
+			tail = append(tail, buf[:n]...)
+			if len(tail) > tailKeep {
+				tail = tail[len(tail)-tailKeep:]
+			}
+		}
+		if err != nil {
+			break // io.EOF or a truncated gzip stream — the footer decides
+		}
+	}
+	stats.FooterOK = strings.Contains(string(tail), "-- Dump completed")
+}
+
+type countingWriter struct{ n int64 }
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	c.n += int64(len(p))
+	return len(p), nil
+}
+
+// humanBytes renders a byte count (not KiB) for dump messages.
+func humanBytes(b int64) string {
+	switch {
+	case b >= 1<<30:
+		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
+	case b >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(b)/(1<<20))
+	case b >= 1<<10:
+		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
+}
