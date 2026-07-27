@@ -39,8 +39,20 @@ func (d Drupal) Detect(ctx context.Context, fs detect.FS, dir string) (*detect.I
 	}
 	isLegacy := false
 	if !isModern {
-		if isLegacy, err = fs.Exists(ctx, legacyMarker); err != nil {
+		hasDrupalJS, err := fs.Exists(ctx, legacyMarker)
+		if err != nil {
 			return nil, err
+		}
+		if hasDrupalJS {
+			// A Drupal 8+ core/ directory also contains misc/drupal.js next to
+			// lib/Drupal.php — that's the framework's own core, not a Drupal 7
+			// site root. Only treat misc/drupal.js as a root marker when this
+			// directory is not such a core dir.
+			isCoreDir, err := fs.Exists(ctx, path.Join(dir, "lib", "Drupal.php"))
+			if err != nil {
+				return nil, err
+			}
+			isLegacy = !isCoreDir
 		}
 	}
 	if !isModern && !isLegacy {

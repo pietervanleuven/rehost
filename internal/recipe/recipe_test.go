@@ -67,6 +67,45 @@ func TestDrupal7(t *testing.T) {
 	}
 }
 
+func TestDrupalModernRejectsCoreDir(t *testing.T) {
+	// A Drupal 8+ tree: the site root is "web"; "web/core" is the framework's
+	// own core directory and must not be reported as a second install.
+	fs, _ := tree(t, map[string]string{
+		"web/index.php":                  "<?php",
+		"web/core/lib/Drupal.php":        "const VERSION = '10.1.6';",
+		"web/core/misc/drupal.js":        "Drupal.behaviors = {};",
+		"web/sites/default/settings.php": "<?php",
+	})
+	if got := detectAt(t, Drupal{}, fs, "web"); got == nil || got.Version != "10.1.6" {
+		t.Fatalf("site root should detect as Drupal 10.1.6, got %+v", got)
+	}
+	if got := detectAt(t, Drupal{}, fs, "web/core"); got != nil {
+		t.Errorf("web/core is the framework's core dir, not a site: got %+v", got)
+	}
+}
+
+func TestDiscoverDrupal8Once(t *testing.T) {
+	// End-to-end reproduction of the double-detection: discovery must yield a
+	// single Drupal install, not one for the root and a phantom for core/.
+	fs, _ := tree(t, map[string]string{
+		"httpdocs/web/index.php":                  "<?php",
+		"httpdocs/web/core/lib/Drupal.php":        "const VERSION = '10.1.6';",
+		"httpdocs/web/core/misc/drupal.js":        "Drupal.behaviors = {};",
+		"httpdocs/web/sites/default/settings.php": "<?php",
+	})
+	got, err := detect.Discover(context.Background(), fs, []string{"."}, All(),
+		detect.FindOptions{Prune: detect.DefaultPrune})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Drupal 8 should be found once, got %d: %+v", len(got), got)
+	}
+	if got[0].Root != "httpdocs/web" || got[0].Version != "10.1.6" {
+		t.Errorf("install = %+v, want root httpdocs/web version 10.1.6", got[0])
+	}
+}
+
 func TestDrupalMultisite(t *testing.T) {
 	fs, _ := tree(t, map[string]string{
 		"public_html/core/lib/Drupal.php":            "const VERSION = '9.5.0';",
