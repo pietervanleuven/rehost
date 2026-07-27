@@ -157,20 +157,11 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 			u.progress("updated %s with the detected sites", opts.projectFile)
 		}
 	}
-	if err := u.renderer.CapabilityReport(reports); err != nil {
-		return err
+	var all []check.Result
+	for _, r := range dryResults {
+		all = append(all, r...)
 	}
-	if dryRun {
-		var all []check.Result
-		for _, r := range dryResults {
-			all = append(all, r...)
-		}
-		if u.mode != tui.ModeJSON {
-			fmt.Fprintln(cmd.OutOrStdout())
-		}
-		return u.renderer.DryRunReport(all)
-	}
-	return nil
+	return u.renderer.PlanReport(reports, all, dryRun)
 }
 
 // writeSites refreshes the project file's sites section from the source

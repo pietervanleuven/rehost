@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/placeholder/rehost/internal/check"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
@@ -33,7 +34,7 @@ func sampleReports() []HostReport {
 
 func TestPlainReport(t *testing.T) {
 	var buf bytes.Buffer
-	if err := New(ModePlain, &buf).CapabilityReport(sampleReports()); err != nil {
+	if err := New(ModePlain, &buf).PlanReport(sampleReports(), nil, false); err != nil {
 		t.Fatalf("CapabilityReport: %v", err)
 	}
 	out := buf.String()
@@ -60,14 +61,14 @@ func TestPlainReport(t *testing.T) {
 
 func TestJSONReport(t *testing.T) {
 	var buf bytes.Buffer
-	if err := New(ModeJSON, &buf).CapabilityReport(sampleReports()); err != nil {
+	if err := New(ModeJSON, &buf).PlanReport(sampleReports(), nil, false); err != nil {
 		t.Fatalf("CapabilityReport: %v", err)
 	}
 	var env Envelope
 	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
 		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
 	}
-	if env.Schema != "rehost.capability-report.v1" {
+	if env.Schema != "rehost.plan-report.v2" {
 		t.Errorf("schema = %q", env.Schema)
 	}
 	if len(env.Hosts) != 1 || env.Hosts[0].Role != "source" || env.Hosts[0].Host != "source.example.com" {
@@ -91,7 +92,7 @@ func TestJSONReportEmptyInstalls(t *testing.T) {
 	reports := sampleReports()
 	reports[0].Installs = nil
 	var buf bytes.Buffer
-	if err := New(ModeJSON, &buf).CapabilityReport(reports); err != nil {
+	if err := New(ModeJSON, &buf).PlanReport(reports, nil, false); err != nil {
 		t.Fatalf("CapabilityReport: %v", err)
 	}
 	// nil installs must serialize as [] so parsers can index without a null check.
@@ -102,12 +103,67 @@ func TestJSONReportEmptyInstalls(t *testing.T) {
 
 func TestStyledReportContainsMarks(t *testing.T) {
 	var buf bytes.Buffer
-	if err := New(ModeStyled, &buf).CapabilityReport(sampleReports()); err != nil {
+	if err := New(ModeStyled, &buf).PlanReport(sampleReports(), nil, false); err != nil {
 		t.Fatalf("CapabilityReport: %v", err)
 	}
 	out := buf.String()
 	if !strings.Contains(out, "✓") || !strings.Contains(out, "✗") {
 		t.Errorf("styled output should contain ✓ and ✗ marks:\n%s", out)
+	}
+}
+
+func TestJSONPlanReportWithDryRun(t *testing.T) {
+	dry := []check.Result{
+		{ID: "dryrun.dump:/x", Title: "Database dump", Severity: check.Ok, Detail: "verified"},
+		{ID: "dryrun.transfer:/x", Title: "Transfer rate", Severity: check.Warning, Detail: "no tar"},
+	}
+	var buf bytes.Buffer
+	if err := New(ModeJSON, &buf).PlanReport(sampleReports(), dry, true); err != nil {
+		t.Fatal(err)
+	}
+	var env Envelope
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	// One document: hosts and dry-run results live in the same envelope.
+	if env.DryRun == nil || len(env.DryRun.Results) != 2 || env.DryRun.Warnings != 1 || !env.DryRun.Green {
+		t.Errorf("dry_run section = %+v", env.DryRun)
+	}
+	if len(env.Hosts) != 1 {
+		t.Errorf("hosts must be in the same document, got %+v", env.Hosts)
+	}
+	// Exactly one JSON value on stdout.
+	dec := json.NewDecoder(bytes.NewReader(buf.Bytes()))
+	var first, second any
+	if err := dec.Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err := dec.Decode(&second); err == nil {
+		t.Error("plan --dry-run --json must emit a single JSON document")
+	}
+}
+
+func TestJSONPlanReportWithoutDryRunOmitsSection(t *testing.T) {
+	var buf bytes.Buffer
+	if err := New(ModeJSON, &buf).PlanReport(sampleReports(), nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "dry_run") {
+		t.Errorf("dry_run must be omitted when not requested:\n%s", buf.String())
+	}
+}
+
+func TestPlainPlanReportWithDryRun(t *testing.T) {
+	dry := []check.Result{{ID: "d", Title: "Database dump", Severity: check.Ok, Detail: "verified"}}
+	var buf bytes.Buffer
+	if err := New(ModePlain, &buf).PlanReport(sampleReports(), dry, true); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"source: deploy@source.example.com", "dry run:", "[ok]", "Database dump"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plain plan+dry-run output missing %q:\n%s", want, out)
+		}
 	}
 }
 
