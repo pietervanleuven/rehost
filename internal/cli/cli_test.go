@@ -118,8 +118,28 @@ func TestInitJSONRefused(t *testing.T) {
 	}
 }
 
+func TestCheckMissingProjectFile(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "migrate.yaml")
+	_, _, err := run(t, "check", "-f", missing)
+	if err == nil || !strings.Contains(err.Error(), "rehost init") {
+		t.Errorf("check without a project file should point at init, got: %v", err)
+	}
+}
+
+func TestCheckRequiresDestination(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "migrate.yaml")
+	yaml := "version: 1\nsource:\n  host: source.example.com\n"
+	if err := os.WriteFile(file, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := run(t, "check", "-f", file)
+	if err == nil || !strings.Contains(err.Error(), "destination") {
+		t.Errorf("check without a destination should say so, got: %v", err)
+	}
+}
+
 func TestStubsFail(t *testing.T) {
-	for _, cmd := range []string{"check", "migrate", "status", "unlock"} {
+	for _, cmd := range []string{"migrate", "status", "unlock"} {
 		_, _, err := run(t, cmd)
 		if err == nil {
 			t.Errorf("stub %q should fail until implemented", cmd)
