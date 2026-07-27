@@ -76,7 +76,7 @@ func Record(ctx context.Context, r runner, home string, e Entry) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("recording state on host: %s", firstLine(res.Stderr))
+		return fmt.Errorf("recording state on host: %s", ssh.FirstLine(res.Stderr))
 	}
 	return nil
 }
@@ -107,16 +107,4 @@ func History(ctx context.Context, r runner, home string) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
-}
-
-// firstLine keeps the first non-empty stderr line for an error message.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if s == "" {
-		s = "command exited non-zero without a message"
-	}
-	return s
 }
