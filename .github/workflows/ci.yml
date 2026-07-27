@@ -30,6 +30,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # The PHP-gated tests (credential echo-helpers, dump-php syntax and
+      # shell round-trip) skip silently without a php binary — guarantee one
+      # so they actually run on every OS.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
       - run: go vet ./...
       - run: go test -race ./...
 
