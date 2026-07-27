@@ -51,37 +51,66 @@ type runner interface {
 	Run(ctx context.Context, cmd string) (ssh.Result, error)
 }
 
+// findStyle is one output flavor of the listing command, richest first.
+type findStyle int
+
+const (
+	findPrintf findStyle = iota // GNU: size + mtime, NUL-terminated records
+	findPrint0                  // paths only, NUL-terminated
+	findPrint                   // paths only, newline (last resort)
+)
+
+// findVariants is the degradation ladder TakeManifest walks: each step is
+// tried only when the previous one's predicate was not understood.
+var findVariants = []struct {
+	style    findStyle
+	complete bool
+	parse    func(stdout, root string) []FileEntry
+}{
+	{findPrintf, true, func(out, _ string) []FileEntry { return parsePrintfListing(out) }},
+	{findPrint0, false, func(out, root string) []FileEntry { return parsePathListing(out, root, "\x00") }},
+	{findPrint, false, func(out, root string) []FileEntry { return parsePathListing(out, root, "\n") }},
+}
+
 // TakeManifest lists every file under root (honoring excludes) with size and
 // mtime via GNU find's -printf; hosts without it degrade to a paths-only
-// listing. Unreadable subdirectories are skipped by find, not fatal.
+// listing (NUL-terminated where find knows -print0, so odd filenames
+// survive). Unreadable subdirectories are skipped by find, not fatal — but a
+// find that died mid-listing (resource limits, signals) is an error: a
+// partial listing must never be persisted as an authoritative manifest.
 func TakeManifest(ctx context.Context, r runner, root string, excludes []string) (*Manifest, error) {
 	m := &Manifest{Root: root, TakenAt: time.Now().UTC()}
 
-	res, err := r.Run(ctx, findCmd(root, excludes, true))
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(res.Stdout) != "" {
-		m.Files = parsePrintfListing(res.Stdout)
-		m.Complete = true
-	} else {
-		// BSD/busybox find without -printf: fall back to bare paths.
-		res, err = r.Run(ctx, findCmd(root, excludes, false))
+	var last ssh.Result
+	for _, v := range findVariants {
+		res, err := r.Run(ctx, findCmd(root, excludes, v.style))
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(res.Stdout) == "" && res.ExitCode != 0 {
-			return nil, fmt.Errorf("find failed on %s: %s", root, firstLine(res.Stderr))
+		last = res
+		switch {
+		case res.ExitCode == 0 || (res.ExitCode == 1 && res.Stdout != ""):
+			// 0: clean run — an empty listing is a genuinely empty site.
+			// 1 with output: find ran but hit unreadable entries, the
+			// documented skip-not-fatal case.
+			m.Files = v.parse(res.Stdout, root)
+			m.Complete = v.complete
+			sort.Slice(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })
+			return m, nil
+		case res.ExitCode == 1:
+			continue // no output: the predicate was likely not understood
+		default:
+			// Killed (128+sig, -1) or a hard failure: any stdout is suspect.
+			return nil, fmt.Errorf("find failed on %s (exit %d): %s", root, res.ExitCode, firstLine(res.Stderr))
 		}
-		m.Files = parsePathListing(res.Stdout, root)
 	}
-	sort.Slice(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })
-	return m, nil
+	return nil, fmt.Errorf("find failed on %s: %s", root, firstLine(last.Stderr))
 }
 
 // findCmd builds the listing command. Excluded directories are pruned so
-// find never descends into them.
-func findCmd(root string, excludes []string, printf bool) string {
+// find never descends into them. Stderr is left attached: it is the only
+// diagnostic when find fails.
+func findCmd(root string, excludes []string, style findStyle) string {
 	var b strings.Builder
 	b.WriteString("find " + ssh.ShellQuote(root))
 	if len(excludes) > 0 {
@@ -90,24 +119,34 @@ func findCmd(root string, excludes []string, printf bool) string {
 			if i > 0 {
 				b.WriteString(" -o")
 			}
-			b.WriteString(" -path " + ssh.ShellQuote(path.Join(root, e)))
+			b.WriteString(" -path " + ssh.ShellQuote(globEscape(path.Join(root, e))))
 		}
 		b.WriteString(` \) -prune -o`)
 	}
-	if printf {
-		b.WriteString(` -type f -printf '%s %T@ %P\n' 2>/dev/null`)
-	} else {
-		b.WriteString(" -type f -print 2>/dev/null")
+	switch style {
+	case findPrintf:
+		b.WriteString(` -type f -printf '%s %T@ %P\0'`)
+	case findPrint0:
+		b.WriteString(" -type f -print0")
+	default:
+		b.WriteString(" -type f -print")
 	}
 	return b.String()
 }
 
-// parsePrintfListing reads "<size> <mtime.frac> <relative path>" lines.
-// Unparseable lines (e.g. filenames containing newlines) are skipped.
+// globEscape backslash-escapes fnmatch metacharacters so find -path matches
+// the directory literally even when its name contains *, ? or [.
+func globEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(s)
+}
+
+// parsePrintfListing reads NUL-terminated "<size> <mtime.frac> <relative
+// path>" records; the NUL terminator keeps filenames containing newlines
+// intact. Unparseable records are skipped.
 func parsePrintfListing(stdout string) []FileEntry {
 	var files []FileEntry
-	for _, line := range strings.Split(stdout, "\n") {
-		parts := strings.SplitN(line, " ", 3)
+	for _, rec := range strings.Split(stdout, "\x00") {
+		parts := strings.SplitN(rec, " ", 3)
 		if len(parts) != 3 || parts[2] == "" {
 			continue
 		}
@@ -124,12 +163,13 @@ func parsePrintfListing(stdout string) []FileEntry {
 	return files
 }
 
-// parsePathListing reads bare absolute paths into root-relative entries.
-func parsePathListing(stdout, root string) []FileEntry {
+// parsePathListing reads sep-terminated absolute paths into root-relative
+// entries, byte-exact: filenames with leading or trailing whitespace are
+// real filenames the migration must transfer.
+func parsePathListing(stdout, root, sep string) []FileEntry {
 	prefix := strings.TrimSuffix(root, "/") + "/"
 	var files []FileEntry
-	for _, line := range strings.Split(stdout, "\n") {
-		line = strings.TrimSpace(line)
+	for _, line := range strings.Split(stdout, sep) {
 		if line == "" {
 			continue
 		}
@@ -177,9 +217,12 @@ func Diff(prev, cur *Manifest) *Delta {
 	return d
 }
 
-// ManifestFilename derives a stable, readable local filename for a root.
-func ManifestFilename(root string) string {
-	sum := sha256.Sum256([]byte(root))
+// ManifestFilename derives a stable, readable local filename for a site,
+// keyed on the source identity (user@host) as well as the root: the same
+// path on a different source is a different site, and its baseline must
+// never masquerade as "the last run".
+func ManifestFilename(source, root string) string {
+	sum := sha256.Sum256([]byte(source + "\x00" + root))
 	base := filepath.Base(strings.TrimSuffix(root, "/"))
 	if base == "" || base == "." || base == "/" {
 		base = "site"
