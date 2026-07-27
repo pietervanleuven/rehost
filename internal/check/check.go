@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
@@ -45,6 +46,10 @@ type Input struct {
 	DestPHPExtensions []string // php -m on the destination; nil = unknown
 	SourceSitesKB     int64    // total size of the detected install roots; 0 = unknown
 	DestFreeKB        int64    // free space at the destination home; 0 = unknown
+
+	// SourceCreds maps install root → credentials extracted on the source
+	// (nil value = extraction failed for that site). nil map = not gathered.
+	SourceCreds map[string]*db.Credentials
 }
 
 // Run evaluates every rule in stable order.
@@ -57,6 +62,7 @@ func Run(in Input) []Result {
 	checkSites(in, add)
 	checkTransfer(in, add)
 	checkDatabase(in, add)
+	checkCredentials(in, add)
 	checkPHP(in, add)
 	checkExtensions(in, add)
 	checkDisk(in, add)
@@ -138,6 +144,43 @@ func checkDatabase(in Input, add addFunc) {
 		add("db.import", "Database import (destination)", Blocker,
 			"the mysql client is missing on the destination — the database cannot be imported")
 	}
+}
+
+// checkCredentials reports whether the source sites' database credentials
+// could be read. Details never include a password — only db name, host and
+// the extraction layer that worked.
+func checkCredentials(in Input, add addFunc) {
+	const title = "Database credentials (source)"
+	if !anyNeedsDB(in.Installs) {
+		return
+	}
+	if in.SourceCreds == nil {
+		add("db.credentials", title, Info, "not gathered")
+		return
+	}
+	var found, missing []string
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB {
+			continue
+		}
+		creds := in.SourceCreds[inst.Root]
+		if creds == nil || creds.Name == "" {
+			missing = append(missing, inst.Root)
+			continue
+		}
+		host := creds.Host
+		if host == "" {
+			host = "localhost"
+		}
+		found = append(found, fmt.Sprintf("%s: %s@%s (via %s)", inst.Root, creds.Name, host, creds.Method))
+	}
+	if len(missing) > 0 {
+		add("db.credentials", title, Warning,
+			"could not read database credentials for: "+strings.Join(missing, ", ")+
+				" — migrate cannot dump these databases until the config is readable")
+		return
+	}
+	add("db.credentials", title, Ok, strings.Join(found, "; "))
 }
 
 func checkPHP(in Input, add addFunc) {

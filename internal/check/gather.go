@@ -79,6 +79,4 @@ func DirsSizeKB(ctx context.Context, r runner, dirs []string) int64 {
 }
 
 // shQuote single-quotes s for a POSIX shell.
-func shQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+func shQuote(s string) string { return ssh.ShellQuote(s) }
