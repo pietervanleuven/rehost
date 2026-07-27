@@ -23,20 +23,26 @@ import (
 )
 
 func newPlanCmd(opts *options) *cobra.Command {
-	return &cobra.Command{
+	var docroots []string
+	cmd := &cobra.Command{
 		Use:   "plan [user@host[:port]]",
 		Short: "Connect to the hosts and report their capabilities",
-		Long: `plan connects to the source (and destination, when configured) and probes
-what the hosts offer: shell type, PHP version, and availability of rsync,
-mysqldump, tar, gzip, wp, drush and friends.
+		Long: `plan connects to the source (and destination, when configured), probes
+what the hosts offer (shell type, PHP version, availability of rsync,
+mysqldump, tar, gzip, wp, drush and find), and detects the websites installed
+on them — including multiple sites under one account.
 
-A target may be given directly (rehost plan user@host) or read from the
-project file. The deep source scan and dry-run land in a later phase.`,
+By default it searches recursively from the SSH account's home directory. Pass
+--docroot to point the search at a specific path instead (repeatable). A host
+target may be given directly (rehost plan user@host) or read from the project
+file. The deep source scan and dry-run land in a later phase.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPlan(cmd, opts, args)
+			return runPlan(cmd, opts, args, docroots)
 		},
 	}
+	cmd.Flags().StringArrayVar(&docroots, "docroot", nil, "website root(s) to search instead of the account home (repeatable)")
+	return cmd
 }
 
 // target is one host to probe, labeled with its migration role.
@@ -45,7 +51,7 @@ type target struct {
 	cfg  ssh.Config
 }
 
-func runPlan(cmd *cobra.Command, opts *options, args []string) error {
+func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string) error {
 	mode := opts.outputMode()
 	renderer := tui.New(mode, cmd.OutOrStdout())
 
@@ -80,7 +86,12 @@ func runPlan(cmd *cobra.Command, opts *options, args []string) error {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
 		fsys := detect.NewSSHFS(client)
-		installs, err := detect.Scan(ctx, fsys, detect.DocrootCandidates(caps.Home), recipe.All())
+		startRoots := docroots
+		if len(startRoots) == 0 {
+			startRoots = []string{homeOrDot(caps.Home)}
+		}
+		installs, err := detect.Discover(ctx, fsys, startRoots, recipe.All(),
+			detect.FindOptions{Prune: detect.DefaultPrune})
 		if err != nil {
 			return fmt.Errorf("%s: detecting frameworks: %w", t.role, err)
 		}
@@ -133,6 +144,15 @@ func planTargets(projectFile string, args []string, errOut io.Writer) ([]target,
 		targets = append(targets, target{role: "destination", cfg: f.Destination.SSHConfig()})
 	}
 	return targets, nil
+}
+
+// homeOrDot is the recursive-search start root: the probed account home, or
+// the current directory when the host did not report one.
+func homeOrDot(home string) string {
+	if home == "" {
+		return "."
+	}
+	return home
 }
 
 // parseTarget parses user@host[:port] (user and port optional).
