@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	cryptossh "golang.org/x/crypto/ssh"
 )
@@ -20,14 +21,26 @@ type Result struct {
 // a Go error — capability probes expect commands to fail; only transport and
 // session failures are returned as errors.
 func (c *Client) Run(ctx context.Context, cmd string) (Result, error) {
+	var stdout bytes.Buffer
+	res, err := c.Stream(ctx, cmd, &stdout)
+	res.Stdout = stdout.String()
+	return res, err
+}
+
+// Stream executes cmd, writing its stdout to w as the data arrives — for
+// payloads (database dumps, tar streams) that must never be buffered whole.
+// Result.Stdout stays empty; stderr is captured for diagnostics. Cancelling
+// ctx closes the session (how a capped measurement stops a stream); the
+// bytes written before that remain valid.
+func (c *Client) Stream(ctx context.Context, cmd string, w io.Writer) (Result, error) {
 	sess, err := c.conn.NewSession()
 	if err != nil {
 		return Result{}, fmt.Errorf("opening session on %s: %w", c.Config.Host, err)
 	}
 	defer sess.Close()
 
-	var stdout, stderr bytes.Buffer
-	sess.Stdout = &stdout
+	var stderr bytes.Buffer
+	sess.Stdout = w
 	sess.Stderr = &stderr
 
 	done := make(chan error, 1)
@@ -37,9 +50,9 @@ func (c *Client) Run(ctx context.Context, cmd string) (Result, error) {
 	case <-ctx.Done():
 		sess.Close()
 		<-done
-		return Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: -1}, ctx.Err()
+		return Result{Stderr: stderr.String(), ExitCode: -1}, ctx.Err()
 	case err := <-done:
-		res := Result{Stdout: stdout.String(), Stderr: stderr.String()}
+		res := Result{Stderr: stderr.String()}
 		var exitErr *cryptossh.ExitError
 		var missingErr *cryptossh.ExitMissingError
 		switch {

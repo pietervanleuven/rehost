@@ -10,8 +10,11 @@ import (
 	"github.com/placeholder/rehost/internal/check"
 )
 
-// checkSchema versions the JSON envelope of the check report.
-const checkSchema = "rehost.check-report.v1"
+// Schema versions of the checklist-shaped JSON envelopes.
+const (
+	checkSchema  = "rehost.check-report.v1"
+	dryRunSchema = "rehost.dryrun-report.v1"
+)
 
 var warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 
@@ -28,7 +31,15 @@ func checkSummary(blockers, warnings int) string {
 }
 
 func (r styledRenderer) CheckReport(results []check.Result) error {
-	fmt.Fprintln(r.out, titleStyle.Render("Compatibility check"))
+	return r.checklist("Compatibility check", results)
+}
+
+func (r styledRenderer) DryRunReport(results []check.Result) error {
+	return r.checklist("Dry run", results)
+}
+
+func (r styledRenderer) checklist(title string, results []check.Result) error {
+	fmt.Fprintln(r.out, titleStyle.Render(title))
 	fmt.Fprintln(r.out)
 	for _, res := range results {
 		var mark string
@@ -59,6 +70,15 @@ func (r styledRenderer) CheckReport(results []check.Result) error {
 }
 
 func (r plainRenderer) CheckReport(results []check.Result) error {
+	return r.checklist(results)
+}
+
+func (r plainRenderer) DryRunReport(results []check.Result) error {
+	fmt.Fprintln(r.out, "dry run:")
+	return r.checklist(results)
+}
+
+func (r plainRenderer) checklist(results []check.Result) error {
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	for _, res := range results {
 		label := "[" + string(res.Severity) + "]"
@@ -75,7 +95,7 @@ func (r plainRenderer) CheckReport(results []check.Result) error {
 	return nil
 }
 
-// CheckEnvelope is the versioned JSON output shape of the check report.
+// CheckEnvelope is the versioned JSON output shape of checklist reports.
 type CheckEnvelope struct {
 	Schema   string         `json:"schema"`
 	Results  []check.Result `json:"results"`
@@ -85,6 +105,14 @@ type CheckEnvelope struct {
 }
 
 func (r jsonRenderer) CheckReport(results []check.Result) error {
+	return r.checklist(checkSchema, results)
+}
+
+func (r jsonRenderer) DryRunReport(results []check.Result) error {
+	return r.checklist(dryRunSchema, results)
+}
+
+func (r jsonRenderer) checklist(schema string, results []check.Result) error {
 	if results == nil {
 		results = []check.Result{}
 	}
@@ -92,7 +120,7 @@ func (r jsonRenderer) CheckReport(results []check.Result) error {
 	enc := json.NewEncoder(r.out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(CheckEnvelope{
-		Schema:   checkSchema,
+		Schema:   schema,
 		Results:  results,
 		Blockers: blockers,
 		Warnings: warnings,
