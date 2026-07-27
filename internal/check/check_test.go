@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
@@ -109,6 +110,44 @@ func TestDatabaseRules(t *testing.T) {
 	}
 	if results := Run(static); hasID(results, "db.dump") || hasID(results, "db.import") {
 		t.Errorf("static-only input must not produce db results: %+v", results)
+	}
+}
+
+func TestCredentialRules(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mysqldump"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+	}
+
+	if r := byID(t, Run(in), "db.credentials"); r.Severity != Info {
+		t.Errorf("ungathered credentials should be info, got %+v", r)
+	}
+
+	in.SourceCreds = map[string]*db.Credentials{
+		wpInstall.Root: {Name: "wpdb", Host: "localhost", Password: "topsecret", Method: "wp-cli"},
+	}
+	r := byID(t, Run(in), "db.credentials")
+	if r.Severity != Ok || !strings.Contains(r.Detail, "wpdb@localhost") || !strings.Contains(r.Detail, "wp-cli") {
+		t.Errorf("found credentials should be ok naming db and method, got %+v", r)
+	}
+	if strings.Contains(r.Detail, "topsecret") {
+		t.Fatalf("detail must never contain the password: %q", r.Detail)
+	}
+
+	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	if r := byID(t, Run(in), "db.credentials"); r.Severity != Warning || !strings.Contains(r.Detail, wpInstall.Root) {
+		t.Errorf("missing credentials should warn naming the root, got %+v", r)
+	}
+
+	// Static-only: no credentials rule at all.
+	static := Input{
+		Source:      capsWith("", "rsync", "find"),
+		Destination: capsWith("", "rsync"),
+		Installs:    []detect.Install{{Framework: "static", Root: "/w"}},
+	}
+	if hasID(Run(static), "db.credentials") {
+		t.Error("static-only input must not produce a credentials result")
 	}
 }
 

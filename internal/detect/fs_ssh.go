@@ -179,8 +179,6 @@ func markerDepth(markers []string) int {
 	return max
 }
 
-// shellQuote wraps a path in single quotes, escaping any embedded ones, so
-// spaces and shell metacharacters in paths are inert.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+// shellQuote wraps a path in single quotes so spaces and shell
+// metacharacters in paths are inert.
+func shellQuote(s string) string { return ssh.ShellQuote(s) }
