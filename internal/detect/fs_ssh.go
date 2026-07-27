@@ -114,6 +114,22 @@ func (f sshFS) Find(ctx context.Context, roots, markers []string, opts FindOptio
 	return hits, nil
 }
 
+// RealPath resolves symlinks with `readlink -f`. When that is unavailable or
+// fails, it returns the path unchanged so detection still proceeds.
+func (f sshFS) RealPath(ctx context.Context, p string) (string, error) {
+	res, err := f.r.Run(ctx, "readlink -f "+shellQuote(p))
+	if err != nil {
+		return "", err
+	}
+	if res.ExitCode != 0 {
+		return p, nil
+	}
+	if out := strings.TrimSpace(res.Stdout); out != "" {
+		return out, nil
+	}
+	return p, nil
+}
+
 // findCommand builds one POSIX `find` that prunes heavy directories and prints
 // paths ending in any marker, depth-bounded, with permission noise silenced.
 // find's -maxdepth counts full path components, so allow for the markers' own

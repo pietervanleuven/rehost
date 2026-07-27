@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -157,6 +158,28 @@ func TestDiscoverRespectsMaxDepth(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Errorf("marker below MaxDepth should not be found, got %+v", got)
+	}
+}
+
+func TestDiscoverDedupesSymlinkedRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is restricted on Windows")
+	}
+	root := t.TempDir()
+	mkfile(t, root, "releases/1/site/marker_a")
+	// A deploy-tool style symlink: current -> releases/1. The site is now
+	// reachable as both current/site and releases/1/site.
+	if err := os.Symlink(filepath.Join(root, "releases", "1"), filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Discover(context.Background(), NewDirFS(root), []string{"."},
+		[]Recipe{markerRecipe{name: "a", marker: "marker_a"}}, FindOptions{})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("a symlink-aliased site must be counted once, got %d: %+v", len(got), got)
 	}
 }
 

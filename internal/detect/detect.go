@@ -30,6 +30,10 @@ type FS interface {
 	// relative markers (e.g. "wp-includes/version.php"). Implementations
 	// should locate them in as few round trips as possible.
 	Find(ctx context.Context, roots, markers []string, opts FindOptions) ([]string, error)
+	// RealPath resolves symlinks in path to a canonical location so the same
+	// site reached through different links resolves identically. On failure
+	// it returns path unchanged (best effort), never an error for absence.
+	RealPath(ctx context.Context, path string) (string, error)
 }
 
 // FindOptions bounds a Find so it stays cheap on large or deep trees.
@@ -167,7 +171,34 @@ func Discover(ctx context.Context, fs FS, startRoots []string, recipes []Recipe,
 		seen[root] = true
 		roots = append(roots, root)
 	}
+
+	// Collapse roots that resolve to the same real directory — e.g. a
+	// deploy-tool symlink (current -> releases/N) and its target both under
+	// the search path — so a site is confirmed once, not once per link.
+	roots, err = dedupeByRealPath(ctx, fs, roots)
+	if err != nil {
+		return nil, err
+	}
 	return Scan(ctx, fs, roots, recipes)
+}
+
+// dedupeByRealPath keeps the first root among any that share a canonical path.
+// The originally-discovered path is preserved for reporting.
+func dedupeByRealPath(ctx context.Context, fs FS, roots []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range roots {
+		real, err := fs.RealPath(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		if seen[real] {
+			continue
+		}
+		seen[real] = true
+		out = append(out, r)
+	}
+	return out, nil
 }
 
 // collectMarkers gathers the marker paths every Fingerprinter recipe declares.
