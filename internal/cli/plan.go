@@ -83,7 +83,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		t := targets[i]
 
 		// 1. Connect — the step most likely to fail or need a prompt.
-		progress("%s: connecting to %s…", t.role, t.cfg.Host)
+		progress("%s: connecting to %s…", t.role, targetLabel(t.cfg))
 		client, err := ssh.Dial(ctx, t.cfg, prompter)
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
@@ -95,7 +95,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
-		progress("%s: connected to %s (%s) — scanning for websites…", t.role, t.cfg.Host, caps.Summary())
+		progress("%s: connected to %s (%s) — scanning for websites…", t.role, caps.Target(), caps.Summary())
 
 		// 3. Scan for sites — the potentially slow recursive step.
 		fsys := detect.NewSSHFS(client)
@@ -108,7 +108,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: detecting frameworks: %w", t.role, err)
 		}
-		progress("%s: found %s on %s", t.role, pluralizeSites(len(installs)), t.cfg.Host)
+		progress("%s: found %s on %s", t.role, pluralizeSites(len(installs)), caps.Target())
 
 		reports[i] = tui.HostReport{Role: t.role, Caps: caps, Installs: installs}
 		return nil
@@ -159,6 +159,15 @@ func planTargets(projectFile string, args []string, errOut io.Writer) ([]target,
 		targets = append(targets, target{role: "destination", cfg: f.Destination.SSHConfig()})
 	}
 	return targets, nil
+}
+
+// targetLabel is the user@host identity for pre-connect progress, or just the
+// host when no user was given (the resolved user appears once connected).
+func targetLabel(cfg ssh.Config) string {
+	if cfg.User != "" {
+		return cfg.User + "@" + cfg.Host
+	}
+	return cfg.Host
 }
 
 // pluralizeSites renders a site count for progress output.

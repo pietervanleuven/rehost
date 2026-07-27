@@ -35,7 +35,7 @@ func (r styledRenderer) CapabilityReport(reports []HostReport) error {
 		if i > 0 {
 			fmt.Fprintln(r.out)
 		}
-		fmt.Fprintf(r.out, "%s %s\n", roleStyle.Render(hr.Role+":"), titleStyle.Render(hr.Caps.Host))
+		fmt.Fprintf(r.out, "%s %s\n", roleStyle.Render(hr.Role+":"), titleStyle.Render(hr.Caps.Target()))
 		fmt.Fprintf(r.out, "  %s\n", dimStyle.Render(summaryLine(hr.Caps)))
 		for _, name := range ssh.ProbedTools() {
 			tool := hr.Caps.Tools[name]
@@ -75,7 +75,7 @@ func (r plainRenderer) CapabilityReport(reports []HostReport) error {
 		if i > 0 {
 			fmt.Fprintln(w)
 		}
-		fmt.Fprintf(w, "%s: %s\n", hr.Role, hr.Caps.Host)
+		fmt.Fprintf(w, "%s: %s\n", hr.Role, hr.Caps.Target())
 		fmt.Fprintf(w, "  %s\n", summaryLine(hr.Caps))
 		for _, name := range ssh.ProbedTools() {
 			tool := hr.Caps.Tools[name]

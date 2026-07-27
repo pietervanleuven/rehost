@@ -79,6 +79,15 @@ func TestParsePartialRestrictedShellOutput(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesTarget(t *testing.T) {
+	if got := (&Capabilities{Host: "h", User: "u"}).Target(); got != "u@h" {
+		t.Errorf("Target() = %q, want u@h", got)
+	}
+	if got := (&Capabilities{Host: "h"}).Target(); got != "h" {
+		t.Errorf("Target() without user = %q, want h", got)
+	}
+}
+
 func TestParseNoSentinelsFails(t *testing.T) {
 	if _, err := parseProbeOutput("h", "bash: syntax error near unexpected token `('\n"); err == nil {
 		t.Fatal("output without markers must fail so the sequential fallback kicks in")
