@@ -50,17 +50,30 @@ func Take(ctx context.Context, r runner, root string, suggestions []string) (*In
 	if err != nil {
 		return nil, err
 	}
-	if entries := parseDu(res.Stdout, root); len(entries) > 0 {
+	if entries := parseDu(res, root, "\n"); len(entries) > 0 {
 		inv.TotalKB = entries[0].SizeKB
 	}
 
-	// Largest immediate subdirectories. sort/head keep the transfer small on
-	// hosts that have them; the client-side sort below does the real work.
-	res, err = r.Run(ctx, "du -sk "+ssh.ShellQuote(root)+"/*/ 2>/dev/null | sort -rn | head -40")
+	// Largest immediate subdirectories, dot-directories included (.git can
+	// dwarf the site). NUL-terminated GNU du first so odd directory names
+	// survive — few enough entries that no remote sort/head is needed;
+	// plain newline output with a remote pre-sort as the fallback.
+	globs := ssh.ShellQuote(root) + "/*/ " + ssh.ShellQuote(root) + "/.[!.]*/"
+	res, err = r.Run(ctx, "du -sk -0 "+globs+" 2>/dev/null")
 	if err != nil {
 		return nil, err
 	}
-	inv.Top = biggestFirst(parseDu(res.Stdout, root), topLimit)
+	var top []Entry
+	if strings.Contains(res.Stdout, "\x00") {
+		top = parseDu(res, root, "\x00")
+	} else {
+		res, err = r.Run(ctx, "du -sk "+globs+" 2>/dev/null | sort -rn | head -40")
+		if err != nil {
+			return nil, err
+		}
+		top = parseDu(res, root, "\n")
+	}
+	inv.Top = biggestFirst(top, topLimit)
 
 	if len(suggestions) > 0 {
 		var quoted []string
@@ -71,17 +84,24 @@ func Take(ctx context.Context, r runner, root string, suggestions []string) (*In
 		if err != nil {
 			return nil, err
 		}
-		inv.Suggested = biggestFirst(parseDu(res.Stdout, root), len(suggestions))
+		inv.Suggested = biggestFirst(parseDu(res, root, "\n"), len(suggestions))
 	}
 	return inv, nil
 }
 
-// parseDu reads `du -sk` output lines ("<kb>\t<path>") into entries with
-// paths relative to root.
-func parseDu(stdout, root string) []Entry {
+// parseDu reads `du -sk` output records ("<kb>\t<path>" terminated by sep)
+// into entries with root-relative paths. Paths are kept byte-exact — a
+// directory named " cache " is a real directory. A du that was killed
+// mid-run (exit above 1, or the session dying) yields nothing: sizes from a
+// truncated run must not be reported as measurements. Exit 1 with output is
+// du's unreadable-subdir noise and stays usable.
+func parseDu(res ssh.Result, root, sep string) []Entry {
+	if res.ExitCode != 0 && (res.ExitCode != 1 || res.Stdout == "") {
+		return nil
+	}
 	var entries []Entry
-	for _, line := range strings.Split(stdout, "\n") {
-		kbStr, path, ok := strings.Cut(strings.TrimSpace(line), "\t")
+	for _, rec := range strings.Split(res.Stdout, sep) {
+		kbStr, p, ok := strings.Cut(rec, "\t")
 		if !ok {
 			continue
 		}
@@ -89,8 +109,8 @@ func parseDu(stdout, root string) []Entry {
 		if err != nil {
 			continue
 		}
-		path = strings.TrimSuffix(path, "/")
-		rel := strings.TrimPrefix(path, strings.TrimSuffix(root, "/"))
+		p = strings.TrimSuffix(p, "/")
+		rel := strings.TrimPrefix(p, strings.TrimSuffix(root, "/"))
 		rel = strings.TrimPrefix(rel, "/")
 		if rel == "" {
 			rel = "."
