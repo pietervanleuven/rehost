@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -205,7 +206,15 @@ func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, error) {
 	if _, err := os.Stat(khPath + "2"); err == nil {
 		files = append(files, khPath+"2")
 	}
-	db, err := knownhosts.NewDB(files...)
+	// skeema/knownhosts rejects the whole file on the first malformed line;
+	// OpenSSH just skips bad lines. Stage a sanitized copy so accumulated
+	// cruft in known_hosts can't block an otherwise valid connection.
+	staged, cleanup, err := stageKnownHosts(files)
+	if err != nil {
+		return nil, fmt.Errorf("reading known_hosts: %w", err)
+	}
+	defer cleanup()
+	db, err := knownhosts.NewDB(staged)
 	if err != nil {
 		return nil, fmt.Errorf("parsing known_hosts: %w", err)
 	}
@@ -240,4 +249,47 @@ func appendKnownHost(path, hostname string, remote net.Addr, key cryptossh.Publi
 	}
 	defer f.Close()
 	return knownhosts.WriteKnownHost(f, hostname, remote, key)
+}
+
+// stageKnownHosts writes the parseable entries of the given known_hosts files
+// to a temporary file and returns its path, dropping blank lines, comments,
+// and any line the parser rejects. This mirrors OpenSSH's tolerance of
+// malformed lines; the temp file is removed once the DB has read it. New keys
+// accepted via trust-on-first-use are still appended to the real known_hosts.
+func stageKnownHosts(files []string) (path string, cleanup func(), err error) {
+	var clean bytes.Buffer
+	for _, p := range files {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return "", nil, err
+		}
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			// ParseKnownHosts validates one entry; a comment or malformed
+			// line returns an error and is skipped.
+			if _, _, _, _, _, perr := cryptossh.ParseKnownHosts(line); perr != nil {
+				continue
+			}
+			clean.Write(line)
+			clean.WriteByte('\n')
+		}
+	}
+
+	tmp, err := os.CreateTemp("", "rehost-known-hosts-*")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup = func() { os.Remove(tmp.Name()) }
+	if _, err := tmp.Write(clean.Bytes()); err != nil {
+		tmp.Close()
+		cleanup()
+		return "", nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return tmp.Name(), cleanup, nil
 }
