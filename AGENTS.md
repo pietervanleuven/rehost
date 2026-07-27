@@ -22,10 +22,11 @@ Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability prob
 project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (see PLAN.md §6)
 in progress: framework detection + recursive site discovery, the `init` wizard,
 the `check` compatibility gate (blockers-vs-warnings model in `internal/check`),
-layered DB credential extraction (wp-cli/drush → PHP helper → regex), and DB
-inspection (connectivity, server version, size, charset/utf8mb4) are done;
-next up are the DNS snapshot module and `plan` writing its findings into the
-project file.
+layered DB credential extraction (wp-cli/drush → PHP helper → regex), DB
+inspection (connectivity, server version, size, charset/utf8mb4), and the DNS
+snapshot with mail-points-at-source warning (optional `domain:` in
+migrate.yaml) are done; next up are the file inventory with suggested
+exclusions and `plan` writing its findings into the project file.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -75,8 +76,11 @@ field that can hold one, passwords are prompted at runtime.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
-- `internal/transfer`, `internal/dns` do not exist yet — created in the phase
-  that gives them content.
+- `internal/dns` — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
+  MX targets resolved to IPs) over miekg/dns using the system resolvers;
+  rehost never changes DNS.
+- `internal/transfer` does not exist yet — created in the phase that gives it
+  content.
 
 ## Key Decisions (do not relitigate without the user)
 

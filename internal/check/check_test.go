@@ -6,6 +6,7 @@ import (
 
 	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/dns"
 	"github.com/placeholder/rehost/internal/ssh"
 )
 
@@ -324,6 +325,54 @@ func TestDiskRules(t *testing.T) {
 	base.SourceSitesKB, base.DestFreeKB = 1000, 10000
 	if r := byID(t, Run(base), "disk.space"); r.Severity != Ok {
 		t.Errorf("plenty of space should be ok, got %+v", r)
+	}
+}
+
+func TestDNSRules(t *testing.T) {
+	base := Input{Source: capsWith("", "rsync", "find"), Destination: capsWith("", "rsync")}
+
+	// No domain configured: one hint, nothing else.
+	r := byID(t, Run(base), "dns.domain")
+	if r.Severity != Info || !strings.Contains(r.Detail, "domain:") {
+		t.Errorf("no domain should hint at the field, got %+v", r)
+	}
+	if hasID(Run(base), "dns.mail") {
+		t.Error("no domain → no mail result")
+	}
+
+	// Domain set but lookup failed.
+	base.Domain = "example.com"
+	if r := byID(t, Run(base), "dns.domain"); r.Severity != Info || !strings.Contains(r.Detail, "could not look up") {
+		t.Errorf("failed lookup should be info, got %+v", r)
+	}
+
+	base.SourceIPs = []string{"192.0.2.10"}
+	base.DNS = &dns.Snapshot{
+		Domain: "example.com",
+		Records: []dns.Record{
+			{Type: "A", Value: "192.0.2.10", TTL: 3600},
+			{Type: "MX", Value: "mail.example.com", TTL: 3600, Priority: 10},
+		},
+		MailHosts: map[string][]string{"mail.example.com": {"192.0.2.10"}},
+	}
+	if r := byID(t, Run(base), "dns.domain"); r.Severity != Ok || !strings.Contains(r.Detail, "points at the source") {
+		t.Errorf("domain on the source should be ok, got %+v", r)
+	}
+	r = byID(t, Run(base), "dns.mail")
+	if r.Severity != Warning || !strings.Contains(r.Detail, "mail is hosted there") {
+		t.Errorf("MX on the source must warn, got %+v", r)
+	}
+
+	// Mail elsewhere: fine.
+	base.DNS.MailHosts = map[string][]string{"mail.example.com": {"198.51.100.9"}}
+	if r := byID(t, Run(base), "dns.mail"); r.Severity != Ok {
+		t.Errorf("mail elsewhere should be ok, got %+v", r)
+	}
+
+	// Domain pointing somewhere else entirely: warn.
+	base.DNS.Records[0].Value = "203.0.113.5"
+	if r := byID(t, Run(base), "dns.domain"); r.Severity != Warning {
+		t.Errorf("domain not on the source should warn, got %+v", r)
 	}
 }
 
