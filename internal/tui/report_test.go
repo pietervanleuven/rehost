@@ -15,7 +15,7 @@ func sampleReports() []HostReport {
 		{
 			Role: "source",
 			Caps: &ssh.Capabilities{
-				Host: "source.example.com", Shell: "bash", Uname: "Linux x86_64",
+				Host: "source.example.com", User: "deploy", Shell: "bash", Uname: "Linux x86_64",
 				Home: "/home/u1", PHPVersion: "8.3.11",
 				Tools: map[string]ssh.Tool{
 					"rsync": {Name: "rsync", Found: true, Path: "/usr/bin/rsync", Version: "rsync 3.2.7"},
@@ -38,7 +38,7 @@ func TestPlainReport(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"source: source.example.com",
+		"source: deploy@source.example.com",
 		"shell bash",
 		"PHP 8.3.11",
 		"[ok]",
@@ -72,6 +72,9 @@ func TestJSONReport(t *testing.T) {
 	}
 	if len(env.Hosts) != 1 || env.Hosts[0].Role != "source" || env.Hosts[0].Host != "source.example.com" {
 		t.Errorf("hosts = %+v", env.Hosts)
+	}
+	if env.Hosts[0].User != "deploy" {
+		t.Errorf("JSON should carry the user, got %q", env.Hosts[0].User)
 	}
 	if !env.Hosts[0].Has("rsync") {
 		t.Error("rsync should survive the JSON round trip as found")
