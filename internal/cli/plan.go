@@ -47,8 +47,10 @@ target may be given directly (rehost plan user@host) or read from the project
 file; with neither, an interactive terminal asks for the connection details.
 
 --dry-run additionally proves the collection pipeline without touching a
-destination: it streams a verified database dump of every detected site into
-.rehost/dumps/ next to the project file, and measures the achievable tar-pipe
+destination: it records a file manifest of every detected site into
+.rehost/manifests/ next to the project file (reruns report the
+added/changed/removed delta against the previous run), streams a verified
+database dump into .rehost/dumps/, and measures the achievable tar-pipe
 transfer rate (capped sample). With --json this prints a second JSON document
 (schema rehost.dryrun-report.v1) after the capability report.`,
 		Args: cobra.MaximumNArgs(1),
@@ -57,7 +59,7 @@ transfer rate (capped sample). With --json this prints a second JSON document
 		},
 	}
 	cmd.Flags().StringArrayVar(&docroots, "docroot", nil, "website root(s) to search instead of the account home (repeatable)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "stream a verified DB dump per site into .rehost/dumps/ and measure transfer throughput")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "record a file manifest and a verified DB dump per site under .rehost/, and measure transfer throughput")
 	return cmd
 }
 
@@ -218,7 +220,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		// File manifest: the convergence bookkeeping a rerun diffs against.
 		if caps.Has("find") {
 			progress("source: building file manifest for %s…", site)
-			manifestResult(ctx, client, inst, stateDir, add)
+			manifestResult(ctx, client, caps.Target(), inst, stateDir, add)
 		} else {
 			add("dryrun.manifest:"+site, "File manifest", check.Warning,
 				site+": no find on the source — reruns cannot compute deltas")
@@ -289,8 +291,9 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 
 // manifestResult takes the site's file manifest, reports the delta against
 // the previous run when one exists, and persists the new manifest — the
-// proof that reruns are incremental.
-func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install, stateDir string, add func(id, title string, sev check.Severity, detail string)) {
+// proof that reruns are incremental. It emits exactly one result per site:
+// consumers key the JSON report by id.
+func manifestResult(ctx context.Context, client *ssh.Client, source string, inst detect.Install, stateDir string, add func(id, title string, sev check.Severity, detail string)) {
 	site := inst.Root
 	id := "dryrun.manifest:" + site
 	m, err := transfer.TakeManifest(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst))
@@ -298,12 +301,9 @@ func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install
 		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: %v", site, err))
 		return
 	}
-	manifestPath := filepath.Join(stateDir, "manifests", transfer.ManifestFilename(inst.Root))
-	prev, err := transfer.LoadManifest(manifestPath)
-	if err != nil {
-		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: previous manifest unreadable: %v", site, err))
-		prev = nil
-	}
+	manifestPath := filepath.Join(stateDir, "manifests", transfer.ManifestFilename(source, inst.Root))
+	sev := check.Ok
+	prev, prevErr := transfer.LoadManifest(manifestPath)
 
 	detail := fmt.Sprintf("%s: %d files", site, len(m.Files))
 	if m.Complete {
@@ -312,6 +312,9 @@ func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install
 		detail += " (paths only — no GNU find, deltas degrade to presence)"
 	}
 	switch {
+	case prevErr != nil:
+		detail += fmt.Sprintf(" — previous manifest unreadable (%v), delta lost, baseline reset", prevErr)
+		sev = check.Warning
 	case prev == nil:
 		detail += " — first manifest saved"
 	default:
@@ -320,10 +323,10 @@ func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install
 			d.Total(), len(d.Added), len(d.Changed), len(d.Removed), d.Unchanged)
 	}
 	if err := transfer.SaveManifest(m, manifestPath); err != nil {
-		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: saving manifest: %v", site, err))
-		return
+		detail += fmt.Sprintf("; saving manifest failed: %v", err)
+		sev = check.Warning
 	}
-	add(id, "File manifest", check.Ok, detail)
+	add(id, "File manifest", sev, detail)
 }
 
 // dumpToFile streams one verified dump to disk (0600 — it holds site data)
