@@ -55,7 +55,7 @@ func runInit(cmd *cobra.Command, opts *options, force bool) error {
 	}
 
 	f := &project.File{Version: project.SchemaVersion, Name: defaultProjectName()}
-	if err := tui.ProjectNameForm(&f.Name); err != nil {
+	if err := tui.ProjectForm(&f.Name, &f.Domain); err != nil {
 		return initErr(err)
 	}
 

@@ -72,6 +72,16 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// RemoteIP is the IP address the connection actually reached — the host's
+// real identity even when Config.Host is an alias or CNAME.
+func (c *Client) RemoteIP() string {
+	addr := c.conn.RemoteAddr()
+	if host, _, err := net.SplitHostPort(addr.String()); err == nil {
+		return host
+	}
+	return addr.String()
+}
+
 // authMethods builds the auth chain. For AuthAuto the order is agent,
 // identity files, then password + keyboard-interactive prompts; an explicit
 // Auth narrows the chain to that method.

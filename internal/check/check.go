@@ -15,6 +15,7 @@ import (
 
 	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/dns"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
 )
@@ -56,6 +57,14 @@ type Input struct {
 	// credentials. nil map = not gathered (no credentials or no mysql
 	// client on the source).
 	SourceDBs map[string]*db.Inspection
+
+	// Domain is the site's public domain from the project file; "" = none
+	// configured. DNS is its snapshot; nil with Domain set = lookup failed.
+	Domain string
+	DNS    *dns.Snapshot
+	// SourceIPs are the addresses the source SSH connection actually
+	// reached, for "points at the source" comparisons.
+	SourceIPs []string
 }
 
 // Run evaluates every rule in stable order.
@@ -74,6 +83,7 @@ func Run(in Input) []Result {
 	checkPHP(in, add)
 	checkExtensions(in, add)
 	checkDisk(in, add)
+	checkDNS(in, add)
 	return results
 }
 
@@ -379,6 +389,57 @@ func checkDisk(in Input, add addFunc) {
 	default:
 		add("disk.space", title, Ok,
 			fmt.Sprintf("%s free for %s", humanKB(in.DestFreeKB), what))
+	}
+}
+
+// checkDNS reports where the domain points today and whether mail lives on
+// the source — the warning that makes a naive full DNS cutover break email.
+// rehost never changes DNS (MVP scope guard); these results inform the
+// cutover report.
+func checkDNS(in Input, add addFunc) {
+	if in.Domain == "" {
+		add("dns.domain", "DNS snapshot", Info,
+			"no domain in migrate.yaml — add 'domain:' to enable DNS checks and the cutover report")
+		return
+	}
+	if in.DNS == nil {
+		add("dns.domain", "DNS snapshot", Info,
+			fmt.Sprintf("could not look up %s — check the domain spelling and network", in.Domain))
+		return
+	}
+
+	addrs := in.DNS.Addresses()
+	source := map[string]bool{}
+	for _, ip := range in.SourceIPs {
+		source[ip] = true
+	}
+	pointsAtSource := false
+	for _, a := range addrs {
+		if source[a] {
+			pointsAtSource = true
+		}
+	}
+	switch {
+	case len(addrs) == 0:
+		add("dns.domain", "DNS snapshot", Warning,
+			fmt.Sprintf("%s has no A/AAAA records — is the domain right?", in.Domain))
+	case pointsAtSource:
+		add("dns.domain", "DNS snapshot", Ok,
+			fmt.Sprintf("%s points at the source (%s)", in.Domain, strings.Join(addrs, ", ")))
+	default:
+		add("dns.domain", "DNS snapshot", Warning,
+			fmt.Sprintf("%s resolves to %s, not the source host (%s) — wrong domain, or a proxy/CDN in front?",
+				in.Domain, strings.Join(addrs, ", "), strings.Join(in.SourceIPs, ", ")))
+	}
+
+	switch {
+	case !in.DNS.HasMX():
+		add("dns.mail", "Mail (MX)", Ok, "no MX records — no mail hosting to worry about")
+	case in.DNS.MailPointsAt(in.SourceIPs):
+		add("dns.mail", "Mail (MX)", Warning,
+			"MX points at the source — mail is hosted there and rehost migrates web only; plan mail before changing DNS")
+	default:
+		add("dns.mail", "Mail (MX)", Ok, "mail is hosted elsewhere — unaffected by this migration")
 	}
 }
 
