@@ -48,6 +48,17 @@ acquisition event worth far more than the migration costs. Hosts already give mi
 away for free and pay staff/tools to do it. A universal, panel-agnostic importer is worth
 real money to every host that is *not* Plesk/cPanel-locked.
 
+**Fleet size drives willingness to pay — but migration itself is monetized indirectly**
+(July 2026 research). WPMU DEV prices multi-site WordPress management on a per-site ladder —
+$5/mo (1 site) → $20/mo (10 sites) → $200/mo (unlimited, list $2,000/yr), explicitly aimed at
+"freelancers, developers, in-house teams and agencies" managing fleets. This confirms the
+agency/fleet segment is where premium prices hold, and validates a per-site-tier shape for our
+own Pro tier (§1.5 stream #3). The important caveat: WPMU DEV, WP Engine, SiteGround and Kinsta
+all treat *migration itself* as free/assisted onboarding that funnels into hosting — nobody
+sells per-migration pricing standalone. So our fleet tier should be priced on ongoing
+fleet-management value (multi-site orchestration, dashboards, reporting) and/or host
+partnerships, **not** a per-migration fee — which is exactly the §1.5 sequencing.
+
 ### 1.4 Recommendation: open-source local CLI now, open-core combo later
 
 **Phase 1 (now → v1.0): 100% open source, 100% local. License: Apache-2.0.**
@@ -82,6 +93,35 @@ forever; paid offerings sit around it:**
 **Explicitly rejected:** data-plane SaaS (BlogVault clone), closed-source paid CLI
 (WP-Migrate clone), license-gated core (BSL) — each one destroys the trust/anti-lock-in
 positioning that is our only durable differentiator against better-funded incumbents.
+
+### 1.4a AI/LLM: skip in the CLI, defer a paid AI layer (July 2026 research)
+
+We researched whether AI would genuinely help — framework detection, diagnosing failed
+migrations, parsing weird server configs — or whether it's marketing. The evidence says **skip
+it in the local CLI now** and **defer** (don't kill) a possible advisory layer later:
+
+- **The CLI's core tasks are a solved procedural problem, and no competitor uses AI.** Every
+  production migration/detection tool examined — Plesk's Wappspector CLI and Site Import, WP
+  Engine's Site Migration plugin, the cPanel ecosystem — is deterministic file/signature-based
+  with zero ML. The one peer-reviewed ML detector *underperformed* rules (missed ~39% of
+  WordPress, ~21% of Drupal sites). Technical detail in [PLAN.md §2.2](PLAN.md) and §7.
+- **Developer sentiment is actively hostile to AI in our category.** Stack Overflow 2025: 46%
+  distrust AI accuracy (vs 33% trust), top frustration is "almost right, but not quite" (66%),
+  and ~76% don't want AI touching deployment/operations. For a tool that can corrupt a
+  production site, "almost right" is the worst possible failure — deterministic safety *is* our
+  pitch, and bolting on AI would undercut it.
+- **What's deferred, not rejected:** a strictly *advisory*, opt-in LLM helper (e.g. "explain
+  why `check` failed", "what does this odd config mean") — never in the execution path, BYOK,
+  off by default per the trust guard. The survey shows AI-for-explanation is the one role
+  developers tolerate (54% acceptance). But its value here is unproven, so it's a **defer**: no
+  design work until real field data (PLAN.md §7's opt-in failure taxonomy) shows edge cases an
+  LLM would actually close. **A paid AI SaaS tier is off the table until then** — there is no
+  precedent for AI in migration tooling and no demonstrated willingness to pay for it.
+- **If an AI layer ever ships, precedent points to BYOK, not a metered data plane.** Warp's
+  $20/mo tier lets users bring their own OpenAI/Anthropic/Google keys — a packaging model that
+  keeps us out of the LLM-cost and data-processing business, consistent with §1.2. (Note: a
+  commonly-cited "Raycast sells AI as a metered add-on" claim did *not* survive verification, so
+  the "AI as the paid tier" precedent is thinner than it looks — another reason to defer.)
 
 ### 1.5 Monetization playbook — streams, mechanics, sequencing
 
@@ -231,3 +271,11 @@ If domains/trademark fail the check, fall back to `decamp`.
 - Palark — [How companies make millions on Open Source](https://palark.com/blog/open-source-business-models/)
 - Wikipedia — [Open-core model](https://en.wikipedia.org/wiki/Open-core_model), [Rclone](https://en.wikipedia.org/wiki/Rclone), [k6](https://en.wikipedia.org/wiki/K6_(software))
 - Name collision checks: [Sitehop (security co)](https://sitehop.com/solutions/), [SiteShift (OpsHelp migration platform)](https://www.opshelp.com/blog/introducing-siteshift-streamlined-website-migrations/), [golang-migrate](https://github.com/golang-migrate/migrate)
+
+AI / fleet-tier research (July 2026):
+- Plesk — [Wappspector (procedural CMS/framework detection CLI)](https://github.com/plesk/wappspector), [Site Import](https://docs.plesk.com/en-US/onyx/migration-guide/importing-websites.78361/)
+- WP Engine — [Site Migration plugin docs (AI-free migration path)](https://wpengine.com/support/wp-engine-site-migration/)
+- Stack Overflow — [2025 Developer Survey: AI trust & task adoption](https://survey.stackoverflow.co/2025/ai)
+- WPMU DEV — [Pricing (per-site fleet ladder to $200/mo unlimited)](https://wpmudev.com/pricing/)
+- Warp — [New pricing / BYOK (AI-tier packaging precedent)](https://www.warp.dev/blog/warp-new-pricing-flexibility-byok); Raycast — [Pricing (free-forever core + paid Pro)](https://www.raycast.com/pricing)
+- HashiCorp BSL relicense backlash (license-gated-core anti-precedent) — [ITPro analysis](https://www.itpro.com/software/open-source/analysis-hashicorp-prioritizes-its-business-with-bsl-license-switch-but-community-upset-cannot-be-ignored)

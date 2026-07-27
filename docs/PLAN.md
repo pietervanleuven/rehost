@@ -103,6 +103,21 @@ younger), Node (distribution story broken: pkg deprecated, SEA immature), and Py
 - **Remote-pipe transfers**: stream `mysqldump | gzip` on source → destination session stdin through the local client — no full local round-trip; fall back to SFTP staging when shells are restricted.
 - **Recipe/task model** (Deployer's lesson): framework-specific detection and migration steps as composable tasks, so adding a CMS is adding a recipe, not forking the engine.
 - **Credential extraction layered by capability** (WP-Migrate's approach): (1) use the framework's own CLI if present (`wp config get`, `drush status`); (2) else upload a tiny PHP helper that `include`s the config and echoes values (robust against creative configs), then delete it; (3) else regex-parse.
+- **Detection is deliberately procedural — no ML/LLM.** Framework detection is a solved
+  file-fingerprint problem, and the entire industry implements it that way with zero AI:
+  Plesk's open-source [Wappspector](https://github.com/plesk/wappspector) CLI (used in
+  WebPros/cPanel production) covers 23 frameworks — WordPress, Drupal 6–10, Joomla, Laravel,
+  Symfony, TYPO3, PrestaShop, static builders — with pure file-existence + content-regex
+  matchers (`wp-includes/version.php`, Drupal's `system.info.yml`, Laravel's `artisan`); it is
+  a near-perfect reference for our `internal/detect` recipes. OWASP WSTG endorses only
+  rule-based fingerprinting (WhatWeb, Wappalyzer, BlindElephant). Two findings settle the
+  question against AI: (a) the one peer-reviewed ML alternative (OPTICS clustering, CMES 2024)
+  *underperformed* rules, missing ~39% of WordPress and ~21% of Drupal sites; (b) the documented
+  heuristic failure modes (hidden/renamed signatures, HTTP-level ambiguity) belong to
+  *adversarial remote HTTP* fingerprinting — our cooperative SSH filesystem access sees the
+  canonical files regardless, so they don't apply. The robustness lever is *multi-signal*
+  detection (combine independent fingerprints), not a model. For exact version pinning,
+  BlindElephant's static-file-checksum technique is directly reusable over SSH.
 - **Detect and enumerate, don't assume one site**: scan the account and list all installs found (Plesk Site Import model).
 - **Never blind-copy source config**: rewrite destination `wp-config.php` / `.env` / `settings.php` with new DB credentials.
 - **Serialized-data-safe search-replace** is table stakes — silent corruption of PHP-serialized data is the single most cited migration failure mode. `wp search-replace --precise` is the bar.
@@ -233,7 +248,7 @@ through, not a state machine you can wedge.
 ### Phase 1 — Check, Scan & Detect (weeks 2–3)
 **Goal: `init` → `check` → `plan` produce a complete, honest picture — and catch destination problems before any migration work.**
 - `init` wizard (huh form): both hosts' credentials, connectivity test, project file
-- Framework detection engine (recipe interface + fingerprints): **Drupal and WordPress first-class** (Drupal is the maintainer's daily driver — build both recipes in lockstep so the engine never gets WP-shaped), plus static; scan upward from docroot (wp-config.php/`.env` may sit above it); enumerate multiple installs, incl. Drupal multisite
+- Framework detection engine (recipe interface + fingerprints): **Drupal and WordPress first-class** (Drupal is the maintainer's daily driver — build both recipes in lockstep so the engine never gets WP-shaped), plus static; scan upward from docroot (wp-config.php/`.env` may sit above it); enumerate multiple installs, incl. Drupal multisite. Reference implementation: Plesk [Wappspector](https://github.com/plesk/wappspector)'s matcher set (§2.2) — port the fingerprint patterns rather than reinventing them; add BlindElephant-style file checksums for exact version pins
 - `check` compatibility gate: per-framework PHP version/extension requirements vs destination, DB version + utf8mb4 support, disk space, tool availability both ends — rerunnable until green
 - Credential extraction (layered: framework CLI (`drush status`, `wp config get`) → PHP echo-helper → regex)
 - DB inspection: connect/dump feasibility, size, charset (utf8 vs utf8mb4), table prefix
@@ -299,6 +314,22 @@ through, not a state machine you can wedge.
 | No-SSH hosts lock out part of the audience | Accept for MVP; SFTP/FTP mode is the top post-1.0 item |
 | Crash leaves source stuck in maintenance mode | Cleanup on every exit path (incl. signal handling); `migrate-cli unlock` recovery command; use framework-native mechanisms that admins recognize and can remove by hand (`.maintenance` file, `artisan up`) |
 | Search-replace applied twice corrupts data | Old→new replace is naturally idempotent (second pass finds nothing), but guard the edge case where old URL is a substring of the new one; record applied replacements in migration state |
+
+**Resolved (July 2026 research): the engine ships no AI/LLM.** Detection, capability probing,
+and every migration step are procedural — this matches every production migration tool examined
+(Plesk, cPanel ecosystem, WP Engine's Site Migration plugin: all AI-free) and the state of the
+art in fingerprinting (§2.2). A strictly *advisory* LLM helper (e.g. "explain why `check`
+failed", BYOK, off by default, never in the execution path) is **deferred**, not designed in —
+its value is unproven and Stack Overflow 2025 shows ~76% of developers don't want AI touching
+deployment/operations, the exact category we occupy where deterministic safety *is* the pitch.
+Revisit only if field data justifies it (see below). Business-side framing of this decision and
+the paid-tier reasoning live in MARKETING.md §1.4a.
+
+Data gap worth instrumenting: **what fraction of real-world shared-host migrations need manual
+intervention, and of what kind** (missing binaries, odd PHP setups, serialized-data edge cases)?
+No migration vendor publishes this, and it's the number that would decide whether an advisory AI
+layer ever pays off. Candidate: an opt-in, anonymized failure taxonomy after launch (opt-in only —
+never violates the no-telemetry-by-default trust guard).
 
 Open questions to settle during Phase 0–1:
 1. Project file location: repo-style `./migrate.yaml` vs `~/.config/migrate-cli/<project>/`? (Lean: current dir, like Terraform.)
