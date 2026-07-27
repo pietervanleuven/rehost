@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,8 +92,33 @@ func TestParseTarget(t *testing.T) {
 	}
 }
 
+func TestInitNonInteractive(t *testing.T) {
+	t.Setenv("NO_COLOR", "1") // force plain mode regardless of test TTY
+	file := filepath.Join(t.TempDir(), "migrate.yaml")
+	_, stderr, err := run(t, "init", "-f", file)
+	if err == nil {
+		t.Fatal("init without a terminal must fail")
+	}
+	if !strings.Contains(err.Error(), "interactive") {
+		t.Errorf("error should explain a terminal is needed, got: %v", err)
+	}
+	if !strings.Contains(stderr, "version: 1") || !strings.Contains(stderr, "source.example.com") {
+		t.Errorf("stderr should show an example project file, got:\n%s", stderr)
+	}
+	if _, statErr := os.Stat(file); statErr == nil {
+		t.Error("non-interactive init must not write a project file")
+	}
+}
+
+func TestInitJSONRefused(t *testing.T) {
+	_, _, err := run(t, "init", "--json", "-f", filepath.Join(t.TempDir(), "migrate.yaml"))
+	if err == nil || !strings.Contains(err.Error(), "--json") {
+		t.Errorf("init --json should fail mentioning --json, got: %v", err)
+	}
+}
+
 func TestStubsFail(t *testing.T) {
-	for _, cmd := range []string{"init", "check", "migrate", "status", "unlock"} {
+	for _, cmd := range []string{"check", "migrate", "status", "unlock"} {
 		_, _, err := run(t, cmd)
 		if err == nil {
 			t.Errorf("stub %q should fail until implemented", cmd)
