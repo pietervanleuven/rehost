@@ -28,8 +28,11 @@ const (
 
 // File is schema v1 of migrate.yaml.
 type File struct {
-	Version     int    `yaml:"version"`
-	Name        string `yaml:"name,omitempty"`
+	Version int    `yaml:"version"`
+	Name    string `yaml:"name,omitempty"`
+	// Domain is the site's primary public domain (optional). It enables the
+	// DNS snapshot in check and the cutover report; rehost never changes DNS.
+	Domain      string `yaml:"domain,omitempty"`
 	Source      Host   `yaml:"source"`
 	Destination *Host  `yaml:"destination,omitempty"`
 }
@@ -158,6 +161,7 @@ func (f *File) Save(path string) error {
 func Example() string {
 	return fmt.Sprintf(header, SchemaVersion) + `version: 1
 name: example-site
+domain: example.com          # optional; enables DNS checks and the cutover report
 source:
   host: source.example.com   # or an alias from ~/.ssh/config
   user: user
