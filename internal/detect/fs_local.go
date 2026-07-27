@@ -65,3 +65,9 @@ func (d dirFS) List(_ context.Context, dir string) ([]string, error) {
 	}
 	return names, nil
 }
+
+// Find walks locally through the shared implementation — fast enough for a
+// local tree and the exact algorithm the remote fallback uses.
+func (d dirFS) Find(ctx context.Context, roots, markers []string, opts FindOptions) ([]string, error) {
+	return WalkFind(ctx, d, roots, markers, opts)
+}

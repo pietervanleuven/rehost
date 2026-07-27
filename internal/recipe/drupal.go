@@ -17,6 +17,13 @@ type Drupal struct{}
 
 func (Drupal) Name() string { return "drupal" }
 
+// Markers are the root-level fingerprints: core/lib/Drupal.php for 8+ and
+// misc/drupal.js for 7. settings.php is deliberately excluded — it appears
+// per subsite and would over-report multisite installs.
+func (Drupal) Markers() []string {
+	return []string{"core/lib/Drupal.php", "misc/drupal.js"}
+}
+
 var (
 	drupalModernVersion = regexp.MustCompile(`const\s+VERSION\s*=\s*'([^']+)'`)
 	drupal7Version      = regexp.MustCompile(`define\(\s*'VERSION'\s*,\s*'([^']+)'\s*\)`)
