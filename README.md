@@ -23,9 +23,9 @@ over SSH — never through a third-party cloud.
 - **A real `plan` step.** See exactly what a host is and what's on it before any
   changes — Terraform-style ergonomics for migrations.
 
-> **Status: early development.** The connection layer, capability probing, and
-> framework detection work today; `rehost plan` is the only fully wired command.
-> `init`, `check`, `migrate`, `status`, and `unlock` are placeholders that exit
+> **Status: early development.** The connection layer, capability probing,
+> framework detection, the `init` wizard, and `rehost plan` work today.
+> `check`, `migrate`, `status`, and `unlock` are placeholders that exit
 > with a "not implemented yet" message. See [`docs/PLAN.md`](docs/PLAN.md) for the
 > full spec and roadmap. There are no packaged binaries yet — build from source.
 

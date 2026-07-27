@@ -19,8 +19,10 @@ Main goal: lowering vendor lock-in for hosting a website.
 ## Current State
 
 Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability probe,
-project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (init wizard,
-framework detection, check gate — see PLAN.md §6) is next.
+project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (see PLAN.md §6)
+in progress: framework detection + recursive site discovery and the `init` wizard
+are done; next up are the `check` compatibility gate, credential extraction, and
+DB inspection.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -32,9 +34,11 @@ field that can hold one, passwords are prompted at runtime.
 - `make build` / `go build -o rehost ./cmd/rehost` — build the binary.
 - `make test` (`go test -race ./...`), `make vet`, `make lint` (golangci-lint),
   `make snapshot` (goreleaser cross-build, publishes nothing).
-- `rehost plan [user@host[:port]]` — connect + capability report (the only real
-  command); `--json` for machine output, plain text on non-TTY. `init`, `check`,
-  `migrate`, `status`, `unlock` are stubs that exit non-zero.
+- `rehost plan [user@host[:port]]` — connect + capability + site detection report;
+  `--json` for machine output, plain text on non-TTY.
+- `rehost init` — interactive wizard (TTY only): both hosts, connectivity test,
+  writes migrate.yaml. `check`, `migrate`, `status`, `unlock` are stubs that
+  exit non-zero.
 
 ## Architecture (Phase 0)
 
