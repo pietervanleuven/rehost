@@ -35,7 +35,8 @@ on them — including multiple sites under one account.
 By default it searches recursively from the SSH account's home directory. Pass
 --docroot to point the search at a specific path instead (repeatable). A host
 target may be given directly (rehost plan user@host) or read from the project
-file. The deep source scan and dry-run land in a later phase.`,
+file; with neither, an interactive terminal asks for the connection details.
+The deep source scan and dry-run land in a later phase.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPlan(cmd, opts, args, docroots)
@@ -55,14 +56,14 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	mode := opts.outputMode()
 	renderer := tui.New(mode, cmd.OutOrStdout())
 
-	targets, err := planTargets(opts.projectFile, args, cmd.ErrOrStderr())
+	// Prompts (passwords, TOFU, the host form) only exist on an interactive
+	// terminal; in plain/JSON mode nothing may ever block a pipe.
+	interactive := mode == tui.ModeStyled
+
+	targets, err := planTargets(opts.projectFile, args, interactive, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
-
-	// Prompts (passwords, TOFU) only exist on an interactive terminal; in
-	// plain/JSON mode nothing may ever block a pipe.
-	interactive := mode == tui.ModeStyled
 	var prompter ssh.Prompter
 	if interactive {
 		prompter = tui.HuhPrompter{}
@@ -136,9 +137,10 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	return renderer.CapabilityReport(reports)
 }
 
-// planTargets resolves what to probe: an explicit CLI target, or the
-// source (+ destination) from the project file.
-func planTargets(projectFile string, args []string, errOut io.Writer) ([]target, error) {
+// planTargets resolves what to probe: an explicit CLI target, the source
+// (+ destination) from the project file, or — interactively — a host form
+// when neither exists.
+func planTargets(projectFile string, args []string, interactive bool, errOut io.Writer) ([]target, error) {
 	if len(args) == 1 {
 		cfg, err := parseTarget(args[0])
 		if err != nil {
@@ -148,6 +150,17 @@ func planTargets(projectFile string, args []string, errOut io.Writer) ([]target,
 	}
 	f, err := project.Load(projectFile)
 	if errors.Is(err, fs.ErrNotExist) {
+		if interactive {
+			fmt.Fprintf(errOut, "No project file at %s — asking for a host instead ('rehost init' writes one).\n", projectFile)
+			var h project.Host
+			if err := tui.HostForm("source", &h); err != nil {
+				if errors.Is(err, tui.ErrAborted) {
+					return nil, errors.New("plan cancelled — no host to probe")
+				}
+				return nil, err
+			}
+			return []target{{role: "source", cfg: h.SSHConfig()}}, nil
+		}
 		fmt.Fprintf(errOut, "No project file at %s. Create one like this:\n\n%s\n…or probe a host directly: rehost plan user@host\n\n", projectFile, project.Example())
 		return nil, fmt.Errorf("no project file at %s", projectFile)
 	}

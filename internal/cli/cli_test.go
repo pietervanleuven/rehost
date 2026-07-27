@@ -42,6 +42,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestPlanMissingProjectFile(t *testing.T) {
+	t.Setenv("NO_COLOR", "1") // non-interactive: example + error, never the host form
 	missing := filepath.Join(t.TempDir(), "migrate.yaml")
 	_, stderr, err := run(t, "plan", "-f", missing)
 	if err == nil {
