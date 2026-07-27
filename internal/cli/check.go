@@ -41,9 +41,7 @@ it is green. The exit status is non-zero while blockers remain.`,
 }
 
 func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
-	mode := opts.outputMode()
-	renderer := tui.New(mode, cmd.OutOrStdout())
-	interactive := mode == tui.ModeStyled
+	u := newUI(cmd, opts)
 
 	f, err := project.Load(opts.projectFile)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -56,17 +54,7 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		return fmt.Errorf("%s has no destination — rerun 'rehost init' or add a destination section", opts.projectFile)
 	}
 
-	var prompter ssh.Prompter
-	if interactive {
-		prompter = tui.HuhPrompter{}
-	} else {
-		prompter = tui.NonInteractivePrompter{}
-	}
-	progress := func(format string, a ...any) {
-		if mode != tui.ModeJSON {
-			fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", a...)
-		}
-	}
+	prompter, progress := u.prompter, u.progress
 
 	in := check.Input{Domain: f.Domain}
 
@@ -186,7 +174,7 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		return nil
 	}
 
-	if interactive {
+	if u.interactive {
 		// Sequential so prompts from two hosts never interleave.
 		for _, gather := range []func(context.Context) error{gatherSource, gatherDest} {
 			if err := gather(cmd.Context()); err != nil {
@@ -198,15 +186,15 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		g.Go(func() error { return gatherSource(ctx) })
 		g.Go(func() error { return gatherDest(ctx) })
 		if err := g.Wait(); err != nil {
-			if mode == tui.ModeJSON {
-				renderer.Error(err) // keep stdout machine-readable
+			if u.mode == tui.ModeJSON {
+				u.renderer.Error(err) // keep stdout machine-readable
 			}
 			return err
 		}
 	}
 
 	results := check.Run(in)
-	if err := renderer.CheckReport(results); err != nil {
+	if err := u.renderer.CheckReport(results); err != nil {
 		return err
 	}
 	if blockers, _ := check.Summarize(results); blockers > 0 {
