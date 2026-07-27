@@ -71,7 +71,7 @@ func Throughput(ctx context.Context, s db.Streamer, root string, excludes []stri
 		// sample cannot be trusted, however many bytes arrived.
 		return stats, nil
 	default:
-		return stats, fmt.Errorf("tar failed on the source (exit %d): %s", res.ExitCode, firstLine(res.Stderr))
+		return stats, fmt.Errorf("tar failed on the source (exit %d): %s", res.ExitCode, ssh.FirstLine(res.Stderr))
 	}
 }
 
@@ -99,17 +99,6 @@ func (c *cappedWriter) Write(p []byte) (int, error) {
 		return len(p), errCapReached
 	}
 	return len(p), nil
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if s == "" {
-		return "no error output"
-	}
-	return s
 }
 
 var _ io.Writer = (*cappedWriter)(nil)

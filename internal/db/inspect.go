@@ -112,15 +112,9 @@ func parseInspection(stdout string) *Inspection {
 // sanitizeReason keeps the first useful stderr line and hard-strips the
 // password should a future mysql build ever echo it.
 func sanitizeReason(stderr, password string) string {
-	reason := strings.TrimSpace(stderr)
-	if i := strings.IndexByte(reason, '\n'); i >= 0 {
-		reason = reason[:i]
-	}
+	reason := ssh.FirstLine(stderr)
 	if password != "" {
 		reason = strings.ReplaceAll(reason, password, "********")
-	}
-	if reason == "" {
-		reason = "mysql exited non-zero without a message"
 	}
 	return reason
 }
