@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -46,6 +47,11 @@ type Capabilities struct {
 func (c *Capabilities) Has(tool string) bool {
 	t, ok := c.Tools[tool]
 	return ok && t.Found
+}
+
+// ProbedTools returns the canonical display order of probed tools.
+func ProbedTools() []string {
+	return slices.Clone(probedTools)
 }
 
 // sentinel prefixes every probe output line so MOTD banners, profile echo
