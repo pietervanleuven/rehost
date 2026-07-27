@@ -151,6 +151,93 @@ func TestCredentialRules(t *testing.T) {
 	}
 }
 
+func TestDBConnectRules(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb", Method: "wp-cli"}},
+	}
+
+	if r := byID(t, Run(in), "db.connect"); r.Severity != Info {
+		t.Errorf("uninspected databases should be info, got %+v", r)
+	}
+
+	in.SourceDBs = map[string]*db.Inspection{
+		wpInstall.Root: {Connected: true, ServerVersion: "8.0.36", Tables: 12, SizeKB: 2048, Charset: "utf8mb4"},
+	}
+	r := byID(t, Run(in), "db.connect")
+	if r.Severity != Ok || !strings.Contains(r.Detail, "8.0.36") || !strings.Contains(r.Detail, "12 tables") {
+		t.Errorf("connected inspection should be ok with stats, got %+v", r)
+	}
+
+	in.SourceDBs = map[string]*db.Inspection{
+		wpInstall.Root: {Connected: false, Reason: "Access denied for user"},
+	}
+	r = byID(t, Run(in), "db.connect")
+	if r.Severity != Blocker || !strings.Contains(r.Detail, "Access denied") {
+		t.Errorf("failed connection must block with the reason, got %+v", r)
+	}
+
+	// Without extracted credentials there is no connect rule (the
+	// credentials rule already covers the failure).
+	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	if hasID(Run(in), "db.connect") {
+		t.Error("no credentials → no connect result")
+	}
+}
+
+func TestCharsetRules(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
+		SourceDBs:   map[string]*db.Inspection{wpInstall.Root: {Connected: true, UTF8MB4Tables: 0}},
+	}
+
+	// No utf8mb4 in use: no charset result.
+	if hasID(Run(in), "db.charset") {
+		t.Error("no utf8mb4 usage → no charset result")
+	}
+
+	in.SourceDBs[wpInstall.Root].UTF8MB4Tables = 9
+
+	// Modern MariaDB client on the destination: ok, using the Distrib number.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 15.1 Distrib 10.6.18-MariaDB, for Linux"}
+	r := byID(t, Run(in), "db.charset")
+	if r.Severity != Ok || !strings.Contains(r.Detail, "10.6.18") {
+		t.Errorf("modern destination should be ok naming its version, got %+v", r)
+	}
+
+	// Ancient destination client: blocker.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Blocker {
+		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
+	}
+
+	// Unparseable version: info, not a false pass.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: ""}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Info {
+		t.Errorf("unknown destination version should be info, got %+v", r)
+	}
+}
+
+func TestDiskIncludesDatabaseSize(t *testing.T) {
+	in := Input{
+		Source:        capsWith("", "rsync", "find"),
+		Destination:   capsWith("", "rsync"),
+		SourceSitesKB: 1000,
+		DestFreeKB:    1100,
+		SourceDBs:     map[string]*db.Inspection{"/a": {Connected: true, SizeKB: 500}},
+	}
+	// 1000 sites + 500 db = 1500 needed > 1100 free → blocker.
+	if r := byID(t, Run(in), "disk.space"); r.Severity != Blocker || !strings.Contains(r.Detail, "database") {
+		t.Errorf("db size must count toward disk need, got %+v", r)
+	}
+}
+
 func TestPHPRules(t *testing.T) {
 	base := Input{
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump"),
