@@ -208,10 +208,20 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		results = append(results, check.Result{ID: id, Title: title, Severity: sev, Detail: detail})
 	}
 	fsys := detect.NewSSHFS(client)
-	dumpDir := filepath.Join(filepath.Dir(projectFile), ".rehost", "dumps")
+	stateDir := filepath.Join(filepath.Dir(projectFile), ".rehost")
+	dumpDir := filepath.Join(stateDir, "dumps")
 
 	for _, inst := range installs {
 		site := inst.Root
+
+		// File manifest: the convergence bookkeeping a rerun diffs against.
+		if caps.Has("find") {
+			progress("source: building file manifest for %s…", site)
+			manifestResult(ctx, client, inst, stateDir, add)
+		} else {
+			add("dryrun.manifest:"+site, "File manifest", check.Warning,
+				site+": no find on the source — reruns cannot compute deltas")
+		}
 
 		// Throughput sample over the tar pipe the real migration would use.
 		if caps.Has("tar") {
@@ -256,6 +266,45 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		}
 	}
 	return results, nil
+}
+
+// manifestResult takes the site's file manifest, reports the delta against
+// the previous run when one exists, and persists the new manifest — the
+// proof that reruns are incremental.
+func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install, stateDir string, add func(id, title string, sev check.Severity, detail string)) {
+	site := inst.Root
+	id := "dryrun.manifest:" + site
+	m, err := transfer.TakeManifest(ctx, client, inst.Root, recipe.ExcludeSuggestionsFor(inst))
+	if err != nil {
+		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: %v", site, err))
+		return
+	}
+	manifestPath := filepath.Join(stateDir, "manifests", transfer.ManifestFilename(inst.Root))
+	prev, err := transfer.LoadManifest(manifestPath)
+	if err != nil {
+		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: previous manifest unreadable: %v", site, err))
+		prev = nil
+	}
+
+	detail := fmt.Sprintf("%s: %d files", site, len(m.Files))
+	if m.Complete {
+		detail += ", " + inventory.HumanKB(m.TotalBytes()/1024)
+	} else {
+		detail += " (paths only — no GNU find, deltas degrade to presence)"
+	}
+	switch {
+	case prev == nil:
+		detail += " — first manifest saved"
+	default:
+		d := transfer.Diff(prev, m)
+		detail += fmt.Sprintf(" — since last run: %d to transfer (+%d new, %d changed), %d removed, %d unchanged",
+			d.Total(), len(d.Added), len(d.Changed), len(d.Removed), d.Unchanged)
+	}
+	if err := transfer.SaveManifest(m, manifestPath); err != nil {
+		add(id, "File manifest", check.Warning, fmt.Sprintf("%s: saving manifest: %v", site, err))
+		return
+	}
+	add(id, "File manifest", check.Ok, detail)
 }
 
 // dumpToFile streams one verified dump to disk (0600 — it holds site data)
