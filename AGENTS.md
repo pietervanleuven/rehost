@@ -18,8 +18,40 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 ## Current State
 
-Planning stage. No code yet — Phase 0 (Go module, cobra skeleton, SSH layer) is next.
-When code lands, update the Commands and Architecture sections below.
+Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability probe,
+project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (init wizard,
+framework detection, check gate — see PLAN.md §6) is next.
+
+Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
+`github.com/placeholder/rehost` until the GitHub owner is decided — grep for
+`placeholder/rehost` to rename); secrets are never stored — migrate.yaml has no
+field that can hold one, passwords are prompted at runtime.
+
+## Commands
+
+- `make build` / `go build -o rehost ./cmd/rehost` — build the binary.
+- `make test` (`go test -race ./...`), `make vet`, `make lint` (golangci-lint),
+  `make snapshot` (goreleaser cross-build, publishes nothing).
+- `rehost plan [user@host[:port]]` — connect + capability report (the only real
+  command); `--json` for machine output, plain text on non-TTY. `init`, `check`,
+  `migrate`, `status`, `unlock` are stubs that exit non-zero.
+
+## Architecture (Phase 0)
+
+- `cmd/rehost` — thin main; version via goreleaser ldflags.
+- `internal/cli` — cobra commands; output mode (styled/plain/JSON) resolved from
+  `--json`/`--no-color`/`NO_COLOR`/TTY in one place (`options.outputMode`).
+- `internal/ssh` — `Config.Resolve()` honors `~/.ssh/config` (ProxyJump = honest
+  error); `Dial` auth chain agent → keys → password prompts via the `Prompter`
+  interface; known_hosts strict + TOFU (key mismatch always hard-fails); `Run`
+  (non-zero exit ≠ Go error); `Probe` = one sentinel-delimited POSIX script with
+  a per-command sequential fallback for restricted shells.
+- `internal/project` — migrate.yaml schema v1, strict decode (unknown/secret
+  fields rejected with guidance), atomic 0600 writes.
+- `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
+  `NonInteractivePrompter`; tui imports ssh, never the reverse.
+- `internal/detect`, `internal/db`, `internal/transfer`, `internal/dns` do not
+  exist yet — created in the phase that gives them content.
 
 ## Key Decisions (do not relitigate without the user)
 
