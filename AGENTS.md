@@ -29,8 +29,11 @@ exclusions, and `plan` persisting detected sites into the project file.
 
 Phase 1's exit criteria (correct results against a real Drupal and a real
 WordPress site on shared hosting, zero manual input beyond credentials) still
-need field validation. Phase 2 (dry-run collection: streamed DB dump, tar-pipe
-throughput test, file manifest for convergence — PLAN.md §6) is next.
+need field validation. Phase 2 (dry-run collection — PLAN.md §6) has started:
+`plan --dry-run` streams a footer-verified `mysqldump | gzip` per site into
+local `.rehost/dumps/` and samples tar-pipe throughput (capped). Remaining
+for Phase 2: the PHP dump-helper fallback, the file manifest for convergence
+bookkeeping, and the hidden state folder on the source.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -87,8 +90,12 @@ field that can hold one, passwords are prompted at runtime.
   rehost never changes DNS.
 - `internal/inventory` — per-site size picture over `du` (total, largest
   subdirectories, framework cache/backup dirs worth excluding), best-effort.
-- `internal/transfer` does not exist yet — created in the phase that gives it
-  content.
+- `internal/transfer` — tar-pipe throughput measurement (capped sample over
+  the pipe the real migration would use); the sync engine lands in Phase 3.
+- `internal/db` dump side: `Dump` streams `mysqldump | gzip` while gunzipping
+  in memory to verify the completion footer — the shell reports gzip's exit,
+  not mysqldump's, so the footer is the truncation guard. `ssh.Client.Stream`
+  is the streaming exec primitive (`Run` wraps it).
 
 ## Key Decisions (do not relitigate without the user)
 
