@@ -23,15 +23,36 @@ func wrapAborted(err error) error {
 	return err
 }
 
-// ProjectNameForm asks for the project name; *name is the pre-filled default
-// and receives the answer.
-func ProjectNameForm(name *string) error {
-	return wrapAborted(huh.NewInput().
-		Title("Project name").
-		Description("Identifies this migration in reports and history.").
-		Validate(requireNonEmpty("a project name")).
-		Value(name).
-		Run())
+// ProjectForm asks for the project name and (optionally) the site's primary
+// domain; the pointees are pre-filled defaults and receive the answers.
+func ProjectForm(name, domain *string) error {
+	return wrapAborted(huh.NewForm(huh.NewGroup(
+		huh.NewInput().
+			Title("Project name").
+			Description("Identifies this migration in reports and history.").
+			Validate(requireNonEmpty("a project name")).
+			Value(name),
+		huh.NewInput().
+			Title("Site domain (optional)").
+			Placeholder("example.com").
+			Description("Enables DNS checks and the cutover report. rehost never changes DNS.").
+			Validate(validateOptionalDomain).
+			Value(domain),
+	)).Run())
+}
+
+func validateOptionalDomain(s string) error {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, " \t/@:") {
+		return errors.New("enter a bare domain like example.com (no scheme, path or user)")
+	}
+	if !strings.Contains(s, ".") {
+		return errors.New("that does not look like a public domain")
+	}
+	return nil
 }
 
 // HostForm collects the connection details for one host. h is both the

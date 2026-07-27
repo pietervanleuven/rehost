@@ -12,6 +12,7 @@ import (
 	"github.com/placeholder/rehost/internal/check"
 	"github.com/placeholder/rehost/internal/db"
 	"github.com/placeholder/rehost/internal/detect"
+	"github.com/placeholder/rehost/internal/dns"
 	"github.com/placeholder/rehost/internal/project"
 	"github.com/placeholder/rehost/internal/recipe"
 	"github.com/placeholder/rehost/internal/ssh"
@@ -67,7 +68,19 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		}
 	}
 
-	in := check.Input{}
+	in := check.Input{Domain: f.Domain}
+
+	// The DNS snapshot needs no SSH — take it first, and don't let a
+	// resolver hiccup fail the gate (the rule reports the absence).
+	if f.Domain != "" {
+		progress("dns: looking up %s…", f.Domain)
+		snap, err := dns.NewClient().Snapshot(cmd.Context(), f.Domain)
+		if err != nil {
+			progress("dns: %v", err)
+		} else {
+			in.DNS = snap
+		}
+	}
 
 	gatherSource := func(ctx context.Context) error {
 		cfg := f.Source.SSHConfig()
@@ -100,6 +113,7 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 			roots = append(roots, inst.Root)
 		}
 		in.Source, in.Installs = caps, installs
+		in.SourceIPs = []string{client.RemoteIP()}
 		in.SourceSitesKB = check.DirsSizeKB(ctx, client, roots)
 
 		// Credentials stay in memory for this run only — never stored,
