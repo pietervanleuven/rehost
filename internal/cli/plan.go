@@ -254,16 +254,22 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		switch {
 		case creds == nil || creds.Name == "":
 			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": credentials not readable — cannot dump")
-		case !caps.Has("mysqldump"):
-			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": no mysqldump on the source (PHP fallback is a later phase)")
+		case !caps.Has("mysqldump") && !caps.Has("php"):
+			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": neither mysqldump nor php on the source — cannot dump")
 		default:
-			progress("source: dumping database %s…", creds.Name)
-			detail, ok := dumpToFile(ctx, client, creds, dumpDir)
+			// mysqldump when present; the PHP helper is the fallback for
+			// hosts that only have PHP.
+			dump, method := db.Dump, "mysqldump"
+			if !caps.Has("mysqldump") {
+				dump, method = db.DumpPHP, "php fallback"
+			}
+			progress("source: dumping database %s (%s)…", creds.Name, method)
+			detail, ok := dumpToFile(ctx, client, creds, dumpDir, dump)
 			sev := check.Ok
 			if !ok {
 				sev = check.Warning
 			}
-			add("dryrun.dump:"+site, "Database dump", sev, site+": "+detail)
+			add("dryrun.dump:"+site, "Database dump", sev, fmt.Sprintf("%s: %s (%s)", site, detail, method))
 		}
 	}
 
@@ -323,7 +329,8 @@ func manifestResult(ctx context.Context, client *ssh.Client, inst detect.Install
 // dumpToFile streams one verified dump to disk (0600 — it holds site data)
 // and describes the outcome. A failed verification removes the file so a
 // truncated dump can never be mistaken for a good one.
-func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, dumpDir string) (detail string, ok bool) {
+func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, dumpDir string,
+	dump func(context.Context, db.Streamer, *db.Credentials, io.Writer) (*db.DumpStats, error)) (detail string, ok bool) {
 	if err := os.MkdirAll(dumpDir, 0o700); err != nil {
 		return err.Error(), false
 	}
@@ -332,7 +339,7 @@ func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, 
 	if err != nil {
 		return err.Error(), false
 	}
-	stats, dumpErr := db.Dump(ctx, client, creds, f)
+	stats, dumpErr := dump(ctx, client, creds, f)
 	closeErr := f.Close()
 	if dumpErr != nil || closeErr != nil {
 		os.Remove(path)
