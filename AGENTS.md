@@ -22,9 +22,10 @@ Phase 0 (foundation) implemented: cobra skeleton, SSH layer with capability prob
 project file schema v1, CI + goreleaser (snapshot-only). Phase 1 (see PLAN.md §6)
 in progress: framework detection + recursive site discovery, the `init` wizard,
 the `check` compatibility gate (blockers-vs-warnings model in `internal/check`),
-and layered DB credential extraction (wp-cli/drush → PHP helper → regex) are
-done; next up are DB inspection (connect/dump feasibility, charset, size) and
-the DNS snapshot module.
+layered DB credential extraction (wp-cli/drush → PHP helper → regex), and DB
+inspection (connectivity, server version, size, charset/utf8mb4) are done;
+next up are the DNS snapshot module and `plan` writing its findings into the
+project file.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` (module path
 `github.com/placeholder/rehost` until the GitHub owner is decided — grep for
@@ -68,7 +69,9 @@ field that can hold one, passwords are prompted at runtime.
   echo-helper with sentinel → config regex; transport errors abort, tool
   failures fall through).
 - `internal/db` — `Credentials` (Password excluded from JSON, in-memory only)
-  + the `Extractor` seam recipes implement; inspection/dump land in Phase 2.
+  + the `Extractor` seam recipes implement; `Inspect` learns version, size,
+  charset and table counts in one round trip, feeding the password to mysql
+  via a defaults file on stdin (never argv/env); dump/import land in Phase 2.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
