@@ -7,6 +7,7 @@ package tui
 import (
 	"io"
 
+	"github.com/placeholder/rehost/internal/check"
 	"github.com/placeholder/rehost/internal/detect"
 	"github.com/placeholder/rehost/internal/ssh"
 )
@@ -31,6 +32,7 @@ type HostReport struct {
 // Renderer writes rehost reports in one output mode.
 type Renderer interface {
 	CapabilityReport(reports []HostReport) error
+	CheckReport(results []check.Result) error
 	Error(err error)
 }
 
