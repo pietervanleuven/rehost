@@ -50,6 +50,19 @@ func (c *Capabilities) Has(tool string) bool {
 	return ok && t.Found
 }
 
+// Summary is a compact one-line host descriptor (shell and PHP) for progress
+// output; the full picture is in the capability report.
+func (c *Capabilities) Summary() string {
+	shell := c.Shell
+	if shell == "" {
+		shell = "unknown shell"
+	}
+	if c.PHPVersion != "" {
+		return shell + ", PHP " + c.PHPVersion
+	}
+	return shell
+}
+
 // ProbedTools returns the canonical display order of probed tools.
 func ProbedTools() []string {
 	return slices.Clone(probedTools)
