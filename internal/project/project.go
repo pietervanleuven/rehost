@@ -35,6 +35,16 @@ type File struct {
 	Domain      string `yaml:"domain,omitempty"`
 	Source      Host   `yaml:"source"`
 	Destination *Host  `yaml:"destination,omitempty"`
+	// Sites is what plan detected on the source — written by plan, read by
+	// later commands. Rerunning plan refreshes it.
+	Sites []Site `yaml:"sites,omitempty"`
+}
+
+// Site is one detected website on the source host.
+type Site struct {
+	Framework string `yaml:"framework"`
+	Root      string `yaml:"root"`
+	Version   string `yaml:"version,omitempty"`
 }
 
 // Host describes how to reach one host. Zero values defer to ~/.ssh/config
