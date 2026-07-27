@@ -24,9 +24,10 @@ over SSH — never through a third-party cloud.
   changes — Terraform-style ergonomics for migrations.
 
 > **Status: early development.** The connection layer, capability probing,
-> framework detection, the `init` wizard, `rehost plan`, and the `rehost check`
-> compatibility gate work today. `migrate`, `status`, and `unlock` are
-> placeholders that exit with a "not implemented yet" message. See
+> framework detection, the `init` wizard, `rehost plan` (including `--dry-run`
+> collection: verified DB dumps, file manifests, throughput sampling), and the
+> `rehost check` compatibility gate work today. `migrate`, `status`, and
+> `unlock` are placeholders that exit with a "not implemented yet" message. See
 > [`docs/PLAN.md`](docs/PLAN.md) for the full spec and roadmap. There are no
 > packaged binaries yet — build from source.
 
@@ -66,20 +67,78 @@ Point `plan` at a host to see what it offers and what's installed on it:
 Example output:
 
 ```
-source: your-host
+source: u12345@your-host
   shell bash · Linux x86_64 · PHP 8.3.11 · home /home/u12345
   [ok]       rsync      /usr/bin/rsync  rsync 3.2.7
   [ok]       mysqldump  /usr/bin/mysqldump
+  [ok]       mysql      /usr/bin/mysql
   [ok]       tar        /bin/tar
   [ok]       gzip       /bin/gzip
+  [ok]       find       /usr/bin/find
   [missing]  wp
   [missing]  drush
   framework: wordpress 6.5.2  /home/u12345/public_html · config .../wp-config.php
+             1.2 GiB · largest: wp-content 890.6 MiB, wp-includes 59.6 MiB
+             suggested excludes: wp-content/cache 195.3 MiB
 ```
 
 Detected frameworks so far: **WordPress**, **Drupal** (7 and 8+, incl. multisite),
-and static sites. Detection scans common docroots (`public_html`, `www`,
-`htdocs`, …) relative to the SSH account's home.
+and static sites. Detection searches recursively from the SSH account's home
+(or from `--docroot`), handles multiple sites per account, and measures each
+site's size with framework-aware exclusion suggestions (caches, backup dumps,
+regenerable artifacts). When run from a project file, `plan` records the
+detected sites into its `sites:` section for later commands.
+
+### Compatibility gate
+
+With both hosts in the project file, `check` verifies the destination can
+actually run what the source hosts — before any migration work:
+
+```bash
+./rehost check
+```
+
+```
+Compatibility check
+
+  ✓ Websites on the source          1 wordpress
+  ✓ File transfer strategy          rsync on both hosts — incremental delta sync
+  ✓ Database credentials (source)   public_html: wpdb@localhost (via wp-cli)
+  ✓ Database connectivity (source)  MySQL 10.6.18-MariaDB · 57 tables · 210.3 MiB
+  ✓ PHP on the destination          PHP 8.2.20 ≥ 7.2 required by wordpress 6.5.2
+  ! PHP extensions                  recommended extension(s) missing: zip
+  ✓ Disk space on the destination   38.1 GiB free for 1.2 GiB of site data + 210.3 MiB of database
+
+Green with 1 warning(s) — migration can proceed.
+```
+
+The model is **blockers vs warnings**: a blocker (missing PHP extension a
+framework requires, unreachable database, not enough disk) means migration
+cannot work and `check` exits non-zero — fix it and rerun until green. It
+also snapshots DNS when the project file has a `domain:` and warns when MX
+records point at the source (rehost migrates web only — a naive DNS cutover
+would break mail). `check` changes nothing on either host.
+
+### Dry run
+
+`plan --dry-run` proves the collection pipeline without touching a
+destination:
+
+```bash
+./rehost plan --dry-run
+```
+
+- streams a **verified database dump** of every detected site into
+  `.rehost/dumps/` next to the project file — `mysqldump` when the host has
+  it, a PHP dump helper when it doesn't; a dump missing its completion
+  footer is deleted, never mistaken for a good one (you also get a free,
+  verified backup out of this)
+- takes a **file manifest** (size + mtime of every file) into
+  `.rehost/manifests/` — rerunning reports exactly what changed since the
+  last run, the same delta an incremental migration would transfer
+- samples the achievable **transfer rate** over the tar pipe a real
+  migration would use (capped, ~15 s per site)
+- records the run in `.rehost/history.jsonl` on the source host
 
 ### Output modes
 
@@ -89,7 +148,7 @@ and static sites. Detection scans common docroots (`public_html`, `www`,
 |---|---|---|
 | Styled | interactive terminal | colored table with ✓/✗ |
 | Plain | piped / non-TTY / `--no-color` / `NO_COLOR` | no ANSI, tab-aligned |
-| JSON | `--json` | versioned envelope for scripting |
+| JSON | `--json` | one versioned document per command (`rehost.plan-report.v2`, `rehost.check-report.v1`) |
 
 ```bash
 ./rehost plan user@host | cat            # plain
@@ -98,12 +157,13 @@ and static sites. Detection scans common docroots (`public_html`, `www`,
 
 ### Project file
 
-Instead of a positional target you can describe the migration in a
-`migrate.yaml` and run `./rehost plan -f migrate.yaml`:
+`./rehost init` walks you through creating a `migrate.yaml` (with a
+connectivity test per host); you can also write it by hand:
 
 ```yaml
 version: 1
 name: my-site
+domain: example.com            # optional; enables DNS checks + cutover report
 source:
   host: source.example.com     # or an alias from ~/.ssh/config
   user: user
@@ -112,6 +172,9 @@ destination:                   # optional until 'rehost check'
   host: dest.example.com
   user: user
 ```
+
+`plan` maintains a `sites:` section in this file with what it detected
+(framework, root, version) so later commands know what to migrate.
 
 **The project file never stores secrets.** It holds only connection info;
 passwords are prompted at runtime. A `password:` (or `secret:`/`token:`) key is
