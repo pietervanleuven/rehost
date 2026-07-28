@@ -9,7 +9,7 @@ package recipe
 import (
 	"regexp"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // All returns the default recipe set in Scan order: specific frameworks

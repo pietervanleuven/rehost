@@ -3,7 +3,7 @@ package recipe
 import (
 	"testing"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 func TestRequirementsFor(t *testing.T) {

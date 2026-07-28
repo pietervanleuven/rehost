@@ -5,9 +5,10 @@
 > Drafted 2026-07-27.
 
 Decision recorded here: **the domain is `rehost.sh`** (user decision, 2026-07-27). This
-effectively pins the `rehost` name from MARKETING.md §5. Still outstanding before anything
-goes live: trademark sanity check, GitHub owner/org name (module path still
-`placeholder/rehost`), and whether to also register `rehost.dev` as a defensive redirect.
+effectively pins the `rehost` name from MARKETING.md §5. The GitHub repo is
+`pietervanleuven/rehost` and the module path is `github.com/pietervanleuven/rehost`
+(decided 2026-07-28). Still outstanding before anything goes live: trademark sanity
+check, and whether to also register `rehost.dev` as a defensive redirect.
 
 ---
 
@@ -109,12 +110,12 @@ Brew-only is not viable, for four reasons:
 |---|---|---|
 | Install script | `curl -fsSL rehost.sh/install \| sh` | Launch. Script must: detect OS/arch, download from GitHub Releases, **verify checksum**, install to `~/.local/bin` or `/usr/local/bin` with clear messaging, support `REHOST_VERSION` pin. Readable at the same URL in a browser |
 | Direct download | GitHub Releases (darwin/linux/windows × amd64/arm64, `checksums.txt`) | Launch — this is the source of truth all other methods wrap |
-| Homebrew tap | `brew install <owner>/tap/rehost` | Launch (goreleaser generates the formula) |
-| `go install` | `go install github.com/<owner>/rehost/cmd/rehost@latest` | Launch — free, serves the Go crowd |
+| Homebrew tap | `brew install pietervanleuven/tap/rehost` | Launch (goreleaser generates the formula) |
+| `go install` | `go install github.com/pietervanleuven/rehost/cmd/rehost@latest` | Launch — free, serves the Go crowd |
 | homebrew-core, Scoop/winget, deb/rpm repos, AUR | — | Post-traction (each listing is a discovery channel, GTM §4.3, but each is a maintenance commitment) |
 
-Blocked on: **the GitHub owner decision** (`placeholder/rehost`). The install script,
-formula, and `go install` path all bake in the final URL — decide before the site ships.
+The GitHub owner is decided (`pietervanleuven/rehost`), so the install script, formula,
+and `go install` path can bake in their final URLs.
 
 Don't forget: signed checksums (minisign or cosign) and SBOM generation are cheap with
 goreleaser — worth doing from v0.1 so the "auditable" page has teeth. macOS Gatekeeper:
@@ -249,7 +250,7 @@ Security/trust:
 - [ ] DNSSEC on the domain; SPF/DKIM/DMARC even if send-only; CAA records
 
 Blockers to resolve before W1:
-- [ ] **GitHub owner/org name** — bakes into install script, tap, `go install`, module path (`placeholder/rehost` grep-rename)
+- [x] **GitHub owner/org name** — `pietervanleuven/rehost`; module path renamed 2026-07-28
 - [ ] Decide `rehost.dev` defensive registration
 - [ ] Reserve the name on package registries we'll use later (brew tap name, scoop bucket) once the owner exists
 

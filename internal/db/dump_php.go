@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // phpDumpScript dumps a MySQL database as gzipped SQL on stdout without

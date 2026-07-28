@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Streamer executes a remote command with streaming stdout; *ssh.Client

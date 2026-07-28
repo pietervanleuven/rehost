@@ -14,13 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/placeholder/rehost/internal/check"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/inventory"
-	"github.com/placeholder/rehost/internal/project"
-	"github.com/placeholder/rehost/internal/recipe"
-	"github.com/placeholder/rehost/internal/ssh"
-	"github.com/placeholder/rehost/internal/tui"
+	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/inventory"
+	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
 func newPlanCmd(opts *options) *cobra.Command {

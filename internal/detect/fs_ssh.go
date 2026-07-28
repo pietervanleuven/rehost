@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // maxReadBytes bounds ReadFile so a stray huge file cannot exhaust memory.

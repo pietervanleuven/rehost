@@ -46,10 +46,10 @@ destination-state policy is UNDECIDED (Key Decisions) and must be raised
 with the user before `migrate` semantics are coded.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
-will be `rehost.sh`; the local repo folder is `rehost-cli` (module path
-`github.com/placeholder/rehost` until the GitHub owner is decided — grep for
-`placeholder/rehost` to rename); secrets are never stored — migrate.yaml has no
-field that can hold one, passwords are prompted at runtime.
+will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
+path is `github.com/pietervanleuven/rehost` (the local checkout dir is still
+`rehost-cli` — harmless, git does not care); secrets are never stored —
+migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 
 ## Commands
 

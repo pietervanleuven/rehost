@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/project"
-	"github.com/placeholder/rehost/internal/tui"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
 func run(t *testing.T, args ...string) (stdout, stderr string, err error) {

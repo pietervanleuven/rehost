@@ -4,7 +4,7 @@ import (
 	"context"
 	"path"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // Static is the generic fallback: a directory served as a plain static site.

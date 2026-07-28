@@ -4,9 +4,9 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/placeholder/rehost/internal/db"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // ExtractCredentials reads the WordPress database credentials in layers:

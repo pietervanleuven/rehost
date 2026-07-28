@@ -3,7 +3,7 @@ package recipe
 import (
 	"strings"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // Requirements is what a detected install needs from the destination host.

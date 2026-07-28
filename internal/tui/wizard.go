@@ -8,7 +8,7 @@ import (
 
 	"charm.land/huh/v2"
 
-	"github.com/placeholder/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/project"
 )
 
 // ErrAborted is returned when the user cancels a wizard form (esc / ctrl+c),

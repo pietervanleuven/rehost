@@ -36,7 +36,7 @@ over SSH — never through a third-party cloud.
 Requires Go 1.26+.
 
 ```bash
-git clone <this-repo> && cd rehost-cli
+git clone https://github.com/pietervanleuven/rehost.git && cd rehost
 make build          # produces ./rehost
 ```
 

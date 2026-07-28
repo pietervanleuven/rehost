@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/placeholder/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/check"
 )
 
 // checkSchema versions the check report's JSON envelope.
