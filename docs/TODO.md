@@ -39,11 +39,11 @@ hosting and verify:
 
 ## 2. Open decisions — do not code around these
 
-- [ ] **Destination-state policy** (PLAN.md §7, design questions 4–5):
-      what `migrate` does with a non-empty destination docroot
-      (refuse / overwrite / backup-then-write), and whether convergent sync
-      deletes destination-only files. **Blocks Phase 3** — raise before
-      writing any `migrate` semantics.
+- [x] **Destination-state policy** (PLAN.md §7, design questions 4–5) —
+      decided 2026-07-29: refuse non-empty destination docroot unless an
+      explicit flag opts in (reruns onto a rehost-populated docroot exempt);
+      additive sync by default, destination-only files reported and deleted
+      only with `--delete`. Phase 3 is unblocked.
 - [x] **Module-path rename**: done — module path is
       `github.com/pietervanleuven/rehost`, matching the GitHub repo
       (`pietervanleuven/rehost`). Nothing else gets published/registered
@@ -51,7 +51,7 @@ hosting and verify:
 - [ ] Secret storage stays "prompt at runtime, never store" unless field
       validation shows real pain (PLAN.md §7).
 
-## 3. Phase 3 — migrate MVP (PLAN.md §6; blocked on decision 2.1)
+## 3. Phase 3 — migrate MVP (PLAN.md §6; unblocked — policy decided 2026-07-29)
 
 - [ ] Pre-flight = re-run `check` + DB reachable as `migrate`'s first step
 - [ ] File sync: rsync-over-SSH when both ends have it; manifest-driven
