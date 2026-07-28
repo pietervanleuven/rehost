@@ -187,3 +187,22 @@ func TestRecordQuotesHomeWithSpace(t *testing.T) {
 		t.Errorf("paths not shell-quoted:\n%s", cmd)
 	}
 }
+
+func TestMigratedSites(t *testing.T) {
+	entries := []Entry{
+		{Event: EventDryRun, Site: "/home/d/public_html"},  // not a migrate: ignored
+		{Event: EventMigrate, Site: "/home/d/public_html"}, // counts
+		{Event: EventMigrate, Site: "/home/d/sub"},         // counts
+		{Event: EventMigrate},                              // no site: ignored
+	}
+	got := MigratedSites(entries)
+	if len(got) != 2 || !got["/home/d/public_html"] || !got["/home/d/sub"] {
+		t.Errorf("MigratedSites = %v, want the two migrated docroots", got)
+	}
+	if got["/home/d/never"] {
+		t.Error("a docroot never migrated must not be reported")
+	}
+	if len(MigratedSites(nil)) != 0 {
+		t.Error("no entries should yield an empty set")
+	}
+}

@@ -40,6 +40,10 @@ type Renderer interface {
 	// document, never two.
 	PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error
 	CheckReport(results []check.Result) error
+	// MigratePreflight renders the migrate pre-flight report: the combined
+	// compatibility-gate and destination-state results, plus the honest-stop
+	// notice when it passed.
+	MigratePreflight(v MigratePreflightView) error
 	// HistoryReport renders the source run history, newest-first. An empty
 	// slice is the normal "no runs recorded yet" outcome, not an error.
 	HistoryReport(entries []state.Entry) error
