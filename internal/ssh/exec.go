@@ -64,6 +64,14 @@ func FirstLine(s string) string {
 // ctx closes the session (how a capped measurement stops a stream); the
 // bytes written before that remain valid.
 func (c *Client) Stream(ctx context.Context, cmd string, w io.Writer) (Result, error) {
+	return c.StreamPipe(ctx, cmd, nil, w)
+}
+
+// StreamPipe is Stream with the command's stdin fed from a reader — the
+// primitive for relays that pipe bytes *into* a remote process (a tar
+// extraction, a NUL-delimited file list). A nil stdin leaves the remote
+// stdin closed, which is exactly Stream.
+func (c *Client) StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w io.Writer) (Result, error) {
 	sess, err := c.conn.NewSession()
 	if err != nil {
 		return Result{}, fmt.Errorf("opening session on %s: %w", c.Config.Host, err)
@@ -71,6 +79,7 @@ func (c *Client) Stream(ctx context.Context, cmd string, w io.Writer) (Result, e
 	defer sess.Close()
 
 	var stderr bytes.Buffer
+	sess.Stdin = stdin
 	sess.Stdout = w
 	sess.Stderr = &stderr
 
