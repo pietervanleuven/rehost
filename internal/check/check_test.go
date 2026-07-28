@@ -376,6 +376,55 @@ func TestDNSRules(t *testing.T) {
 	}
 }
 
+func TestDNSTTLRule(t *testing.T) {
+	base := Input{Source: capsWith("", "rsync", "find"), Destination: capsWith("", "rsync")}
+
+	// No domain configured: not applicable, silent.
+	if hasID(Run(base), "dns.ttl") {
+		t.Error("no domain → dns.ttl should not appear")
+	}
+
+	// Domain set but snapshot missing (lookup failed): silent.
+	base.Domain = "example.com"
+	if hasID(Run(base), "dns.ttl") {
+		t.Error("missing snapshot → dns.ttl should not appear")
+	}
+
+	// High TTL on an A record: warn, naming the record and its TTL.
+	base.DNS = &dns.Snapshot{
+		Domain: "example.com",
+		Records: []dns.Record{
+			{Type: "A", Value: "192.0.2.10", TTL: 86400},
+			{Type: "MX", Value: "mail.example.com", TTL: 300, Priority: 10},
+		},
+	}
+	r := byID(t, Run(base), "dns.ttl")
+	if r.Severity != Warning {
+		t.Fatalf("TTL above 3600s should warn, got %+v", r)
+	}
+	if !strings.Contains(r.Detail, "192.0.2.10") || !strings.Contains(r.Detail, "86400") {
+		t.Errorf("warning should name the offending record and its TTL, got %q", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "300") {
+		t.Errorf("warning should suggest the ~300s target TTL, got %q", r.Detail)
+	}
+
+	// Low TTL: no warning (an Ok confirmation is fine).
+	base.DNS.Records = []dns.Record{
+		{Type: "A", Value: "192.0.2.10", TTL: 300},
+		{Type: "CNAME", Value: "example.com", TTL: 120},
+	}
+	if r := byID(t, Run(base), "dns.ttl"); r.Severity == Warning {
+		t.Errorf("low TTLs should not warn, got %+v", r)
+	}
+
+	// Snapshot present but no A/AAAA/CNAME records at all: nothing to advise.
+	base.DNS.Records = []dns.Record{{Type: "MX", Value: "mail.example.com", TTL: 86400, Priority: 10}}
+	if hasID(Run(base), "dns.ttl") {
+		t.Error("no A/AAAA/CNAME records → dns.ttl should not appear")
+	}
+}
+
 func TestStrictestMinPHPPicksHighest(t *testing.T) {
 	minPHP, needer := strictestMinPHP([]detect.Install{
 		{Framework: "wordpress", Version: "6.5"}, // 7.2

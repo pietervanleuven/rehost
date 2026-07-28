@@ -85,6 +85,7 @@ func Run(in Input) []Result {
 	checkExtensions(in, add)
 	checkDisk(in, add)
 	checkDNS(in, add)
+	checkDNSTTL(in, add)
 	return results
 }
 
@@ -441,6 +442,59 @@ func checkDNS(in Input, add addFunc) {
 			"MX points at the source — mail is hosted there and rehost migrates web only; plan mail before changing DNS")
 	default:
 		add("dns.mail", "Mail (MX)", Ok, "mail is hosted elsewhere — unaffected by this migration")
+	}
+}
+
+// ttlWarnAboveSeconds is the TTL that triggers "lower it now" advice — above
+// an hour, a DNS cutover on migration day takes too long to propagate.
+// ttlLowEnoughSeconds is what a cutover-ready TTL looks like.
+const (
+	ttlWarnAboveSeconds = 3600
+	ttlLowEnoughSeconds = 300
+)
+
+// checkDNSTTL advises lowering high TTLs well before migration day, so the
+// eventual cutover (repointing A/AAAA/CNAME at the destination) propagates
+// quickly instead of leaving stragglers on the source for hours. It never
+// blocks — TTL is advisory, not a migration blocker — and stays silent
+// unless a domain is configured, its DNS snapshot was read, and there is
+// something concrete to say (either a high TTL to flag or confirmation the
+// TTLs are already cutover-ready).
+func checkDNSTTL(in Input, add addFunc) {
+	const title = "DNS TTL (cutover readiness)"
+	if in.Domain == "" || in.DNS == nil {
+		return
+	}
+
+	var offending []string
+	var maxTTL uint32
+	var haveRecords bool
+	for _, r := range in.DNS.Records {
+		switch r.Type {
+		case "A", "AAAA", "CNAME":
+		default:
+			continue
+		}
+		haveRecords = true
+		if r.TTL > maxTTL {
+			maxTTL = r.TTL
+		}
+		if r.TTL > ttlWarnAboveSeconds {
+			offending = append(offending, fmt.Sprintf("%s %s (TTL %ds)", r.Type, r.Value, r.TTL))
+		}
+	}
+	if !haveRecords {
+		return
+	}
+
+	switch {
+	case len(offending) > 0:
+		add("dns.ttl", title, Warning,
+			fmt.Sprintf("%s above %ds — lower the TTL to ~%ds now, well before migration day, so the eventual DNS cutover propagates quickly",
+				strings.Join(offending, ", "), ttlWarnAboveSeconds, ttlLowEnoughSeconds))
+	case maxTTL <= ttlLowEnoughSeconds:
+		add("dns.ttl", title, Ok,
+			fmt.Sprintf("TTLs are already %ds or lower — ready for a fast cutover", ttlLowEnoughSeconds))
 	}
 }
 
