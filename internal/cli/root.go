@@ -46,7 +46,7 @@ The flow: init → check → plan → migrate → cutover report.`,
 		newStatusCmd(opts),
 		newHistoryCmd(opts),
 		newVersionCmd(info),
-		newStubCmd("migrate", "Execute the migration; idempotent, rerunning converges", 3),
+		newMigrateCmd(opts),
 		newStubCmd("unlock", "Clear maintenance mode on the source after a crash", 3),
 	)
 	return root
