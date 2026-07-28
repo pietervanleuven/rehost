@@ -64,7 +64,10 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   writes migrate.yaml.
 - `rehost check` — compatibility gate (PHP version/extensions per framework,
   DB tooling, transfer strategy, disk space); exits non-zero while blockers
-  remain. `migrate`, `status`, `unlock` are stubs that exit non-zero.
+  remain.
+- `rehost status` / `rehost history` — read-only flow summary and run log
+  from the source's `.rehost/history.jsonl` (empty history is a normal
+  exit-0 outcome). `migrate` and `unlock` are stubs that exit non-zero.
 
 ## Architecture
 

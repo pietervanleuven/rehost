@@ -63,8 +63,9 @@ hosting and verify:
       remotely when present)
 - [ ] Config rewrite: wp-config.php; Drupal settings.php incl.
       `trusted_host_patterns` + `hash_salt`; `drush cr` post-import
-- [ ] `status` / `history` commands over `.rehost/history.jsonl` (the state
-      package already reads it)
+- [x] `status` / `history` commands over `.rehost/history.jsonl`: read-only,
+      newest-first, styled/plain/JSON (`rehost.history.v1` /
+      `rehost.status.v1`), empty history = exit 0
 - [ ] Cutover report: DNS instructions with current TTLs, MX warning, SSL
       re-issue note, crontab listing
 - [ ] Post-migration checks: HTTP smoke test via hosts-override, file/table
@@ -85,8 +86,9 @@ hosting and verify:
 - [ ] `check` charset rule uses the destination mysql *client* version as a
       proxy for the server — replace with a real server check once migrate
       can create the destination database
-- [ ] DNS: no "lower your TTL now" advice yet; belongs in check output and
-      the cutover report
+- [ ] DNS "lower your TTL now" advice: done in `check` output (`dns.ttl`
+      warning above 3600s, ready-confirmation at ≤300s); still to add to
+      the cutover report once that exists (Phase 3)
 - [ ] TUI: reports are static text; the bubbletea live checklist from the
       PLAN is deferred until the output stabilizes
 - [ ] `.rehost/history.jsonl` on the source grows unbounded — rotation or
