@@ -28,7 +28,7 @@ func TestHelpListsAllCommands(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--help: %v", err)
 	}
-	for _, cmd := range []string{"init", "check", "plan", "migrate", "status", "unlock", "version"} {
+	for _, cmd := range []string{"init", "check", "plan", "migrate", "status", "history", "unlock", "version"} {
 		if !strings.Contains(stdout, cmd) {
 			t.Errorf("help output missing command %q", cmd)
 		}
@@ -182,7 +182,7 @@ func TestWriteSites(t *testing.T) {
 }
 
 func TestStubsFail(t *testing.T) {
-	for _, cmd := range []string{"migrate", "status", "unlock"} {
+	for _, cmd := range []string{"migrate", "unlock"} {
 		_, _, err := run(t, cmd)
 		if err == nil {
 			t.Errorf("stub %q should fail until implemented", cmd)
