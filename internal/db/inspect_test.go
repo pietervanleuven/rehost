@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 type fakeRunner struct {

@@ -9,8 +9,8 @@ package db
 import (
 	"context"
 
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Credentials is one site's database connection info as configured on the

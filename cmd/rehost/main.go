@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/placeholder/rehost/internal/cli"
+	"github.com/pietervanleuven/rehost/internal/cli"
 )
 
 // Set at build time via goreleaser ldflags.

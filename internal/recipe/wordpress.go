@@ -5,7 +5,7 @@ import (
 	"path"
 	"regexp"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // WordPress detects a WordPress install (single or multisite).

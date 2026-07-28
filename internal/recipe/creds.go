@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/placeholder/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/db"
 )
 
 // credSentinel prefixes the JSON payload the PHP echo-helpers print, so

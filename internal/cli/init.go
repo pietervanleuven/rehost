@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/placeholder/rehost/internal/project"
-	"github.com/placeholder/rehost/internal/ssh"
-	"github.com/placeholder/rehost/internal/tui"
+	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
 func newInitCmd(opts *options) *cobra.Command {

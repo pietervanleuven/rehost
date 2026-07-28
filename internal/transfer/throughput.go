@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/placeholder/rehost/internal/db"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // ThroughputStats is what a capped measurement observed.

@@ -44,9 +44,10 @@ hosting and verify:
       (refuse / overwrite / backup-then-write), and whether convergent sync
       deletes destination-only files. **Blocks Phase 3** — raise before
       writing any `migrate` semantics.
-- [ ] **Name + GitHub owner**: module path is `github.com/placeholder/rehost`
-      until decided (grep `placeholder/rehost` to rename). Nothing gets
-      published/registered under any name without checking (AGENTS.md).
+- [x] **Module-path rename**: done — module path is
+      `github.com/pietervanleuven/rehost`, matching the GitHub repo
+      (`pietervanleuven/rehost`). Nothing else gets published/registered
+      under any name without checking (AGENTS.md).
 - [ ] Secret storage stays "prompt at runtime, never store" unless field
       validation shows real pain (PLAN.md §7).
 
@@ -72,22 +73,12 @@ hosting and verify:
 
 ## 4. Known gaps & deferred polish (fine to ship Phase 3 without)
 
-- [x] Give the remaining dry-run collectors the manifest-grade rigor pass
-      from 79c397c (exit-code semantics, odd filenames, partial output):
-      inventory now lists NUL-first (`du -sk -0`) with a newline fallback,
-      keeps paths byte-exact, includes dot-directories in the breakdown,
-      and drops output from a du killed mid-run; Throughput tolerates
-      tar's exit 1 noise but fails on anything worse regardless of bytes
-      received.
 - [ ] Manifest has no checksums yet — size+mtime only (rsync's quick check);
       optional checksum mode for paranoid mode later
 - [ ] Drupal multisite: credentials/dump/manifest cover the default site
       only; per-subsite `--uri` and per-site databases unhandled
 - [ ] PHP dump fallback skips views and does not dump routines/triggers
       (the mysqldump path does) — document or close the gap
-- [x] `plan --dry-run --json` emits two JSON documents (capability +
-      dry-run) — merged into the single `rehost.plan-report.v2` envelope
-      with an optional `dry_run` section
 - [ ] `plan` rewriting migrate.yaml drops hand-written YAML comments
       (yaml.v3 re-encode) — comment-preserving writes or a separate state
       file

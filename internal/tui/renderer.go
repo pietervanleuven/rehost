@@ -7,10 +7,10 @@ package tui
 import (
 	"io"
 
-	"github.com/placeholder/rehost/internal/check"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/inventory"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/inventory"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Mode selects the output format.

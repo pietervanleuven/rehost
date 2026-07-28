@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/placeholder/rehost/internal/ssh"
-	"github.com/placeholder/rehost/internal/tui"
+	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
 // ui bundles the per-command presentation state every host-touching command

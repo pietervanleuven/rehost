@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 func TestDumpPHPVerified(t *testing.T) {
