@@ -35,6 +35,9 @@ hosting and verify:
       restricted/busybox host if one is available
 - [ ] DNS snapshot + mail warning against the real domain (add `domain:` to
       migrate.yaml)
+- [ ] `migrate` file sync between two real hosts: files land byte-exact,
+      second run is a ~zero delta, refusal/rerun-exemption behave, and the
+      destination history record appears
 - [ ] File issues found in the field here as new checkboxes
 
 ## 2. Open decisions — do not code around these
@@ -53,10 +56,14 @@ hosting and verify:
 
 ## 3. Phase 3 — migrate MVP (PLAN.md §6; unblocked — policy decided 2026-07-29)
 
-- [ ] Pre-flight = re-run `check` + DB reachable as `migrate`'s first step
-- [ ] File sync: manifest-driven delta over a tar-pipe relay through the
-      orchestrator (topology decided 2026-07-29, PLAN.md §5); SFTP last
-      resort; direct host-to-host rsync deferred — all incremental on rerun
+- [x] Pre-flight = re-run `check` + source DB reachable + destination-state
+      policy (refuse non-empty docroot unless rehost-created per destination
+      history, or `--onto-existing`)
+- [x] File sync: manifest-driven delta over a tar-pipe relay through the
+      orchestrator (topology decided 2026-07-29, PLAN.md §5), gzip/NUL-list
+      capability-gated, opt-in `--delete` with path-safety guards,
+      EventMigrate history on both hosts; SFTP last resort still open, direct
+      host-to-host rsync deferred — incremental on rerun
 - [ ] Maintenance mode on the source around final dump + delta pass;
       crash-safe cleanup; `unlock` recovery command
 - [ ] DB import on destination (charset-correct) + serialized-safe
