@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/placeholder/rehost/internal/check"
-	"github.com/placeholder/rehost/internal/db"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/inventory"
-	"github.com/placeholder/rehost/internal/recipe"
-	"github.com/placeholder/rehost/internal/ssh"
-	"github.com/placeholder/rehost/internal/state"
-	"github.com/placeholder/rehost/internal/transfer"
+	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/inventory"
+	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/state"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 )
 
 // collectDryRun proves the collection pipeline for each detected site: a

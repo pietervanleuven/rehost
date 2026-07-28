@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // fakeRunner maps command strings to canned results.

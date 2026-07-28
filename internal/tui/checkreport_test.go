@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/check"
 )
 
 var checkResults = []check.Result{

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Inspection is what could be learned about one site's database from the

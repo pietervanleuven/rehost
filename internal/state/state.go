@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // historyFile is the append-only run log inside Dir, one JSON object per line.

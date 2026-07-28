@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/check"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 func sampleReports() []HostReport {

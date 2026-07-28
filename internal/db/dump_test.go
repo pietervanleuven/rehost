@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // fakeStreamer writes canned payload bytes to the stream writer.

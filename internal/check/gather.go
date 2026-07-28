@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // runner is the slice of ssh.Client the gatherers need; tests use a fake.

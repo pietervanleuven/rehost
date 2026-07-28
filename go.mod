@@ -1,4 +1,4 @@
-module github.com/placeholder/rehost
+module github.com/pietervanleuven/rehost
 
 go 1.26.2
 
