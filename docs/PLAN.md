@@ -204,7 +204,12 @@ through, not a state machine you can wedge.
   - typical flow: first run does the bulk copy while the site stays live; a rerun near cutover moves only the delta
   - maintenance mode on source (framework-native: `.maintenance` / `drush smm` / `artisan down`) around the final DB dump + delta pass, auto-disabled after — with crash-safe cleanup and a recovery command
   - dump DB on source (correct charset), transfer, import on destination
-  - file sync (rsync semantics when available on both ends; tar-pipe or SFTP fallback with mtime/size comparison), with exclusions
+  - file sync with rsync *semantics* (mtime/size delta, exclusions). Topology decided
+    2026-07-29: a **manifest-driven tar-pipe relay through the orchestrator's machine** —
+    rehost holds SSH connections to both hosts and pipes tar source→destination; works
+    wherever tar+gzip exist and never assumes the hosts can reach each other. Direct
+    host-to-host rsync (needs source→destination SSH, rare on shared hosting) is a
+    deferred optimization; SFTP stays the last resort for tar-less hosts
   - serialized-safe URL/path search-replace
   - config rewrite on destination with new credentials
   - post-checks + migration stats (duration, sizes, warnings) recorded in a hidden state folder on the source host (per IDEA.md) and locally
@@ -269,7 +274,7 @@ through, not a state machine you can wedge.
 ### Phase 3 — Migrate MVP (weeks 5–7)
 **Goal: end-to-end migration of a Drupal site and a WordPress site between two real shared hosts.**
 - Final pre-flight (re-run `check` + DB reachable, credentials valid) as `migrate`'s first step
-- File sync: rsync-over-SSH when available both ends; manifest-driven delta via tar-pipe else; SFTP as last resort — all paths incremental on rerun
+- File sync: manifest-driven delta via tar-pipe relay through the orchestrator (topology decision, §5); SFTP as last resort; direct rsync deferred — all paths incremental on rerun
 - Maintenance-mode orchestration: enable on source before final DB dump + delta pass, disable after; `defer`-style cleanup on any exit path + `migrate-cli unlock` recovery command
 - DB import on destination (charset-correct), serialized-safe search-replace (port `wp search-replace` semantics; use `wp`/`drush` remotely when present)
 - Config rewrite with destination credentials (wp-config.php; Drupal settings.php incl. `trusted_host_patterns` + `hash_salt`); Drupal post-import: `drush cr`

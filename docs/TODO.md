@@ -54,8 +54,9 @@ hosting and verify:
 ## 3. Phase 3 — migrate MVP (PLAN.md §6; unblocked — policy decided 2026-07-29)
 
 - [ ] Pre-flight = re-run `check` + DB reachable as `migrate`'s first step
-- [ ] File sync: rsync-over-SSH when both ends have it; manifest-driven
-      delta via tar-pipe else; SFTP last resort — all incremental on rerun
+- [ ] File sync: manifest-driven delta over a tar-pipe relay through the
+      orchestrator (topology decided 2026-07-29, PLAN.md §5); SFTP last
+      resort; direct host-to-host rsync deferred — all incremental on rerun
 - [ ] Maintenance mode on the source around final dump + delta pass;
       crash-safe cleanup; `unlock` recovery command
 - [ ] DB import on destination (charset-correct) + serialized-safe
