@@ -42,8 +42,13 @@ type Renderer interface {
 	CheckReport(results []check.Result) error
 	// MigratePreflight renders the migrate pre-flight report: the combined
 	// compatibility-gate and destination-state results, plus the honest-stop
-	// notice when it passed.
+	// notice when it passed. Used for a refusal/blocker outcome, where nothing
+	// was synced.
 	MigratePreflight(v MigratePreflightView) error
+	// MigrateReport renders the combined migrate report after a green
+	// pre-flight: the pre-flight section plus per-site file-sync results and the
+	// honest-stop notice that the migration is not complete yet.
+	MigrateReport(v MigrateReportView) error
 	// HistoryReport renders the source run history, newest-first. An empty
 	// slice is the normal "no runs recorded yet" outcome, not an error.
 	HistoryReport(entries []state.Entry) error
