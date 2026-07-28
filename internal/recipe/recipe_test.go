@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // tree writes a set of files (relative POSIX paths → contents) under a fresh

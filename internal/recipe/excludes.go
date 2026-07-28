@@ -1,6 +1,6 @@
 package recipe
 
-import "github.com/placeholder/rehost/internal/detect"
+import "github.com/pietervanleuven/rehost/internal/detect"
 
 // genericExcludes never belong in a migration regardless of framework.
 var genericExcludes = []string{".git", "node_modules"}

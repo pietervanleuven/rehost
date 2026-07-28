@@ -5,7 +5,7 @@ import (
 	"path"
 	"regexp"
 
-	"github.com/placeholder/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // Drupal detects Drupal 7 and 8+ (including multisite).

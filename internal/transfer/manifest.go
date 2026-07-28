@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // FileEntry is one file of a manifest. Size/MTime are zero in a degraded

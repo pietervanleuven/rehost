@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/rehost/internal/db"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/dns"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/dns"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // capsWith builds Capabilities with the named tools present.

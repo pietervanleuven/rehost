@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/placeholder/rehost/internal/db"
-	"github.com/placeholder/rehost/internal/detect"
-	"github.com/placeholder/rehost/internal/dns"
-	"github.com/placeholder/rehost/internal/inventory"
-	"github.com/placeholder/rehost/internal/recipe"
-	"github.com/placeholder/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/dns"
+	"github.com/pietervanleuven/rehost/internal/inventory"
+	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Severity classifies one result.
