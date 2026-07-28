@@ -40,10 +40,13 @@ history in `.rehost/history.jsonl` on the source.
 
 Both phases still need field validation against a real Drupal and a real
 WordPress site on shared hosting (Phase 1/2 exit criteria). Phase 3
-(migrate MVP: file sync, maintenance mode, DB import + search-replace,
-config rewrite, cutover report — PLAN.md §6) is next and is unblocked:
-the destination-state policy was decided 2026-07-29 (Key Decisions).
-Read-only `status`/`history` already exist; `migrate`/`unlock` are stubs.
+(PLAN.md §6) is underway: `migrate` runs a real pre-flight (check gate +
+source-DB reachability + destination-state policy) and, when green,
+converges each site's files via the tar-pipe relay sync engine
+(`internal/transfer.Sync`), recording EventMigrate history on both hosts —
+then exits non-zero (`errMigrateIncomplete`) because maintenance mode,
+DB import + search-replace, config rewrite and the cutover report are
+still unbuilt. `unlock` is the remaining stub.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
@@ -67,7 +70,10 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   remain.
 - `rehost status` / `rehost history` — read-only flow summary and run log
   from the source's `.rehost/history.jsonl` (empty history is a normal
-  exit-0 outcome). `migrate` and `unlock` are stubs that exit non-zero.
+  exit-0 outcome).
+- `rehost migrate` — pre-flight (check gate + destination-state policy;
+  `--onto-existing`, `--delete`) then file sync per site; exits non-zero
+  until the DB/config/cutover steps exist. `unlock` is a stub.
 
 ## Architecture
 
@@ -107,7 +113,9 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 - `internal/transfer` — tar-pipe throughput measurement (capped sample over
   the pipe the real migration would use) + file manifests (size/mtime via
   GNU `find -printf`, paths-only degradation, pure `Diff`, atomic gzipped
-  persistence); the sync engine lands in Phase 3.
+  persistence) + `Sync`, the manifest-driven tar-pipe relay (delta-only
+  transfer through the orchestrator, opt-in deletions with path-safety
+  guards, post-sync destination manifest as the convergence proof).
 - `internal/db` dump side: `Dump` streams `mysqldump | gzip` while gunzipping
   in memory to verify the completion footer — the shell reports gzip's exit,
   not mysqldump's, so the footer is the truncation guard. `DumpPHP` is the
