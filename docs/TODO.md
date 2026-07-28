@@ -78,8 +78,10 @@ hosting and verify:
       optional checksum mode for paranoid mode later
 - [ ] Drupal multisite: credentials/dump/manifest cover the default site
       only; per-subsite `--uri` and per-site databases unhandled
-- [ ] PHP dump fallback skips views and does not dump routines/triggers
-      (the mysqldump path does) — document or close the gap
+- [x] PHP dump fallback now dumps views (after base tables), triggers and
+      routines for parity with the mysqldump path (`--routines --triggers`;
+      neither path dumps events); missing privileges degrade to
+      `-- rehost: skipped …` comments, footer still means complete
 - [ ] `plan` rewriting migrate.yaml drops hand-written YAML comments
       (yaml.v3 re-encode) — comment-preserving writes or a separate state
       file

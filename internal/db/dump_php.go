@@ -16,8 +16,13 @@ import (
 // password never enters argv or the environment), connects via mysqli or
 // PDO (WordPress hosts have mysqli, Drupal hosts pdo_mysql), and writes a
 // dump the Go verifier accepts: DROP + SHOW CREATE TABLE + batched INSERTs
-// per base table (views are skipped), with the "-- Dump completed" footer
-// only after every table succeeded. Strings are escaped by the driver,
+// per base table, then — for parity with the mysqldump path's
+// --routines --triggers (mysqldump also dumps views by default; it does not
+// dump events unless asked, so neither do we) — views (after all base tables
+// so their dependencies exist), triggers and stored routines, each guarded so
+// a missing privilege degrades to a "-- skipped ..." comment instead of
+// aborting. The "-- Dump completed" footer is written only after every
+// attempted object succeeded. Strings are escaped by the driver,
 // non-UTF-8 values become 0x-hex literals, NULL stays NULL. Written for
 // `php -r`, so there is no opening <?php tag; backticks are built with
 // chr(96) so the script can live in a Go raw string literal.
@@ -128,10 +133,18 @@ try {
     throw new Exception('cannot open gzip stream on stdout');
   }
   $tick = chr(96);
+  $bt = function ($id) use ($tick) {
+    return $tick . str_replace($tick, $tick . $tick, (string)$id) . $tick;
+  };
+  // A skip note: a single-line SQL comment (newlines flattened so the "--"
+  // can never leak into executable SQL). Degradation lands here.
+  $note = function ($msg) use ($gz) {
+    gzwrite($gz, "\n-- " . str_replace(array("\r", "\n"), ' ', (string)$msg) . "\n");
+  };
   gzwrite($gz, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n");
   foreach ($all("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'") as $row) {
     $table = $row[0];
-    $bq = $tick . str_replace($tick, $tick . $tick, $table) . $tick;
+    $bq = $bt($table);
     $create = $all('SHOW CREATE TABLE ' . $bq);
     if (!isset($create[0][1])) {
       throw new Exception('SHOW CREATE TABLE returned nothing for ' . $table);
@@ -157,6 +170,84 @@ try {
     });
     if ($rows > 0) {
       gzwrite($gz, $prefix . $batch . ";\n");
+    }
+  }
+  // Views, dumped after every base table so the columns they read already
+  // exist — a plain CREATE VIEW then suffices (no placeholder-table dance).
+  // SHOW CREATE VIEW returns the statement in column 1.
+  try {
+    $views = $all("SHOW FULL TABLES WHERE Table_type = 'VIEW'");
+  } catch (Exception $e) {
+    $views = array();
+    $note('rehost: skipped views: ' . $e->getMessage());
+  }
+  foreach ($views as $row) {
+    $view = $row[0];
+    $bq = $bt($view);
+    try {
+      $create = $all('SHOW CREATE VIEW ' . $bq);
+    } catch (Exception $e) {
+      $note('rehost: skipped view ' . $view . ': ' . $e->getMessage());
+      continue;
+    }
+    if (!isset($create[0][1]) || $create[0][1] === null || $create[0][1] === '') {
+      $note('rehost: skipped view ' . $view . ': SHOW CREATE VIEW returned no definition (insufficient privileges?)');
+      continue;
+    }
+    gzwrite($gz, "\nDROP VIEW IF EXISTS " . $bq . ";\n");
+    gzwrite($gz, $create[0][1] . ";\n");
+  }
+  // Triggers. SHOW TRIGGERS lists the name in column 0; SHOW CREATE TRIGGER
+  // returns the full statement in column 2. Bodies contain semicolons, so
+  // each is wrapped in a DELIMITER block like mysqldump emits.
+  try {
+    $triggers = $all('SHOW TRIGGERS');
+  } catch (Exception $e) {
+    $triggers = array();
+    $note('rehost: skipped triggers: ' . $e->getMessage());
+  }
+  foreach ($triggers as $row) {
+    $trigger = $row[0];
+    $bq = $bt($trigger);
+    try {
+      $create = $all('SHOW CREATE TRIGGER ' . $bq);
+    } catch (Exception $e) {
+      $note('rehost: skipped trigger ' . $trigger . ': ' . $e->getMessage());
+      continue;
+    }
+    if (!isset($create[0][2]) || $create[0][2] === null || $create[0][2] === '') {
+      $note('rehost: skipped trigger ' . $trigger . ': SHOW CREATE TRIGGER returned no definition (insufficient privileges?)');
+      continue;
+    }
+    gzwrite($gz, "\nDROP TRIGGER IF EXISTS " . $bq . ";\n");
+    gzwrite($gz, "DELIMITER ;;\n" . $create[0][2] . ";;\nDELIMITER ;\n");
+  }
+  // Stored routines (procedures and functions) — parity with mysqldump
+  // --routines. SHOW <kind> STATUS lists the name in column 1; SHOW CREATE
+  // returns the body in column 2, or NULL when the account cannot read it
+  // (no SELECT on mysql.proc / no definer rights), which degrades to a note.
+  foreach (array('PROCEDURE', 'FUNCTION') as $kind) {
+    try {
+      $routines = $all("SHOW " . $kind . " STATUS WHERE Db = DATABASE()");
+    } catch (Exception $e) {
+      $note('rehost: skipped ' . $kind . 's: ' . $e->getMessage());
+      continue;
+    }
+    foreach ($routines as $row) {
+      $name = $row[1];
+      $bq = $bt($name);
+      try {
+        $create = $all('SHOW CREATE ' . $kind . ' ' . $bq);
+      } catch (Exception $e) {
+        $note('rehost: skipped ' . $kind . ' ' . $name . ': ' . $e->getMessage());
+        continue;
+      }
+      if (!isset($create[0][2]) || $create[0][2] === null || $create[0][2] === '') {
+        $note('rehost: skipped ' . $kind . ' ' . $name . ': SHOW CREATE ' . $kind . ' returned no definition (insufficient privileges?)');
+        continue;
+      }
+      gzwrite($gz, "\nDROP " . $kind . " IF EXISTS " . $bq . ";\n");
+      gzwrite($gz, "DELIMITER ;;\n" . $create[0][2] . ";;\nDELIMITER ;\n");
     }
   }
   gzwrite($gz, "\n-- Dump completed on " . gmdate('Y-m-d H:i:s') . " GMT\n");
