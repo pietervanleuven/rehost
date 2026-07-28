@@ -11,6 +11,7 @@ import (
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/state"
 )
 
 // Mode selects the output format.
@@ -39,6 +40,11 @@ type Renderer interface {
 	// document, never two.
 	PlanReport(reports []HostReport, dryRun []check.Result, ranDryRun bool) error
 	CheckReport(results []check.Result) error
+	// HistoryReport renders the source run history, newest-first. An empty
+	// slice is the normal "no runs recorded yet" outcome, not an error.
+	HistoryReport(entries []state.Entry) error
+	// StatusReport renders the "where am I in the flow" summary.
+	StatusReport(v StatusView) error
 	Error(err error)
 }
 
