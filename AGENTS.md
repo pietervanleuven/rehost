@@ -41,9 +41,9 @@ history in `.rehost/history.jsonl` on the source.
 Both phases still need field validation against a real Drupal and a real
 WordPress site on shared hosting (Phase 1/2 exit criteria). Phase 3
 (migrate MVP: file sync, maintenance mode, DB import + search-replace,
-config rewrite, cutover report — PLAN.md §6) is next; note the
-destination-state policy is UNDECIDED (Key Decisions) and must be raised
-with the user before `migrate` semantics are coded.
+config rewrite, cutover report — PLAN.md §6) is next and is unblocked:
+the destination-state policy was decided 2026-07-29 (Key Decisions).
+Read-only `status`/`history` already exist; `migrate`/`unlock` are stubs.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
@@ -141,11 +141,13 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   or execution without the user.
 - **MVP scope guard:** the tool migrates site files + database. Mail, DNS, SSL, cron are
   a *report with instructions*, not migration targets.
-- **Destination-state policy: UNDECIDED** (PLAN.md §7, design questions 4–5). What
-  `migrate` does with a non-empty destination docroot (refuse/overwrite/backup, and whether
-  convergent sync deletes destination-only files) and how a half-failed import onto an
-  existing destination site is mitigated are open questions — do not assume an answer in
-  code or docs; raise with the user when a task touches `migrate` semantics.
+- **Destination-state policy (decided 2026-07-29, PLAN.md §7 questions 4–5):** `migrate`
+  refuses a non-empty destination docroot by default; an explicit flag (working name
+  `--onto-existing`) opts into converging onto it, with reruns onto a rehost-populated
+  docroot exempt from the refusal (idempotency). File sync is additive by default —
+  destination-only files are reported, deleted only with an rsync-style `--delete` flag.
+  Refuse-by-default is also the Phase 3 mitigation for half-failed imports; destination
+  snapshots before import are post-MVP polish.
 - **Trust guard (MARKETING.md §1):** the core CLI stays open source, free, and local
   forever. Never add a cloud data plane, phone-home/telemetry by default, nagging, or
   gates on single-site migration features — monetization lives *around* the tool

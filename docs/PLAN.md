@@ -336,17 +336,21 @@ Open questions to settle during Phase 0–1:
 2. Store secrets in the project file, OS keychain, or prompt-per-run? (Lean: reference-only in file; keychain via `zalando/go-keyring` as an option.)
 3. Name check: "migrate-cli" collides with golang-migrate's `migrate` CLI (DB schema migrations) — consider a distinct binary name before public release.
 
-Open **design** questions to settle before Phase 3 (`migrate` semantics) — important, currently unanswered:
+Design questions 4–5 — **DECIDED (user decision, 2026-07-29)**, the destination-state policy
+that unblocks Phase 3:
 
-4. **What state is the destination allowed to be in?** The plan covers verify-don't-create
-   for databases, but not what `migrate` does when the destination docroot is *not empty* —
-   refuse? overwrite? back up first? This matters for the agency audience (re-running
-   migrations, or landing on a host with a placeholder/existing site) and interacts directly
-   with the idempotency principle: "make destination match source" implies deleting
-   destination-only files — does it? Needs an explicit policy (e.g. refuse non-empty docroot
-   unless `--force`; define whether sync is additive or truly convergent with deletions).
-5. **Half-failed migrate onto a non-empty destination.** Rollback is deferred to post-1.0,
-   which is fine for fresh destinations, but the failure mode "import destroyed the existing
-   destination site, then the tool crashed" has no answer. Decide a cheap Phase 3 mitigation:
-   refuse non-empty destinations without `--force`, and/or snapshot the destination DB
-   (and optionally docroot) before import so there is something to restore by hand.
+4. **What state is the destination allowed to be in?** `migrate` **refuses a non-empty
+   destination docroot by default** with a clear message; an explicit opt-in flag (working
+   name `--onto-existing`, final name at implementation time) converges onto it. Exception:
+   a docroot that a previous `rehost migrate` populated is not "non-empty" for this rule —
+   reruns must stay friction-free for idempotency (detect via the run history / a marker,
+   design at implementation time). Sync is **additive by default**: destination-only files
+   inside the docroot are *reported*, not deleted; an rsync-style **`--delete`** flag enables
+   true mirror convergence (deletions listed before acting). Honest consequence, accepted:
+   a default rerun is convergent for everything except deletions — the cutover report must
+   list surviving destination-only files so nothing lingers silently.
+5. **Half-failed migrate onto a non-empty destination.** The refuse-by-default policy above
+   is the cheap Phase 3 mitigation: fresh docroots are the normal path, and converging onto
+   an existing site requires the explicit flag, at which point the pre-flight warns that
+   rollback does not exist yet. Snapshotting the destination DB (and optionally docroot)
+   before import remains desirable polish — post-MVP, disk quotas permitting.
