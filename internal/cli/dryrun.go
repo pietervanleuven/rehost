@@ -97,7 +97,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 	// Leave a trace in the source's hidden state folder: the history the
 	// status/history commands will read in Phase 3.
 	_, warnings := check.Summarize(results)
-	entry := state.Entry{Event: "dry-run", Details: map[string]string{
+	entry := state.Entry{Event: state.EventDryRun, Details: map[string]string{
 		"sites":    strconv.Itoa(len(installs)),
 		"warnings": strconv.Itoa(warnings),
 	}}

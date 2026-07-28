@@ -182,7 +182,7 @@ func TestWriteSites(t *testing.T) {
 }
 
 func TestStubsFail(t *testing.T) {
-	for _, cmd := range []string{"migrate", "unlock"} {
+	for _, cmd := range []string{"unlock"} {
 		_, _, err := run(t, cmd)
 		if err == nil {
 			t.Errorf("stub %q should fail until implemented", cmd)

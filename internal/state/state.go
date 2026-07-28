@@ -19,6 +19,15 @@ import (
 // historyFile is the append-only run log inside Dir, one JSON object per line.
 const historyFile = "history.jsonl"
 
+// Event names for the Entry.Event field. Record writes them and History
+// readers match on them, so they are shared constants rather than scattered
+// string literals: EventDryRun for a plan --dry-run, EventMigrate for a
+// completed migration onto a destination docroot.
+const (
+	EventDryRun  = "dry-run"
+	EventMigrate = "migrate"
+)
+
 // heredocMarker delimits the JSON line fed to the remote append. Quoted at
 // the redirect, so the content passes through the shell literally. A JSON
 // line can never collide with it — json.Marshal output starts with '{'.
@@ -107,4 +116,21 @@ func History(ctx context.Context, r runner, home string) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// MigratedSites returns the set of site roots that have a completed
+// EventMigrate record in entries — the destination docroots rehost itself
+// populated. It lets a rerun tell a docroot it filled (safe to converge onto)
+// apart from a stranger's non-empty docroot (a collision to refuse). Entries
+// with no Site are ignored: a docroot is only "rehost-owned" when a migrate
+// record names it. The future migrate step records one via
+// Record(ctx, r, home, Entry{Event: EventMigrate, Site: <destRoot>}).
+func MigratedSites(entries []Entry) map[string]bool {
+	sites := map[string]bool{}
+	for _, e := range entries {
+		if e.Event == EventMigrate && e.Site != "" {
+			sites[e.Site] = true
+		}
+	}
+	return sites
 }
