@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -203,6 +208,268 @@ func TestMigratePreflightJSONEnvelope(t *testing.T) {
 	}
 	if env.Notice == "" {
 		t.Error("passed envelope should carry the honest-stop notice")
+	}
+}
+
+// fakeConn is a transfer.Conn (and, via Run, a state.runner) that records the
+// commands it receives — the history writes runSync issues land here — and can
+// be told to fail every Run to simulate a host that cannot record state.
+type fakeConn struct {
+	runs   []string
+	runErr error
+}
+
+func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
+	f.runs = append(f.runs, cmd)
+	if f.runErr != nil {
+		return ssh.Result{}, f.runErr
+	}
+	return ssh.Result{ExitCode: 0}, nil
+}
+
+func (f *fakeConn) StreamPipe(_ context.Context, _ string, _ io.Reader, _ io.Writer) (ssh.Result, error) {
+	return ssh.Result{ExitCode: 0}, nil
+}
+
+func testUI(mode tui.Mode, w io.Writer) ui {
+	return ui{mode: mode, renderer: tui.New(mode, w), progress: func(string, ...any) {}}
+}
+
+// stubSync swaps the sync primitive for one that records every call and returns
+// canned stats/errors, restoring the real engine when the test ends.
+type syncCall struct {
+	src, dst transfer.Endpoint
+	excludes []string
+	opts     transfer.Options
+}
+
+func stubSync(t *testing.T, results ...struct {
+	stats *transfer.SyncStats
+	err   error
+}) *[]syncCall {
+	t.Helper()
+	prev := syncFn
+	t.Cleanup(func() { syncFn = prev })
+	var calls []syncCall
+	syncFn = func(_ context.Context, src, dst transfer.Endpoint, excludes []string, opts transfer.Options, _ func(string)) (*transfer.SyncStats, error) {
+		i := len(calls)
+		calls = append(calls, syncCall{src: src, dst: dst, excludes: excludes, opts: opts})
+		if i < len(results) {
+			return results[i].stats, results[i].err
+		}
+		return &transfer.SyncStats{}, nil
+	}
+	return &calls
+}
+
+func twoSitePlan(source, dest transfer.Conn, stateDir string) migratePlan {
+	return migratePlan{
+		source: source,
+		dest:   dest,
+		sites: []siteDest{
+			{install: detect.Install{Framework: "wordpress", Root: "/home/u/public_html"}, destRoot: "/home/d/www"},
+			{install: detect.Install{Framework: "drupal", Root: "/home/u/drupal"}, destRoot: "/home/d/drupal"},
+		},
+		delete:     true,
+		compress:   true,
+		nullList:   true,
+		srcTarget:  "u@src",
+		destTarget: "d@dst",
+		srcHome:    "/home/u",
+		destHome:   "/home/d",
+		stateDir:   stateDir,
+	}
+}
+
+func TestSyncOptionsGatingBothWays(t *testing.T) {
+	gnuTar := map[string]ssh.Tool{"tar": {Found: true, Version: "tar (GNU tar) 1.34"}, "gzip": {Found: true}}
+	bsdTar := map[string]ssh.Tool{"tar": {Found: true, Version: "bsdtar 3.5.1"}, "gzip": {Found: true}}
+	noGzip := map[string]ssh.Tool{"tar": {Found: true, Version: "tar (GNU tar) 1.34"}}
+
+	cases := []struct {
+		name           string
+		src, dst       map[string]ssh.Tool
+		compress, null bool
+	}{
+		{"both gzip + gnu source", gnuTar, gnuTar, true, true},
+		{"dest lacks gzip", gnuTar, noGzip, false, true},
+		{"source lacks gzip", noGzip, gnuTar, false, true},
+		{"non-gnu source tar", bsdTar, gnuTar, true, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			compress, null := syncOptions(&ssh.Capabilities{Tools: c.src}, &ssh.Capabilities{Tools: c.dst})
+			if compress != c.compress || null != c.null {
+				t.Errorf("syncOptions = (compress %v, null %v), want (%v, %v)", compress, null, c.compress, c.null)
+			}
+		})
+	}
+}
+
+func TestRunSyncInvokesSyncWithEndpointsAndOptions(t *testing.T) {
+	source, dest := &fakeConn{}, &fakeConn{}
+	stateDir := filepath.Join(t.TempDir(), ".rehost")
+	calls := stubSync(t) // default: succeed with empty stats
+
+	var buf bytes.Buffer
+	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, stateDir))
+	if !errors.Is(err, errMigrateIncomplete) {
+		t.Fatalf("a converged sync should exit with errMigrateIncomplete, got %v", err)
+	}
+	if len(*calls) != 2 {
+		t.Fatalf("expected 2 sync calls, got %d", len(*calls))
+	}
+	c0 := (*calls)[0]
+	if c0.src.Root != "/home/u/public_html" || c0.dst.Root != "/home/d/www" {
+		t.Errorf("site 1 endpoints wrong: src %q dst %q", c0.src.Root, c0.dst.Root)
+	}
+	if c0.src.Conn != source || c0.dst.Conn != dest {
+		t.Error("endpoints must carry the source/destination connections from the plan")
+	}
+	if !c0.opts.Delete || !c0.opts.Compress || !c0.opts.NullList {
+		t.Errorf("options not passed through: %+v", c0.opts)
+	}
+	wantManifest := filepath.Join(stateDir, "manifests", transfer.DestManifestFilename("d@dst", "/home/d/www"))
+	if c0.opts.DestManifestPath != wantManifest {
+		t.Errorf("DestManifestPath = %q, want %q", c0.opts.DestManifestPath, wantManifest)
+	}
+	// Excludes must match dry-run's per-site computation so deltas line up.
+	want := recipe.ExcludeSuggestionsFor(detect.Install{Framework: "wordpress"})
+	if strings.Join(c0.excludes, ",") != strings.Join(want, ",") {
+		t.Errorf("site 1 excludes = %v, want %v", c0.excludes, want)
+	}
+}
+
+// recordsFor joins the commands a fakeConn received; state.Record embeds the
+// JSON history line in the command, so the joined text is searchable.
+func recordsFor(runs []string) string { return strings.Join(runs, "\n") }
+
+func TestRunSyncPerSiteStatsInReport(t *testing.T) {
+	stats0 := &transfer.SyncStats{Compressed: true, FilesSent: 42, BytesSent: 1000, WireBytes: 400, FilesDeleted: 3, Duration: time.Second}
+	stats1 := &transfer.SyncStats{FilesSent: 7, BytesSent: 200, DestOnlyRemaining: 1, UnsafePaths: 1}
+	stubSync(t,
+		struct {
+			stats *transfer.SyncStats
+			err   error
+		}{stats0, nil},
+		struct {
+			stats *transfer.SyncStats
+			err   error
+		}{stats1, nil},
+	)
+
+	var buf bytes.Buffer
+	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(&fakeConn{}, &fakeConn{}, t.TempDir()))
+	if !errors.Is(err, errMigrateIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+	var env tui.MigrateEnvelope
+	if jerr := json.Unmarshal(buf.Bytes(), &env); jerr != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", jerr, buf.String())
+	}
+	if env.Schema != "rehost.migrate.v1" {
+		t.Errorf("schema = %q", env.Schema)
+	}
+	if env.Complete {
+		t.Error("Phase 3 migrate is never complete")
+	}
+	if env.Notice == "" || !strings.Contains(env.Notice, "not wired yet") {
+		t.Errorf("envelope should carry the honest-incomplete notice, got %q", env.Notice)
+	}
+	if !env.Preflight.Passed {
+		t.Error("preflight section should report passed")
+	}
+	if len(env.Sites) != 2 {
+		t.Fatalf("expected 2 site rows, got %d", len(env.Sites))
+	}
+	if env.Sites[0].FilesSent != 42 || env.Sites[0].WireBytes != 400 || !env.Sites[0].Compressed || env.Sites[0].FilesDeleted != 3 {
+		t.Errorf("site 0 stats not carried: %+v", env.Sites[0])
+	}
+	if env.Sites[1].DestOnlyRemaining != 1 || env.Sites[1].UnsafePaths != 1 {
+		t.Errorf("site 1 stats not carried: %+v", env.Sites[1])
+	}
+}
+
+func TestRunSyncRecordsHistoryAfterSuccess(t *testing.T) {
+	source, dest := &fakeConn{}, &fakeConn{}
+	stubSync(t)
+	var buf bytes.Buffer
+	if err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir())); !errors.Is(err, errMigrateIncomplete) {
+		t.Fatalf("got %v", err)
+	}
+	// One EventMigrate per site on the destination, each naming its dest root —
+	// the record the next run's destination-state policy matches on.
+	destRecords := recordsFor(dest.runs)
+	if !strings.Contains(destRecords, "/home/d/www") || !strings.Contains(destRecords, "/home/d/drupal") {
+		t.Errorf("destination history missing per-site migrate records:\n%s", destRecords)
+	}
+	if !strings.Contains(destRecords, `"event":"migrate"`) {
+		t.Errorf("destination records should be migrate events:\n%s", destRecords)
+	}
+	// A summary record on the source.
+	if src := recordsFor(source.runs); !strings.Contains(src, `"event":"migrate"`) || !strings.Contains(src, "files_sent") {
+		t.Errorf("source should carry a summary migrate record:\n%s", src)
+	}
+	var env tui.MigrateEnvelope
+	_ = json.Unmarshal(buf.Bytes(), &env)
+	if len(env.Warnings) != 0 {
+		t.Errorf("a clean run should have no warnings, got %v", env.Warnings)
+	}
+}
+
+func TestRunSyncDestHistoryFailureIsProminentWarning(t *testing.T) {
+	source := &fakeConn{}
+	dest := &fakeConn{runErr: errors.New("read-only home")}
+	stubSync(t)
+	var buf bytes.Buffer
+	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir()))
+	if !errors.Is(err, errMigrateIncomplete) {
+		t.Fatalf("a failed history write must not fail the migration, got %v", err)
+	}
+	var env tui.MigrateEnvelope
+	if jerr := json.Unmarshal(buf.Bytes(), &env); jerr != nil {
+		t.Fatalf("bad JSON: %v", jerr)
+	}
+	if len(env.Warnings) == 0 {
+		t.Fatal("a failed destination record should surface a warning")
+	}
+	joined := strings.Join(env.Warnings, "\n")
+	if !strings.Contains(joined, "--onto-existing") || !strings.Contains(joined, "/home/d/www") {
+		t.Errorf("warning should name the docroot and warn the next run needs --onto-existing:\n%s", joined)
+	}
+}
+
+func TestRunSyncStopsOnFirstSiteFailure(t *testing.T) {
+	source, dest := &fakeConn{}, &fakeConn{}
+	boom := errors.New("destination extract failed")
+	calls := stubSync(t, struct {
+		stats *transfer.SyncStats
+		err   error
+	}{&transfer.SyncStats{FilesSent: 5}, boom})
+
+	var buf bytes.Buffer
+	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir()))
+	if err == nil || !errors.Is(err, boom) {
+		t.Fatalf("a sync failure should surface, got %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Errorf("sync must stop before site 2, got %d calls", len(*calls))
+	}
+	if len(dest.runs) != 0 || len(source.runs) != 0 {
+		t.Error("a failed run must not record history on either host")
+	}
+	// The partial report still names the failed site.
+	var env tui.MigrateEnvelope
+	if jerr := json.Unmarshal(buf.Bytes(), &env); jerr != nil {
+		t.Fatalf("bad JSON: %v", jerr)
+	}
+	if len(env.Sites) != 1 || env.Sites[0].Err == "" {
+		t.Errorf("failed site should be reported with its error: %+v", env.Sites)
 	}
 }
 
