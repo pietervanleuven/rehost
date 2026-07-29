@@ -47,11 +47,12 @@ prompted at runtime) and, when green, converges each site: bulk file sync
 over the tar-pipe relay, then the database choreography — maintenance on
 (write-ahead EventMaintenance), verified final dump, file delta pass,
 serialized-safe docroot rewrite of the dump (`searchreplace.RewriteDump`),
-FIFO-fed import with table-count verify, maintenance lifted on every exit
+FIFO-fed import with table-count verify, config rewrite pointing the
+synced wp-config.php / settings.php at the destination database (salts
+preserved; `drush cr` when available), maintenance lifted on every exit
 path (`unlock` recovers crashes). EventMigrate history lands per converged
 site on both hosts; the run still exits non-zero (`errMigrateIncomplete`)
-because config rewrite and the cutover report remain unbuilt — the synced
-config still points at the source database and paths.
+because the cutover report and post-migration checks remain unbuilt.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
@@ -79,7 +80,8 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 - `rehost migrate` — pre-flight (check gate + destination-state policy for
   docroots and `dest_db` databases; `--onto-existing`, `--delete`), then per
   site: file sync, maintenance window, final dump, delta pass, dump rewrite,
-  DB import + verify; exits non-zero until config rewrite and cutover exist.
+  DB import + verify, config rewrite (+ `drush cr`); exits non-zero until
+  the cutover report and post-migration checks exist.
 - `rehost unlock` — clears maintenance mode left by an interrupted run
   (live probe over history; nothing to unlock = exit 0).
 
