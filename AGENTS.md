@@ -40,16 +40,18 @@ history in `.rehost/history.jsonl` on the source.
 
 Both phases still need field validation against a real Drupal and a real
 WordPress site on shared hosting (Phase 1/2 exit criteria). Phase 3
-(PLAN.md §6) is underway: `migrate` runs a real pre-flight (check gate +
-source-DB reachability + destination-state policy) and, when green,
-converges each site's files via the tar-pipe relay sync engine
-(`internal/transfer.Sync`), recording EventMigrate history on both hosts —
-then exits non-zero (`errMigrateIncomplete`). Built but not yet wired into
-migrate: `db.Import` (streamed restore with FIFO-fed password + progress),
-`internal/searchreplace` (serialized-safe core), and the Maintainer recipe
-seam with the `unlock` recovery command (no stubs remain). Still unbuilt:
-the migrate choreography (maintenance window → final dump → import →
-search-replace), config rewrite, and the cutover report.
+(PLAN.md §6) is nearly feature-complete: `migrate` runs the pre-flight
+(check gate + source-DB reachability + destination-state policy for both
+docroots and `dest_db` databases — verified, never created; passwords
+prompted at runtime) and, when green, converges each site: bulk file sync
+over the tar-pipe relay, then the database choreography — maintenance on
+(write-ahead EventMaintenance), verified final dump, file delta pass,
+serialized-safe docroot rewrite of the dump (`searchreplace.RewriteDump`),
+FIFO-fed import with table-count verify, maintenance lifted on every exit
+path (`unlock` recovers crashes). EventMigrate history lands per converged
+site on both hosts; the run still exits non-zero (`errMigrateIncomplete`)
+because config rewrite and the cutover report remain unbuilt — the synced
+config still points at the source database and paths.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
