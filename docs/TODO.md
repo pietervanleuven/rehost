@@ -38,6 +38,10 @@ hosting and verify:
 - [ ] `migrate` file sync between two real hosts: files land byte-exact,
       second run is a ~zero delta, refusal/rerun-exemption behave, and the
       destination history record appears
+- [ ] Dest-root rebasing (no `dest_root` → home-relative path on the
+      destination) lands files where the destination account actually
+      serves them; `--delete` stand-down on a pruned (find exit 1) source
+      listing behaves sanely on a host with unreadable directories
 - [ ] File issues found in the field here as new checkboxes
 
 ## 2. Open decisions — do not code around these

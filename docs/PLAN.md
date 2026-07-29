@@ -354,6 +354,13 @@ that unblocks Phase 3:
    true mirror convergence (deletions listed before acting). Honest consequence, accepted:
    a default rerun is convergent for everything except deletions — the cutover report must
    list surviving destination-only files so nothing lingers silently.
+   *Implemented 2026-07-29, with these decisions:* the default destination docroot rebases
+   the source's home-relative path onto the destination home (`/home/alice/public_html` →
+   `/home/bob/public_html`; explicit `dest_root` overrides); an existing docroot that
+   cannot be listed aborts the pre-flight instead of counting as "empty"; `--delete` is
+   skipped for any run whose source file listing was pruned (find exit 1) since deletions
+   demand a proven-complete listing; converged sites record EventMigrate one by one so a
+   partial multi-site failure regains idempotent reruns for the finished sites.
 5. **Half-failed migrate onto a non-empty destination.** The refuse-by-default policy above
    is the cheap Phase 3 mitigation: fresh docroots are the normal path, and converging onto
    an existing site requires the explicit flag, at which point the pre-flight warns that
