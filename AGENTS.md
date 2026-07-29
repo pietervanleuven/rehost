@@ -44,9 +44,12 @@ WordPress site on shared hosting (Phase 1/2 exit criteria). Phase 3
 source-DB reachability + destination-state policy) and, when green,
 converges each site's files via the tar-pipe relay sync engine
 (`internal/transfer.Sync`), recording EventMigrate history on both hosts —
-then exits non-zero (`errMigrateIncomplete`) because maintenance mode,
-DB import + search-replace, config rewrite and the cutover report are
-still unbuilt. `unlock` is the remaining stub.
+then exits non-zero (`errMigrateIncomplete`). Built but not yet wired into
+migrate: `db.Import` (streamed restore with FIFO-fed password + progress),
+`internal/searchreplace` (serialized-safe core), and the Maintainer recipe
+seam with the `unlock` recovery command (no stubs remain). Still unbuilt:
+the migrate choreography (maintenance window → final dump → import →
+search-replace), config rewrite, and the cutover report.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
@@ -73,7 +76,9 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   exit-0 outcome).
 - `rehost migrate` — pre-flight (check gate + destination-state policy;
   `--onto-existing`, `--delete`) then file sync per site; exits non-zero
-  until the DB/config/cutover steps exist. `unlock` is a stub.
+  until the DB/config/cutover steps exist.
+- `rehost unlock` — clears maintenance mode left by an interrupted run
+  (live probe over history; nothing to unlock = exit 0).
 
 ## Architecture
 
@@ -95,9 +100,14 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   realpath de-dup.
 - `internal/recipe` — pluggable framework recipes (drupal, wordpress, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
-  needs-DB), and layered credential extraction (framework CLI → PHP
+  needs-DB), layered credential extraction (framework CLI → PHP
   echo-helper with sentinel → config regex; transport errors abort, tool
-  failures fall through).
+  failures fall through), and the `Maintainer` seam (same layering;
+  per-site tool failures are typed `ErrMaintenanceTool` so callers keep
+  going).
+- `internal/searchreplace` — pure serialized-safe replacement core
+  (wp search-replace --precise semantics, fuzzed round-trip invariant) +
+  the URL/docroot replacement-pair planner; DB application wired later.
 - `internal/db` — `Credentials` (Password excluded from JSON, in-memory only)
   + the `Extractor` seam recipes implement; `Inspect` learns version, size,
   charset and table counts in one round trip, feeding the password to mysql
