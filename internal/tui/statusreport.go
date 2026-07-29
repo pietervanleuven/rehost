@@ -36,8 +36,8 @@ type StatusView struct {
 	Destination string        // configured destination, or "" when none
 	Sites       []StatusSite  // persisted by plan; empty until plan has run
 	Recent      []state.Entry // newest-first source run history (may be capped)
-	// MigrateImplemented is false for now: migrate is a Phase 3 stub. The
-	// renderer says so honestly instead of implying the step is available.
+	// MigrateImplemented gates the migrate line: false renders an honest
+	// "not implemented yet" instead of implying the step is available.
 	MigrateImplemented bool
 }
 

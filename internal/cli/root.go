@@ -2,6 +2,8 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +19,6 @@ type options struct {
 	projectFile string
 	json        bool
 	noColor     bool
-	verbose     bool
 }
 
 func newRootCmd(info BuildInfo) *cobra.Command {
@@ -37,7 +38,6 @@ The flow: init → check → plan → migrate → cutover report.`,
 	pf.StringVarP(&opts.projectFile, "project-file", "f", "migrate.yaml", "path to the project file")
 	pf.BoolVar(&opts.json, "json", false, "machine-readable JSON output (implies non-interactive)")
 	pf.BoolVar(&opts.noColor, "no-color", false, "disable colored output")
-	pf.BoolVarP(&opts.verbose, "verbose", "v", false, "verbose logging")
 
 	root.AddCommand(
 		newPlanCmd(opts),
@@ -52,7 +52,8 @@ The flow: init → check → plan → migrate → cutover report.`,
 	return root
 }
 
-// Execute runs the CLI and returns any command error.
-func Execute(info BuildInfo) error {
-	return newRootCmd(info).Execute()
+// Execute runs the CLI under ctx (cancellation reaches every command through
+// cmd.Context()) and returns any command error.
+func Execute(ctx context.Context, info BuildInfo) error {
+	return newRootCmd(info).ExecuteContext(ctx)
 }
