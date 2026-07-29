@@ -36,7 +36,7 @@ terminal — in scripts, write the project file by hand.`,
 
 func runInit(cmd *cobra.Command, opts *options, force bool) error {
 	if opts.outputMode() != tui.ModeStyled {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Write %s by hand instead:\n\n%s\n", opts.projectFile, project.Example())
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Write %s by hand instead:\n\n%s\n", opts.projectFile, project.Example())
 		return errors.New("rehost init is an interactive wizard and needs a terminal — it cannot run with --json or piped/suppressed output")
 	}
 	out := cmd.OutOrStdout()
@@ -49,7 +49,7 @@ func runInit(cmd *cobra.Command, opts *options, force bool) error {
 			return initErr(err)
 		}
 		if !overwrite {
-			fmt.Fprintf(out, "Keeping %s untouched.\n", opts.projectFile)
+			_, _ = fmt.Fprintf(out, "Keeping %s untouched.\n", opts.projectFile)
 			return nil
 		}
 	}
@@ -79,7 +79,7 @@ func runInit(cmd *cobra.Command, opts *options, force bool) error {
 	if err := f.Save(opts.projectFile); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\nWrote %s.\n\nNext: rehost plan — probe the hosts and detect the websites on them.\n", opts.projectFile)
+	_, _ = fmt.Fprintf(out, "\nWrote %s.\n\nNext: rehost plan — probe the hosts and detect the websites on them.\n", opts.projectFile)
 	return nil
 }
 
@@ -91,10 +91,10 @@ func collectHost(cmd *cobra.Command, role string, h *project.Host) error {
 		if err := tui.HostForm(role, h); err != nil {
 			return err
 		}
-		fmt.Fprintf(errOut, "%s: connecting to %s…\n", role, targetLabel(h.SSHConfig()))
+		_, _ = fmt.Fprintf(errOut, "%s: connecting to %s…\n", role, targetLabel(h.SSHConfig()))
 		caps, err := testConnection(cmd.Context(), h.SSHConfig())
 		if err == nil {
-			fmt.Fprintf(errOut, "%s: connected to %s (%s)\n", role, caps.Target(), caps.Summary())
+			_, _ = fmt.Fprintf(errOut, "%s: connected to %s (%s)\n", role, caps.Target(), caps.Summary())
 			return nil
 		}
 		choice, cerr := tui.ConnectFailedChoice(role, err)
@@ -119,7 +119,7 @@ func testConnection(ctx context.Context, cfg ssh.Config) (*ssh.Capabilities, err
 	if err != nil {
 		return nil, err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return ssh.Probe(ctx, client)
 }
 

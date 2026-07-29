@@ -81,7 +81,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.role, err)
 		}
-		defer client.Close()
+		defer func() { _ = client.Close() }()
 
 		// 2. Probe capabilities — quick, one round trip.
 		caps, err := ssh.Probe(ctx, client)
@@ -202,7 +202,7 @@ func planTargets(projectFile string, args []string, interactive bool, errOut io.
 	f, err := project.Load(projectFile)
 	if errors.Is(err, fs.ErrNotExist) {
 		if interactive {
-			fmt.Fprintf(errOut, "No project file at %s — asking for a host instead ('rehost init' writes one).\n", projectFile)
+			_, _ = fmt.Fprintf(errOut, "No project file at %s — asking for a host instead ('rehost init' writes one).\n", projectFile)
 			var h project.Host
 			if err := tui.HostForm("source", &h); err != nil {
 				if errors.Is(err, tui.ErrAborted) {
@@ -212,7 +212,7 @@ func planTargets(projectFile string, args []string, interactive bool, errOut io.
 			}
 			return []target{{role: "source", cfg: h.SSHConfig()}}, nil, nil
 		}
-		fmt.Fprintf(errOut, "No project file at %s. Create one like this:\n\n%s\n…or probe a host directly: rehost plan user@host\n\n", projectFile, project.Example())
+		_, _ = fmt.Fprintf(errOut, "No project file at %s. Create one like this:\n\n%s\n…or probe a host directly: rehost plan user@host\n\n", projectFile, project.Example())
 		return nil, nil, fmt.Errorf("no project file at %s", projectFile)
 	}
 	if err != nil {

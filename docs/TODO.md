@@ -114,8 +114,9 @@ hosting and verify:
       PLAN is deferred until the output stabilizes
 - [ ] `.rehost/history.jsonl` on the source grows unbounded — rotation or
       pruning eventually
-- [ ] golangci-lint is not installed on the dev machine (CI covers it) —
-      install locally for parity
+- [x] golangci-lint installed locally (2.12.2 via Homebrew); the whole
+      repo lints clean — write-path Close errors are now checked, deliberate
+      best-effort calls are explicit `_ =`
 - [ ] Extension requirement lists (recipe/requirements.go) are a pragmatic
       first cut — revisit against real framework docs when field failures
       appear

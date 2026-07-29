@@ -40,17 +40,17 @@ func (r styledRenderer) PlanReport(reports []HostReport, dryRun []check.Result, 
 	if !ranDryRun {
 		return nil
 	}
-	fmt.Fprintln(r.out)
+	fprintln(r.out)
 	return r.checklist("Dry run", dryRun)
 }
 
 func (r styledRenderer) capabilityReport(reports []HostReport) error {
 	for i, hr := range reports {
 		if i > 0 {
-			fmt.Fprintln(r.out)
+			fprintln(r.out)
 		}
-		fmt.Fprintf(r.out, "%s %s\n", roleStyle.Render(hr.Role+":"), titleStyle.Render(hr.Caps.Target()))
-		fmt.Fprintf(r.out, "  %s\n", dimStyle.Render(summaryLine(hr.Caps)))
+		fprintf(r.out, "%s %s\n", roleStyle.Render(hr.Role+":"), titleStyle.Render(hr.Caps.Target()))
+		fprintf(r.out, "  %s\n", dimStyle.Render(summaryLine(hr.Caps)))
 		for _, name := range ssh.ProbedTools() {
 			tool := hr.Caps.Tools[name]
 			if tool.Found {
@@ -58,20 +58,20 @@ func (r styledRenderer) capabilityReport(reports []HostReport) error {
 				if tool.Version != "" {
 					detail += "  " + tool.Version
 				}
-				fmt.Fprintf(r.out, "  %s %-10s %s\n", okStyle.Render("✓"), name, dimStyle.Render(detail))
+				fprintf(r.out, "  %s %-10s %s\n", okStyle.Render("✓"), name, dimStyle.Render(detail))
 			} else {
-				fmt.Fprintf(r.out, "  %s %-10s %s\n", missingStyle.Render("✗"), name, dimStyle.Render("not found"))
+				fprintf(r.out, "  %s %-10s %s\n", missingStyle.Render("✗"), name, dimStyle.Render("not found"))
 			}
 		}
-		fmt.Fprintf(r.out, "  %s\n", dimStyle.Render("frameworks:"))
+		fprintf(r.out, "  %s\n", dimStyle.Render("frameworks:"))
 		if len(hr.Installs) == 0 {
-			fmt.Fprintf(r.out, "    %s\n", dimStyle.Render("none detected"))
+			fprintf(r.out, "    %s\n", dimStyle.Render("none detected"))
 		}
 		for _, inst := range hr.Installs {
 			label, detail := formatInstall(inst)
-			fmt.Fprintf(r.out, "    %s %s\n", okStyle.Render(label), dimStyle.Render(detail))
+			fprintf(r.out, "    %s %s\n", okStyle.Render(label), dimStyle.Render(detail))
 			for _, line := range inventoryLines(hr.Inventories[inst.Root]) {
-				fmt.Fprintf(r.out, "      %s\n", dimStyle.Render(line))
+				fprintf(r.out, "      %s\n", dimStyle.Render(line))
 			}
 		}
 	}
@@ -79,7 +79,7 @@ func (r styledRenderer) capabilityReport(reports []HostReport) error {
 }
 
 func (r styledRenderer) Error(err error) {
-	fmt.Fprintf(r.out, "%s %v\n", errStyle.Render("Error:"), err)
+	fprintf(r.out, "%s %v\n", errStyle.Render("Error:"), err)
 }
 
 // --- plain (non-TTY / CI) ---
@@ -93,8 +93,8 @@ func (r plainRenderer) PlanReport(reports []HostReport, dryRun []check.Result, r
 	if !ranDryRun {
 		return nil
 	}
-	fmt.Fprintln(r.out)
-	fmt.Fprintln(r.out, "dry run:")
+	fprintln(r.out)
+	fprintln(r.out, "dry run:")
 	return r.checklist(dryRun)
 }
 
@@ -102,10 +102,10 @@ func (r plainRenderer) capabilityReport(reports []HostReport) error {
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	for i, hr := range reports {
 		if i > 0 {
-			fmt.Fprintln(w)
+			fprintln(w)
 		}
-		fmt.Fprintf(w, "%s: %s\n", hr.Role, hr.Caps.Target())
-		fmt.Fprintf(w, "  %s\n", summaryLine(hr.Caps))
+		fprintf(w, "%s: %s\n", hr.Role, hr.Caps.Target())
+		fprintf(w, "  %s\n", summaryLine(hr.Caps))
 		for _, name := range ssh.ProbedTools() {
 			tool := hr.Caps.Tools[name]
 			if tool.Found {
@@ -113,19 +113,19 @@ func (r plainRenderer) capabilityReport(reports []HostReport) error {
 				if tool.Version != "" {
 					detail += "  " + tool.Version
 				}
-				fmt.Fprintf(w, "  [ok]\t%s\t%s\n", name, detail)
+				fprintf(w, "  [ok]\t%s\t%s\n", name, detail)
 			} else {
-				fmt.Fprintf(w, "  [missing]\t%s\t\n", name)
+				fprintf(w, "  [missing]\t%s\t\n", name)
 			}
 		}
 		if len(hr.Installs) == 0 {
-			fmt.Fprintf(w, "  framework:\tnone detected\t\n")
+			fprintf(w, "  framework:\tnone detected\t\n")
 		}
 		for _, inst := range hr.Installs {
 			label, detail := formatInstall(inst)
-			fmt.Fprintf(w, "  framework:\t%s\t%s\n", label, detail)
+			fprintf(w, "  framework:\t%s\t%s\n", label, detail)
 			for _, line := range inventoryLines(hr.Inventories[inst.Root]) {
-				fmt.Fprintf(w, "  \t\t%s\n", line)
+				fprintf(w, "  \t\t%s\n", line)
 			}
 		}
 	}
@@ -178,7 +178,7 @@ func formatInstall(inst detect.Install) (label, detail string) {
 }
 
 func (r plainRenderer) Error(err error) {
-	fmt.Fprintf(r.out, "error: %v\n", err)
+	fprintf(r.out, "error: %v\n", err)
 }
 
 // summaryLine condenses host facts into one line under the host header.

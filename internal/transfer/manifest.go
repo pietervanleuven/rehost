@@ -241,18 +241,18 @@ func SaveManifest(m *Manifest, filePath string) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	gz := gzip.NewWriter(tmp)
 	if err := json.NewEncoder(gz).Encode(m); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := gz.Close(); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
@@ -270,12 +270,12 @@ func LoadManifest(filePath string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", filePath, err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	var m Manifest
 	if err := json.NewDecoder(gz).Decode(&m); err != nil {
 		return nil, fmt.Errorf("reading %s: %w", filePath, err)

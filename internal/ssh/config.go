@@ -54,7 +54,7 @@ func (c Config) Resolve() (Config, error) {
 	if err != nil {
 		return c, fmt.Errorf("reading %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := sshconfig.Decode(f)
 	if err != nil {
 		return c, fmt.Errorf("parsing %s: %w", path, err)

@@ -5,6 +5,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/pietervanleuven/rehost/internal/check"
@@ -72,3 +73,9 @@ func New(mode Mode, out io.Writer) Renderer {
 		return styledRenderer{out: out}
 	}
 }
+
+// fprintf and fprintln write a report line to w, discarding the write
+// error: these renderers target a terminal or an in-memory buffer where a
+// failed write has no recovery path.
+func fprintf(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+func fprintln(w io.Writer, a ...any)               { _, _ = fmt.Fprintln(w, a...) }
