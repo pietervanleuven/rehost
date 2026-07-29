@@ -360,8 +360,8 @@ func tarOK(res ssh.Result, err error, what string) error {
 	if err != nil {
 		return err
 	}
-	switch {
-	case res.ExitCode == 0 || res.ExitCode == 1:
+	switch res.ExitCode {
+	case 0, 1:
 		return nil
 	default:
 		return fmt.Errorf("%s failed (exit %d): %s", what, res.ExitCode, ssh.FirstLine(res.Stderr))

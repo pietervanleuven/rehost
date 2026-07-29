@@ -107,23 +107,23 @@ func entryLine(e state.Entry) string {
 // --- styled ---
 
 func (r styledRenderer) HistoryReport(entries []state.Entry) error {
-	fmt.Fprintln(r.out, titleStyle.Render("Run history (source)"))
-	fmt.Fprintln(r.out)
+	fprintln(r.out, titleStyle.Render("Run history (source)"))
+	fprintln(r.out)
 	if len(entries) == 0 {
-		fmt.Fprintln(r.out, dimStyle.Render("No runs recorded yet — run 'rehost plan --dry-run'."))
+		fprintln(r.out, dimStyle.Render("No runs recorded yet — run 'rehost plan --dry-run'."))
 		return nil
 	}
 	for _, e := range entries {
-		fmt.Fprintf(r.out, "  %s  %s\n", okStyle.Render(fmt.Sprintf("%-8s", humanAge(e.Time))), entryLine(e))
+		fprintf(r.out, "  %s  %s\n", okStyle.Render(fmt.Sprintf("%-8s", humanAge(e.Time))), entryLine(e))
 	}
 	return nil
 }
 
 func (r styledRenderer) StatusReport(v StatusView) error {
-	fmt.Fprintln(r.out, titleStyle.Render("rehost status"))
-	fmt.Fprintln(r.out)
+	fprintln(r.out, titleStyle.Render("rehost status"))
+	fprintln(r.out)
 	statusLines(v, func(label, value string) {
-		fmt.Fprintf(r.out, "  %s %s\n", roleStyle.Render(fmt.Sprintf("%-12s", label)), value)
+		fprintf(r.out, "  %s %s\n", roleStyle.Render(fmt.Sprintf("%-12s", label)), value)
 	})
 	return nil
 }
@@ -132,12 +132,12 @@ func (r styledRenderer) StatusReport(v StatusView) error {
 
 func (r plainRenderer) HistoryReport(entries []state.Entry) error {
 	if len(entries) == 0 {
-		fmt.Fprintln(r.out, "no runs recorded yet")
+		fprintln(r.out, "no runs recorded yet")
 		return nil
 	}
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	for _, e := range entries {
-		fmt.Fprintf(w, "%s\t%s\n", humanAge(e.Time), entryLine(e))
+		fprintf(w, "%s\t%s\n", humanAge(e.Time), entryLine(e))
 	}
 	return w.Flush()
 }
@@ -145,7 +145,7 @@ func (r plainRenderer) HistoryReport(entries []state.Entry) error {
 func (r plainRenderer) StatusReport(v StatusView) error {
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	statusLines(v, func(label, value string) {
-		fmt.Fprintf(w, "%s:\t%s\n", label, value)
+		fprintf(w, "%s:\t%s\n", label, value)
 	})
 	return w.Flush()
 }

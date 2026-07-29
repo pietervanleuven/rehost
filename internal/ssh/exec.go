@@ -76,7 +76,7 @@ func (c *Client) StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w 
 	if err != nil {
 		return Result{}, fmt.Errorf("opening session on %s: %w", c.Config.Host, err)
 	}
-	defer sess.Close()
+	defer func() { _ = sess.Close() }()
 
 	var stderr bytes.Buffer
 	sess.Stdin = stdin
@@ -88,7 +88,7 @@ func (c *Client) StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w 
 
 	select {
 	case <-ctx.Done():
-		sess.Close()
+		_ = sess.Close()
 		<-done
 		return Result{Stderr: stderr.String(), ExitCode: -1}, ctx.Err()
 	case err := <-done:

@@ -328,7 +328,7 @@ func TestProgressReaderFiresFinalForTinyInput(t *testing.T) {
 		step:  progressStep(int64(len(data))), // 32 KiB floor: only the EOF call fires
 		cb:    func(sent, total int64) { calls++; lastSent, lastTotal = sent, total },
 	}
-	io.Copy(io.Discard, pr)
+	_, _ = io.Copy(io.Discard, pr)
 	if calls != 1 || lastSent != int64(len(data)) || lastTotal != int64(len(data)) {
 		t.Errorf("tiny input: calls=%d sent=%d total=%d", calls, lastSent, lastTotal)
 	}

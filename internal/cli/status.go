@@ -74,7 +74,7 @@ func runHistory(cmd *cobra.Command, opts *options) error {
 		}
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return historyReport(cmd.Context(), client, caps.Home, u.renderer)
 }
 
@@ -91,7 +91,7 @@ func runStatus(cmd *cobra.Command, opts *options) error {
 		}
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return statusReport(cmd.Context(), client, caps.Home, opts.projectFile, f, u.renderer)
 }
 
@@ -179,7 +179,7 @@ func dialSource(ctx context.Context, f *project.File, u ui) (*ssh.Client, *ssh.C
 	}
 	caps, err := ssh.Probe(ctx, client)
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		return nil, nil, fmt.Errorf("source: %w", err)
 	}
 	return client, caps, nil

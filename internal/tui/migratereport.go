@@ -64,8 +64,8 @@ func (r styledRenderer) MigratePreflight(v MigratePreflightView) error {
 		return err
 	}
 	if v.Passed && v.Notice != "" {
-		fmt.Fprintln(r.out)
-		fmt.Fprintln(r.out, dimStyle.Render(v.Notice))
+		fprintln(r.out)
+		fprintln(r.out, dimStyle.Render(v.Notice))
 	}
 	return nil
 }
@@ -74,26 +74,26 @@ func (r styledRenderer) MigrateReport(v MigrateReportView) error {
 	if err := r.checklist("Migrate pre-flight", v.Preflight.Results); err != nil {
 		return err
 	}
-	fmt.Fprintln(r.out)
-	fmt.Fprintln(r.out, titleStyle.Render("File sync"))
-	fmt.Fprintln(r.out)
+	fprintln(r.out)
+	fprintln(r.out, titleStyle.Render("File sync"))
+	fprintln(r.out)
 	for _, s := range v.Sites {
 		mark := okStyle.Render("✓")
 		if s.Err != "" {
 			mark = missingStyle.Render("✗")
 		}
-		fmt.Fprintf(r.out, "  %s %s → %s\n", mark, s.Site, s.DestRoot)
-		fmt.Fprintf(r.out, "      %s\n", dimStyle.Render(siteSyncLine(s)))
+		fprintf(r.out, "  %s %s → %s\n", mark, s.Site, s.DestRoot)
+		fprintf(r.out, "      %s\n", dimStyle.Render(siteSyncLine(s)))
 		if s.Err != "" {
-			fmt.Fprintf(r.out, "      %s\n", missingStyle.Render(s.Err))
+			fprintf(r.out, "      %s\n", missingStyle.Render(s.Err))
 		}
 	}
 	for _, w := range v.Warnings {
-		fmt.Fprintf(r.out, "\n  %s %s\n", warnStyle.Render("!"), warnStyle.Render(w))
+		fprintf(r.out, "\n  %s %s\n", warnStyle.Render("!"), warnStyle.Render(w))
 	}
 	if v.Notice != "" {
-		fmt.Fprintln(r.out)
-		fmt.Fprintln(r.out, dimStyle.Render(v.Notice))
+		fprintln(r.out)
+		fprintln(r.out, dimStyle.Render(v.Notice))
 	}
 	return nil
 }
@@ -105,8 +105,8 @@ func (r plainRenderer) MigratePreflight(v MigratePreflightView) error {
 		return err
 	}
 	if v.Passed && v.Notice != "" {
-		fmt.Fprintln(r.out)
-		fmt.Fprintln(r.out, v.Notice)
+		fprintln(r.out)
+		fprintln(r.out, v.Notice)
 	}
 	return nil
 }
@@ -115,23 +115,23 @@ func (r plainRenderer) MigrateReport(v MigrateReportView) error {
 	if err := r.checklist(v.Preflight.Results); err != nil {
 		return err
 	}
-	fmt.Fprintln(r.out)
-	fmt.Fprintln(r.out, "file sync:")
+	fprintln(r.out)
+	fprintln(r.out, "file sync:")
 	for _, s := range v.Sites {
 		status := "ok"
 		if s.Err != "" {
 			status = "FAILED"
 		}
-		fmt.Fprintf(r.out, "  [%s] %s -> %s  %s\n", status, s.Site, s.DestRoot, siteSyncLine(s))
+		fprintf(r.out, "  [%s] %s -> %s  %s\n", status, s.Site, s.DestRoot, siteSyncLine(s))
 		if s.Err != "" {
-			fmt.Fprintf(r.out, "         error: %s\n", s.Err)
+			fprintf(r.out, "         error: %s\n", s.Err)
 		}
 	}
 	for _, w := range v.Warnings {
-		fmt.Fprintf(r.out, "  [warning] %s\n", w)
+		fprintf(r.out, "  [warning] %s\n", w)
 	}
 	if v.Notice != "" {
-		fmt.Fprintf(r.out, "\n%s\n", v.Notice)
+		fprintf(r.out, "\n%s\n", v.Notice)
 	}
 	return nil
 }

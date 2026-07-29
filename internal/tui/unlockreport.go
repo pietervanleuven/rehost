@@ -66,35 +66,36 @@ func unlockLine(s UnlockSite) string {
 }
 
 func (r styledRenderer) UnlockReport(v UnlockView) error {
-	fmt.Fprintln(r.out, titleStyle.Render("rehost unlock"))
-	fmt.Fprintf(r.out, "%s %s\n\n", roleStyle.Render("source:"), v.Source)
+	fprintln(r.out, titleStyle.Render("rehost unlock"))
+	fprintf(r.out, "%s %s\n\n", roleStyle.Render("source:"), v.Source)
 	locked, cleared, failed := v.tally()
 	if locked == 0 {
-		fmt.Fprintln(r.out, okStyle.Render("Nothing to unlock — no site is in maintenance mode."))
+		fprintln(r.out, okStyle.Render("Nothing to unlock — no site is in maintenance mode."))
 		return nil
 	}
 	for _, s := range v.Sites {
 		mark := okStyle.Render("✓")
-		if s.Status == UnlockFailed {
+		switch s.Status {
+		case UnlockFailed:
 			mark = missingStyle.Render("✗")
-		} else if s.Status == UnlockNotLocked {
+		case UnlockNotLocked:
 			mark = dimStyle.Render("·")
 		}
-		fmt.Fprintf(r.out, "  %s %s  %s\n", mark, s.Site, dimStyle.Render(unlockLine(s)))
+		fprintf(r.out, "  %s %s  %s\n", mark, s.Site, dimStyle.Render(unlockLine(s)))
 	}
-	fmt.Fprintf(r.out, "\n%s\n", dimStyle.Render(fmt.Sprintf("%d cleared, %d failed", cleared, failed)))
+	fprintf(r.out, "\n%s\n", dimStyle.Render(fmt.Sprintf("%d cleared, %d failed", cleared, failed)))
 	return nil
 }
 
 func (r plainRenderer) UnlockReport(v UnlockView) error {
 	locked, _, _ := v.tally()
 	if locked == 0 {
-		fmt.Fprintln(r.out, "nothing to unlock — no site is in maintenance mode")
+		fprintln(r.out, "nothing to unlock — no site is in maintenance mode")
 		return nil
 	}
 	w := tabwriter.NewWriter(r.out, 2, 4, 2, ' ', 0)
 	for _, s := range v.Sites {
-		fmt.Fprintf(w, "%s\t%s\n", s.Site, unlockLine(s))
+		fprintf(w, "%s\t%s\n", s.Site, unlockLine(s))
 	}
 	return w.Flush()
 }

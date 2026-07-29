@@ -55,7 +55,7 @@ func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*Du
 
 	counted := &countingWriter{}
 	res, err := s.Stream(ctx, dumpCmd(creds), io.MultiWriter(w, counted, pw))
-	pw.Close()
+	_ = pw.Close()
 	<-analyzed
 	stats.CompressedBytes = counted.n
 	stats.Duration = time.Since(start)
@@ -76,13 +76,13 @@ func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*Du
 // analyzeDump gunzips the stream, counting SQL bytes and CREATE TABLE
 // statements and watching the tail for mysqldump's completion footer.
 func analyzeDump(r io.Reader, stats *DumpStats) {
-	defer io.Copy(io.Discard, r) // never stall the writer side
+	defer func() { _, _ = io.Copy(io.Discard, r) }() // never stall the writer side
 
 	gz, err := gzip.NewReader(r)
 	if err != nil {
 		return // empty or non-gzip stream: nothing to verify
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	const tailKeep = 512
 	var tail []byte
