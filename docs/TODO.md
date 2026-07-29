@@ -131,15 +131,18 @@ hosting and verify:
       routines for parity with the mysqldump path (`--routines --triggers`;
       neither path dumps events); missing privileges degrade to
       `-- rehost: skipped …` comments, footer still means complete
-- [ ] `plan` rewriting migrate.yaml drops hand-written YAML comments
-      (yaml.v3 re-encode) — comment-preserving writes or a separate state
-      file
+- [x] `plan` rewriting migrate.yaml preserves hand-written YAML comments
+      (2026-07-29): `File.Save` splices values into the existing document's
+      YAML tree, keeping key order and comments on every section whose data
+      did not change (a changed value subtree — e.g. `sites:` — is swapped;
+      a fresh/unparseable file still writes header + full encode)
 - [ ] `check` charset rule uses the destination mysql *client* version as a
       proxy for the server — replace with a real server check once migrate
       can create the destination database
-- [ ] DNS "lower your TTL now" advice: done in `check` output (`dns.ttl`
-      warning above 3600s, ready-confirmation at ≤300s); still to add to
-      the cutover report once that exists (Phase 3)
+- [x] DNS "lower your TTL now" advice: done in `check` output (`dns.ttl`
+      warning above 3600s, ready-confirmation at ≤300s) and in the `cutover`
+      report (per-A/AAAA record TTL note when above 3600s, advising 300 + one
+      old-TTL wait before the flip)
 - [ ] TUI: reports are static text; the bubbletea live checklist from the
       PLAN is deferred until the output stabilizes
 - [ ] `.rehost/history.jsonl` on the source grows unbounded — rotation or
