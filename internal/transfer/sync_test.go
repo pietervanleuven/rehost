@@ -23,6 +23,7 @@ type fakeConn struct {
 	streamOut []byte // bytes this end writes to the relay (the "archive")
 	streamRes ssh.Result
 	streamErr error
+	noDrain   bool // return without reading stdin, like an extract dying early
 
 	mu         sync.Mutex
 	runCmds    []string
@@ -50,7 +51,7 @@ func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, w 
 	f.mu.Lock()
 	f.streamCmds = append(f.streamCmds, cmd)
 	f.mu.Unlock()
-	if stdin != nil {
+	if stdin != nil && !f.noDrain {
 		data, _ := io.ReadAll(stdin) // drain: the source list, or the dest's archive
 		f.mu.Lock()
 		f.stdin = append(f.stdin, data)
@@ -305,6 +306,74 @@ func TestSyncToleratesTarExit1(t *testing.T) {
 	s, d := endpoints(src, dst)
 	if _, err := Sync(context.Background(), s, d, nil, Options{}, nil); err != nil {
 		t.Errorf("tar exit 1 should be tolerated: %v", err)
+	}
+}
+
+func TestSyncDestExtractExit1IsFatal(t *testing.T) {
+	// bsdtar reports fatal errors — a truncated archive included — with exit
+	// 1, so the extract side gets no warning tolerance.
+	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("data")}
+	dst := &fakeConn{streamRes: ssh.Result{ExitCode: 1, Stderr: "tar: Truncated input file\n"}}
+	s, d := endpoints(src, dst)
+	_, err := Sync(context.Background(), s, d, nil, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "destination extract failed (exit 1)") {
+		t.Errorf("dest exit 1 must be fatal, got %v", err)
+	}
+}
+
+func TestSyncDestFailureNotMaskedByPipeError(t *testing.T) {
+	// When the extract dies without draining the relay, the source fails with
+	// a closed-pipe transport error; the destination's stderr must still be
+	// the headline diagnosis.
+	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("data")}
+	dst := &fakeConn{noDrain: true, streamRes: ssh.Result{ExitCode: 2, Stderr: "tar: No space left on device\n"}}
+	s, d := endpoints(src, dst)
+	_, err := Sync(context.Background(), s, d, nil, Options{}, nil)
+	if err == nil || !strings.Contains(err.Error(), "No space left on device") {
+		t.Errorf("destination stderr must surface, got %v", err)
+	}
+}
+
+func TestSyncPrunedSourceSkipsDelete(t *testing.T) {
+	// find exit 1 = entries were skipped: "absent from the source" is
+	// unproven, so --delete must stand down for the run.
+	src := &fakeConn{printf: printfLine(10, 100, "a.txt"), printfExit: 1}
+	dst := &fakeConn{printf: printfLine(10, 100, "a.txt") + printfLine(1, 1, "uploads/keep.jpg")}
+	s, d := endpoints(src, dst)
+
+	var phases []string
+	stats, err := Sync(context.Background(), s, d, nil, Options{Delete: true}, func(m string) { phases = append(phases, m) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.FilesDeleted != 0 || stats.DestOnlyRemaining != 1 {
+		t.Errorf("stats = %+v (want nothing deleted, 1 remaining)", stats)
+	}
+	if dst.ranAny("rm -f") {
+		t.Errorf("no rm may run off a pruned source manifest: %v", dst.runCmds)
+	}
+	if !hasPhase(phases, "skipping --delete") {
+		t.Errorf("phases = %v", phases)
+	}
+}
+
+func TestSyncDegradedManifestWarns(t *testing.T) {
+	// Destination without GNU find: its manifest is paths-only, the diff is
+	// presence-only, and the run must say so.
+	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("x")}
+	dst := &fakeConn{printfExit: 1} // no -printf; falls back to paths-only
+	s, d := endpoints(src, dst)
+
+	var phases []string
+	stats, err := Sync(context.Background(), s, d, nil, Options{}, func(m string) { phases = append(phases, m) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Degraded {
+		t.Error("stats.Degraded should be set when a manifest is paths-only")
+	}
+	if !hasPhase(phases, "will NOT be re-sent") {
+		t.Errorf("degradation warning missing: %v", phases)
 	}
 }
 

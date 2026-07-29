@@ -3,6 +3,7 @@ package transfer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -68,7 +69,12 @@ const defaultMaxRmBytes = 96 << 10
 
 // SyncStats is what one Sync did — enough for the cutover report.
 type SyncStats struct {
-	Compressed        bool          `json:"compressed"`
+	Compressed bool `json:"compressed"`
+	// Degraded means at least one end's manifest was paths-only, so the diff
+	// could compare presence but not size/mtime: files modified in place are
+	// not detected and not re-sent. Surfaced so the report never claims full
+	// convergence it cannot prove.
+	Degraded          bool          `json:"degraded"`
 	FilesSent         int           `json:"files_sent"`
 	BytesSent         int64         `json:"bytes_sent"` // logical, from source manifest sizes (0 when degraded)
 	WireBytes         int64         `json:"wire_bytes"` // bytes over the relay (compressed when Compressed)
@@ -128,6 +134,18 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 	// source has that the destination lacks or differs on (what to send);
 	// Removed is destination-only (deletion candidates).
 	d := Diff(dstManifest, srcManifest)
+	if !srcManifest.Complete || !dstManifest.Complete {
+		stats.Degraded = true
+		note(progress, "warning: no size/mtime available (GNU find missing on %s) — files modified in place will NOT be re-sent, only new files; verify changed content by hand",
+			degradedEnds(srcManifest, dstManifest, src, dst))
+	}
+	if opts.Delete && srcManifest.Pruned {
+		// The source listing skipped unreadable entries, so "absent from the
+		// source" is unproven — deleting on that evidence could destroy
+		// already-migrated files. Fall back to additive for this run.
+		opts.Delete = false
+		note(progress, "source: file listing was incomplete (find could not read some entries) — skipping --delete this run")
+	}
 	send := make([]FileEntry, 0, len(d.Added)+len(d.Changed))
 	send = append(send, d.Added...)
 	send = append(send, d.Changed...)
@@ -207,16 +225,24 @@ func relay(ctx context.Context, src, dst Endpoint, send []FileEntry, opts Option
 
 	// The source pipeline ends in `| gzip` when compressing, so its exit code
 	// is gzip's, not tar's — a truncated source tar cannot be seen here and is
-	// instead caught by the destination's tar (unexpected EOF) and, failing
-	// that, by the next run's manifest diff. Still surface transport failures
-	// and a hard tar failure on the uncompressed path.
-	if err := tarOK(srcOut.res, srcOut.err, "source tar"); err != nil {
-		return wire.n, err
+	// instead caught by the destination's tar and, failing that, by the next
+	// run's manifest diff. The destination outcome is reported first: when the
+	// extract dies, the pipe close makes the still-streaming source fail with
+	// a closed-pipe transport error that would otherwise mask the extract's
+	// stderr (the actual diagnosis, e.g. "No space left on device").
+	srcFail := tarOK(srcOut.res, srcOut.err, "source tar", true)
+	// No exit-1 tolerance for the extract: GNU tar reserves 1 for warnings
+	// that cannot occur extracting, and bsdtar uses it for fatal errors
+	// including a truncated archive — the relay's truncation signal.
+	dstFail := tarOK(dstRes, dstErr, "destination extract", false)
+	switch {
+	case dstFail != nil && srcFail != nil:
+		return wire.n, errors.Join(dstFail, srcFail)
+	case dstFail != nil:
+		return wire.n, dstFail
+	default:
+		return wire.n, srcFail
 	}
-	if err := tarOK(dstRes, dstErr, "destination extract"); err != nil {
-		return wire.n, err
-	}
-	return wire.n, nil
 }
 
 // reconcileDeletions removes destination-only files when Delete is set. Every
@@ -352,19 +378,32 @@ func rmCommands(root string, paths []string, maxLen int) []string {
 	return cmds
 }
 
-// tarOK maps a relay endpoint's outcome to an error, tolerating tar's exit 1
-// ("file changed / unreadable while reading" on a live source, or a benign
-// extraction warning) the same way the throughput sample does. A transport
-// error or a harder exit is honest failure.
-func tarOK(res ssh.Result, err error, what string) error {
+// tarOK maps a relay endpoint's outcome to an error. tolerateWarnings accepts
+// exit 1 — correct only for a GNU tar creating from a live site ("file
+// changed / unreadable while reading"), the same way the throughput sample
+// does; extraction must stay strict because bsdtar reports fatal errors,
+// truncated archives included, with exit 1. A transport error is always
+// honest failure.
+func tarOK(res ssh.Result, err error, what string, tolerateWarnings bool) error {
 	if err != nil {
 		return err
 	}
-	switch res.ExitCode {
-	case 0, 1:
+	if res.ExitCode == 0 || (tolerateWarnings && res.ExitCode == 1) {
 		return nil
+	}
+	return fmt.Errorf("%s failed (exit %d): %s", what, res.ExitCode, ssh.FirstLine(res.Stderr))
+}
+
+// degradedEnds names the endpoint(s) whose manifest lacks size/mtime, for the
+// degradation warning.
+func degradedEnds(srcM, dstM *Manifest, src, dst Endpoint) string {
+	switch {
+	case !srcM.Complete && !dstM.Complete:
+		return src.Target + " and " + dst.Target
+	case !srcM.Complete:
+		return src.Target
 	default:
-		return fmt.Errorf("%s failed (exit %d): %s", what, res.ExitCode, ssh.FirstLine(res.Stderr))
+		return dst.Target
 	}
 }
 

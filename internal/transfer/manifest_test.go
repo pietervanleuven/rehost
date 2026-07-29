@@ -97,6 +97,20 @@ func TestTakeManifestPermissionNoiseAccepted(t *testing.T) {
 	if !m.Complete || len(m.Files) != 1 {
 		t.Fatalf("manifest = %+v", m)
 	}
+	if !m.Pruned {
+		t.Error("exit 1 means entries were skipped — the manifest must be marked pruned")
+	}
+}
+
+func TestTakeManifestCleanRunIsNotPruned(t *testing.T) {
+	r := &manifestRunner{printf: ssh.Result{Stdout: "512 1690000000.0 index.php\x00"}}
+	m, err := TakeManifest(context.Background(), r, "/home/u/site", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Pruned {
+		t.Error("a clean exit-0 listing must not be marked pruned")
+	}
 }
 
 func TestTakeManifestKilledMidListingFails(t *testing.T) {
