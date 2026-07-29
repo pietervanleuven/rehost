@@ -152,8 +152,8 @@ func TestStatusReportJSON(t *testing.T) {
 	if len(env.Sites) != 1 || env.Sites[0].Framework != "wordpress" {
 		t.Errorf("sites = %+v", env.Sites)
 	}
-	if env.MigrateImplemented {
-		t.Error("migrate is a Phase 3 stub — must report not implemented")
+	if !env.MigrateImplemented {
+		t.Error("migrate runs a real file sync now — status must not call it unimplemented")
 	}
 	if env.LastDryRun == nil || env.LastDryRun.Details["sites"] != "2" {
 		t.Errorf("last_dry_run should be the newest run, got %+v", env.LastDryRun)
@@ -212,8 +212,8 @@ func TestBuildStatusViewCapsRecentAndMapsSites(t *testing.T) {
 	if len(v.Recent) != maxRecentRuns {
 		t.Errorf("recent runs should be capped at %d, got %d", maxRecentRuns, len(v.Recent))
 	}
-	if v.MigrateImplemented {
-		t.Error("migrate must be reported as not implemented")
+	if !v.MigrateImplemented {
+		t.Error("migrate must be reported as implemented")
 	}
 }
 
