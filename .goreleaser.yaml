@@ -39,7 +39,9 @@ changelog:
       - "^ci"
       - "^test"
 
-# Nothing is published until the public name (rehost vs decamp) is final and
-# the maintainer signs off — see docs/MARKETING.md §5. CI runs snapshots only.
+# release-please (.github/workflows/release.yml) creates the tag and the
+# GitHub release with the CHANGELOG notes; goreleaser only uploads the built
+# archives to that existing release, so keep-existing leaves the body alone.
+# CI still runs snapshots (release --snapshot) and publishes nothing.
 release:
-  disable: true
+  mode: keep-existing
