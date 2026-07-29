@@ -222,14 +222,18 @@ func TestMigratePreflightJSONEnvelope(t *testing.T) {
 // commands it receives — the history writes runSync issues land here — and can
 // be told to fail every Run to simulate a host that cannot record state.
 type fakeConn struct {
-	runs   []string
-	runErr error
+	runs      []string
+	runErr    error
+	catStdout string // response to `cat -- <path>` reads
 }
 
 func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
 	f.runs = append(f.runs, cmd)
 	if f.runErr != nil {
 		return ssh.Result{}, f.runErr
+	}
+	if strings.HasPrefix(cmd, "cat -- ") {
+		return ssh.Result{Stdout: f.catStdout}, nil
 	}
 	return ssh.Result{ExitCode: 0}, nil
 }

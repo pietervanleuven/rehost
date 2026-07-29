@@ -261,6 +261,38 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	if res.DestTables < res.SourceTables {
 		warnings = append(warnings, fmt.Sprintf("%s: destination has %d tables but the dump carried %d — inspect before cutover", destCreds.Name, res.DestTables, res.SourceTables))
 	}
+
+	// Config rewrite: point the synced config at the imported database. An
+	// unsupported rewrite degrades to guidance — files and data converged,
+	// the user can edit one file by hand — but a transport failure is real.
+	rw := recipe.RewriterFor(s.install.Framework)
+	switch {
+	case rw == nil:
+		d.ConfigNote = "no config-rewrite strategy for " + s.install.Framework + " — point its config at " + destCreds.Name + " by hand"
+		warnings = append(warnings, fmt.Sprintf("%s: %s", root, d.ConfigNote))
+	case s.install.ConfigFile == "":
+		d.ConfigNote = "no config file detected — point the site at " + destCreds.Name + " by hand"
+		warnings = append(warnings, fmt.Sprintf("%s: %s", root, d.ConfigNote))
+	default:
+		u.progress("  rewriting the destination config…")
+		res, err := rw.RewriteConfig(ctx, p.destHost, recipe.ConfigRewrite{
+			SourceConfig: s.install.ConfigFile,
+			SourceRoot:   root,
+			DestRoot:     s.destRoot,
+			DB:           *destCreds,
+		})
+		switch {
+		case err != nil:
+			d.Err = fmt.Sprintf("rewriting the destination config: %v", err)
+			return d, delta, warnings, true
+		case !res.Supported:
+			d.ConfigNote = res.Note
+			warnings = append(warnings, fmt.Sprintf("%s: config not rewritten — %s", root, res.Note))
+		default:
+			d.ConfigPath = res.Path
+			d.PostSteps = res.PostSteps
+		}
+	}
 	return d, delta, warnings, false
 }
 
