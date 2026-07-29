@@ -88,7 +88,7 @@ func TestMigrateRequiresDestination(t *testing.T) {
 
 func TestDestStateEmptyDocrootIsOK(t *testing.T) {
 	r := scriptRunner{} // nothing non-empty, no history
-	got, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/public_html"), false)
+	got, err := destStateResults(context.Background(), r, sites("/home/d/public_html"), nil, false)
 	if err != nil {
 		t.Fatalf("destStateResults: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestDestStateEmptyDocrootIsOK(t *testing.T) {
 
 func TestDestStateNonEmptyWithoutHistoryRefuses(t *testing.T) {
 	r := scriptRunner{nonEmpty: map[string]bool{"/home/d/public_html": true}}
-	got, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/public_html"), false)
+	got, err := destStateResults(context.Background(), r, sites("/home/d/public_html"), nil, false)
 	if err != nil {
 		t.Fatalf("destStateResults: %v", err)
 	}
@@ -117,9 +117,9 @@ func TestDestStateNonEmptyWithoutHistoryRefuses(t *testing.T) {
 }
 
 func TestDestStateNonEmptyWithMigrateRecordAllowed(t *testing.T) {
-	history := `{"time":"2026-07-28T10:00:00Z","event":"migrate","site":"/home/d/public_html"}` + "\n"
-	r := scriptRunner{nonEmpty: map[string]bool{"/home/d/public_html": true}, history: history}
-	got, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/public_html"), false)
+	r := scriptRunner{nonEmpty: map[string]bool{"/home/d/public_html": true}}
+	migrated := map[string]bool{"/home/d/public_html": true}
+	got, err := destStateResults(context.Background(), r, sites("/home/d/public_html"), migrated, false)
 	if err != nil {
 		t.Fatalf("destStateResults: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestDestStateNonEmptyWithMigrateRecordAllowed(t *testing.T) {
 
 func TestDestStateNonEmptyOntoExistingWarns(t *testing.T) {
 	r := scriptRunner{nonEmpty: map[string]bool{"/home/d/public_html": true}}
-	got, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/public_html"), true)
+	got, err := destStateResults(context.Background(), r, sites("/home/d/public_html"), nil, true)
 	if err != nil {
 		t.Fatalf("destStateResults: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestDestStateUnlistableDocrootIsAnError(t *testing.T) {
 	// An existing docroot whose listing fails must abort, not read as empty:
 	// "empty" would wave a live-but-unreadable site past the refusal policy.
 	r := scriptRunner{unreadable: map[string]bool{"/home/d/www": true}}
-	_, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/www"), false)
+	_, err := destStateResults(context.Background(), r, sites("/home/d/www"), nil, false)
 	if err == nil || !strings.Contains(err.Error(), "cannot inspect /home/d/www") {
 		t.Errorf("unlistable docroot should be an error, got %v", err)
 	}
