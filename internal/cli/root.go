@@ -48,6 +48,7 @@ The flow: init → check → plan → migrate → cutover report.`,
 		newVersionCmd(info),
 		newMigrateCmd(opts),
 		newUnlockCmd(opts),
+		newCutoverCmd(opts),
 	)
 	return root
 }

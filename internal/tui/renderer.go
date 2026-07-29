@@ -59,6 +59,10 @@ type Renderer interface {
 	// source, one row per site. An all-"not locked" report is the normal
 	// "nothing to unlock" success.
 	UnlockReport(v UnlockView) error
+	// CutoverReport renders the go-live checklist: verified destination
+	// facts plus the DNS/mail/SSL/cron instructions rehost deliberately
+	// leaves to the user.
+	CutoverReport(v CutoverView) error
 	Error(err error)
 }
 
