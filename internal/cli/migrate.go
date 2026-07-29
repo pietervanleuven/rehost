@@ -109,8 +109,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	if err != nil {
 		return err
 	}
-	if f.Destination == nil {
-		return fmt.Errorf("%s has no destination — migrate needs one; rerun 'rehost init' or add a destination section", opts.projectFile)
+	if err := requireDestination(f, opts.projectFile, "migrate"); err != nil {
+		return err
 	}
 
 	// 1. Connect to both hosts and gather what the gate needs. Source DB
@@ -119,10 +119,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	//    database that cannot be reached.
 	h, err := gatherHosts(cmd.Context(), u, f, docroots)
 	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err) // keep stdout machine-readable
-		}
-		return err
+		return u.fail(err)
 	}
 	defer h.close()
 
@@ -133,10 +130,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	sites := migrateSites(f, h.source.installs, h.source.caps.Home, h.dest.caps.Home)
 	destState, err := destStateResults(cmd.Context(), h.dest.client, h.dest.caps.Home, sites, ontoExisting)
 	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err)
-		}
-		return err
+		return u.fail(err)
 	}
 
 	// 4. Combine into one report and decide the outcome. A non-green pre-flight

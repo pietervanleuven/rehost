@@ -3,9 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
-	"time"
 
 	"github.com/pietervanleuven/rehost/internal/ssh"
 )
@@ -301,32 +299,5 @@ func dumpPHPCmd(creds *Credentials) string {
 // silently truncated dump. A verification failure returns the stats
 // alongside the error so callers can report what did arrive.
 func DumpPHP(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*DumpStats, error) {
-	stats := &DumpStats{}
-	start := time.Now()
-
-	pr, pw := io.Pipe()
-	analyzed := make(chan struct{})
-	go func() {
-		defer close(analyzed)
-		analyzeDump(pr, stats)
-	}()
-
-	counted := &countingWriter{}
-	res, err := s.Stream(ctx, dumpPHPCmd(creds), io.MultiWriter(w, counted, pw))
-	_ = pw.Close()
-	<-analyzed
-	stats.CompressedBytes = counted.n
-	stats.Duration = time.Since(start)
-
-	if err != nil {
-		return stats, err
-	}
-	if res.ExitCode != 0 {
-		return stats, fmt.Errorf("php dump helper failed: %s", sanitizeReason(res.Stderr, creds.Password))
-	}
-	if !stats.FooterOK {
-		return stats, fmt.Errorf("dump of %s is incomplete — the PHP helper's completion footer is missing (%s of SQL received)",
-			creds.Name, humanBytes(stats.Bytes))
-	}
-	return stats, nil
+	return streamVerifiedDump(ctx, s, dumpPHPCmd(creds), w, creds, "php dump helper", "the PHP helper's")
 }
