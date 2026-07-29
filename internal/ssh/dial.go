@@ -38,10 +38,11 @@ func Dial(ctx context.Context, cfg Config, p Prompter) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	auths, err := authMethods(cfg, p)
+	auths, closeAuth, err := authMethods(cfg, p)
 	if err != nil {
 		return nil, err
 	}
+	defer closeAuth()
 	hostKeyCB, err := hostKeyCallback(p)
 	if err != nil {
 		return nil, err
@@ -84,9 +85,12 @@ func (c *Client) RemoteIP() string {
 
 // authMethods builds the auth chain. For AuthAuto the order is agent,
 // identity files, then password + keyboard-interactive prompts; an explicit
-// Auth narrows the chain to that method.
-func authMethods(cfg Config, p Prompter) ([]cryptossh.AuthMethod, error) {
-	var methods []cryptossh.AuthMethod
+// Auth narrows the chain to that method. cleanup releases whatever the chain
+// holds open (the ssh-agent socket) and must run once the handshake is over —
+// the methods are useless afterwards, and each unclosed agent connection
+// would otherwise leak an FD for the life of the process.
+func authMethods(cfg Config, p Prompter) (methods []cryptossh.AuthMethod, cleanup func(), err error) {
+	cleanup = func() {}
 	useAgent := cfg.Auth == AuthAuto || cfg.Auth == AuthAgent
 	useKey := cfg.Auth == AuthAuto || cfg.Auth == AuthKey
 	usePassword := cfg.Auth == AuthAuto || cfg.Auth == AuthPassword
@@ -98,13 +102,14 @@ func authMethods(cfg Config, p Prompter) ([]cryptossh.AuthMethod, error) {
 			conn, err := net.Dial("unix", sock)
 			if err != nil {
 				if cfg.Auth == AuthAgent {
-					return nil, fmt.Errorf("connecting to ssh-agent: %w", err)
+					return nil, nil, fmt.Errorf("connecting to ssh-agent: %w", err)
 				}
 			} else {
+				cleanup = func() { _ = conn.Close() }
 				methods = append(methods, cryptossh.PublicKeysCallback(agent.NewClient(conn).Signers))
 			}
 		case cfg.Auth == AuthAgent:
-			return nil, errors.New(`auth is "agent" but SSH_AUTH_SOCK is not set — is an ssh-agent running?`)
+			return nil, nil, errors.New(`auth is "agent" but SSH_AUTH_SOCK is not set — is an ssh-agent running?`)
 		}
 	}
 
@@ -116,7 +121,8 @@ func authMethods(cfg Config, p Prompter) ([]cryptossh.AuthMethod, error) {
 				return loadSigners(paths, p)
 			}))
 		} else if cfg.Auth == AuthKey {
-			return nil, fmt.Errorf(`auth is "key" but no key file was found (looked for %s and default ~/.ssh keys)`, cfg.KeyPath)
+			cleanup()
+			return nil, nil, fmt.Errorf(`auth is "key" but no key file was found (looked for %s and default ~/.ssh keys)`, cfg.KeyPath)
 		}
 	}
 
@@ -142,9 +148,10 @@ func authMethods(cfg Config, p Prompter) ([]cryptossh.AuthMethod, error) {
 	}
 
 	if len(methods) == 0 {
-		return nil, errors.New("no usable auth method: no ssh-agent and no key files found")
+		cleanup()
+		return nil, nil, errors.New("no usable auth method: no ssh-agent and no key files found")
 	}
-	return methods, nil
+	return methods, cleanup, nil
 }
 
 // keyCandidates returns existing identity files to try: the configured path
