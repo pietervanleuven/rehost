@@ -193,6 +193,15 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
   protocol quirks, why a fallback exists. Never narrate the next line
   (`// take the manifest`), add step/section headers inside a function, or explain
   a change to the reviewer. When a comment merely restates the code, delete it.
+- **Linting: `make lint` stays green** (golangci-lint standard set + gofmt; CI enforces).
+  Don't weaken `.golangci.yml` to pass — fix the code. errcheck is strict: check the error
+  on any write-path `Close`/flush (a swallowed gzip or temp-file error can persist a
+  truncated manifest/project file), and mark deliberate best-effort calls with an explicit
+  discard (`_ =` / `_, _ =`) — cleanup closes, error-path removals, reader closes, terminal
+  writes. The `tui` renderers funnel terminal writes through the `fprintf`/`fprintln`
+  helpers rather than `_ =`-ing every `fmt.Fprint`. Gotcha: a bare `golangci-lint run`
+  hides duplicate findings (`max-same-issues` defaults to 3) — use
+  `--max-same-issues 0 --max-issues-per-linter 0` for the true list.
 - Docs live in `docs/`. Keep IDEA.md and PLAN.md consistent when decisions change;
   PLAN.md is the source of truth.
 - TUI output must have a plain-text/JSON fallback for non-TTY (CI) use.
