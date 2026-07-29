@@ -204,9 +204,13 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
     `tui`, `project`, `dns`, `recipe/drupal`, `recipe/wordpress`, … Docs-only changes:
     `docs: …` without scope is fine.
   - Breaking changes: `!` after type/scope (`feat(ssh)!: …`) + `BREAKING CHANGE:` footer.
-  - Release automation will be built on top of this later (semver derivation,
-    changelog) — assume commit messages are machine-parsed, so follow the format
-    strictly from the very first commit.
+  - **Releases are automated from these commits** (`.github/workflows/release.yml`):
+    release-please accumulates every `feat`/`fix`/`perf` (and breaking change) on
+    `main` into a "release PR" that bumps the version and CHANGELOG; merging that PR
+    tags `vX.Y.Z`, cuts the GitHub release, and goreleaser attaches the cross-built
+    archives. Pre-1.0: breaking changes bump the minor, not the major
+    (`bump-minor-pre-major`). Commit messages are machine-parsed — follow the format
+    strictly; a stray `feat`/`fix` will move the version.
 - **Comments: sparse.** Godoc comments on exported identifiers stay (that's Go
   convention), and inline comments are for what the code *can't* say — invariants,
   protocol quirks, why a fallback exists. Never narrate the next line

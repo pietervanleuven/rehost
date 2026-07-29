@@ -46,10 +46,9 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
-  # Snapshot only — validates cross-compilation for all targets. Nothing is
-  # published: the public name (rehost vs decamp) is not final, see
-  # docs/MARKETING.md §5. Do not add a release/tag workflow without checking
-  # with the maintainer.
+  # Snapshot only — validates cross-compilation for all targets on every push
+  # and PR; publishes nothing. The real release (tag + GitHub release +
+  # archives) is release.yml, driven by release-please on merge to main.
   build:
     runs-on: ubuntu-latest
     steps:
