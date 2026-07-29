@@ -110,6 +110,125 @@ func Record(ctx context.Context, r runner, home string, e Entry) error {
 	return nil
 }
 
+const (
+	// CompactThreshold is the entry count above which Compact rewrites the
+	// history file, and CompactKeepRecent is how many trailing entries it then
+	// retains for display. The semantic-critical records (see CompactHistory)
+	// are kept regardless of these bounds.
+	CompactThreshold  = 2000
+	CompactKeepRecent = 1000
+)
+
+// Rewrite atomically replaces the on-host history file with entries, one JSON
+// line each, via a temp file and mv so a crash never leaves it half-written.
+// It is the counterpart to Record's append for the rare compaction rewrite.
+func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error {
+	var b strings.Builder
+	for _, e := range entries {
+		line, err := json.Marshal(e) // one line: json.Marshal emits no newlines
+		if err != nil {
+			return fmt.Errorf("encoding state entry: %w", err)
+		}
+		b.Write(line)
+		b.WriteByte('\n')
+	}
+
+	dir := ssh.ShellQuote(Dir(home))
+	file := ssh.ShellQuote(path.Join(Dir(home), historyFile))
+	tmp := ssh.ShellQuote(path.Join(Dir(home), historyFile+".tmp"))
+	cmd := "mkdir -p " + dir + " && cat > " + tmp + " <<'" + heredocMarker +
+		"' && chmod 600 " + tmp + " && mv " + tmp + " " + file + "\n" +
+		b.String() + heredocMarker
+
+	res, err := r.Run(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("rewriting state on host: %s", ssh.FirstLine(res.Stderr))
+	}
+	return nil
+}
+
+// Compact bounds the on-host history file: when it holds more than
+// CompactThreshold entries it rewrites it down to CompactHistory's kept subset.
+// It is best-effort maintenance (callers ignore the error) that never changes
+// what MigratedSites, MigratedDatabases or LockedSites read back — it refuses
+// to rewrite if it somehow would. A file at or under the threshold is left
+// untouched, so the common case is one History read and no write.
+func Compact(ctx context.Context, r runner, home string) error {
+	entries, err := History(ctx, r, home)
+	if err != nil {
+		return err
+	}
+	if len(entries) <= CompactThreshold {
+		return nil
+	}
+	kept := CompactHistory(entries, CompactKeepRecent)
+	if len(kept) >= len(entries) {
+		return nil
+	}
+	if !sameSet(MigratedSites(kept), MigratedSites(entries)) ||
+		!sameSet(MigratedDatabases(kept), MigratedDatabases(entries)) ||
+		!sameSet(LockedSites(kept), LockedSites(entries)) {
+		return nil // never let compaction drift the recovery/refusal reads
+	}
+	return Rewrite(ctx, r, home, kept)
+}
+
+// CompactHistory returns a bounded subset of entries (oldest-first order
+// preserved) that keeps the migration paper trail intact while dropping stale
+// bulk. An entry survives when it is among the last keepRecent entries, or it
+// is the latest EventMigrate or EventMaintenance for its site, or the latest
+// EventMigrateDB for its database identity. Those rules are exactly what makes
+// MigratedSites and MigratedDatabases (the destination refusal exemptions) and
+// LockedSites (unlock recovery) read back unchanged after compaction.
+func CompactHistory(entries []Entry, keepRecent int) []Entry {
+	n := len(entries)
+	if keepRecent < 0 {
+		keepRecent = 0
+	}
+	if n <= keepRecent {
+		return entries
+	}
+	keep := make([]bool, n)
+	for i := n - keepRecent; i < n; i++ {
+		keep[i] = true
+	}
+	latest := map[string]int{} // "<event>\x00<site or db identity>" → last index
+	for i, e := range entries {
+		switch {
+		case e.Event == EventMigrateDB && e.Details[databaseKey] != "":
+			latest[e.Event+"\x00"+e.Details[databaseKey]] = i
+		case e.Site != "" && (e.Event == EventMigrate || e.Event == EventMaintenance):
+			latest[e.Event+"\x00"+e.Site] = i
+		}
+	}
+	for _, i := range latest {
+		keep[i] = true
+	}
+	out := make([]Entry, 0, n)
+	for i, e := range entries {
+		if keep[i] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// sameSet reports whether two site sets hold the same keys.
+func sameSet(a, b map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
 // History reads all entries from <home>/.rehost/history.jsonl, oldest first.
 // A host without the file yields (nil, nil) — no history yet is not an
 // error. Corrupt lines are skipped so one bad record never hides the rest;

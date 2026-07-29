@@ -147,8 +147,10 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   over stdin) for hosts without mysqldump. `ssh.Client.Stream` is the
   streaming exec primitive (`Run` wraps it).
 - `internal/state` — append-only run history in `<home>/.rehost/` on the
-  source (JSON lines, corrupt lines skipped on read); feeds status/history
-  in Phase 3.
+  source (JSON lines, corrupt lines skipped on read); feeds status/history.
+  `Record` is one atomic append; `Compact` bounds the file (atomic temp+mv
+  rewrite past `CompactThreshold`) while preserving the `MigratedSites` and
+  `LockedSites` reads, wired best-effort at the record-writing tails.
 
 ## Key Decisions (do not relitigate without the user)
 
