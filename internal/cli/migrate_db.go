@@ -332,20 +332,23 @@ func rewriteDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.St
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = in.Close() }()
 	gzIn, err := gzip.NewReader(in)
 	if err != nil {
+		_ = in.Close()
 		return nil, err
 	}
-	defer func() { _ = gzIn.Close() }()
 
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".rewrite-*.sql.gz.tmp")
 	if err != nil {
+		_ = gzIn.Close()
+		_ = in.Close()
 		return nil, err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
+		_ = gzIn.Close()
+		_ = in.Close()
 		return nil, err
 	}
 	gzOut := gzip.NewWriter(tmp)
@@ -356,6 +359,10 @@ func rewriteDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.St
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
+	// The source must be closed before the rename: Windows refuses to
+	// replace a file that is still open.
+	_ = gzIn.Close()
+	_ = in.Close()
 	if err != nil {
 		return stats, err
 	}
