@@ -30,8 +30,8 @@ func newHistoryCmd(opts *options) *cobra.Command {
 		Use:   "history",
 		Short: "Show the run history recorded on the source host, newest first",
 		Long: `history connects to the source and prints the run log rehost keeps in
-<home>/.rehost/history.jsonl on that host — every plan --dry-run (and, later,
-every migrate) leaves a trace there. It changes nothing on either host.
+<home>/.rehost/history.jsonl on that host — every plan --dry-run and every
+migrate leave a trace there. It changes nothing on either host.
 
 No runs recorded yet is a normal, successful outcome. Use --json for a
 machine-readable list of entries.`,
