@@ -22,24 +22,31 @@ import (
 )
 
 // scriptRunner is a fake stateRunner that answers the two commands
-// destStateResults issues — the `ls -A` docroot stat and the history `cat` —
-// so the destination-state policy is exercised without a real SSH connection.
-// A docroot listed in nonEmpty comes back with entries; every other docroot is
-// empty/absent. history is the raw history.jsonl content (empty = no file).
+// destStateResults issues — the guarded `ls -A` docroot stat and the history
+// `cat` — so the destination-state policy is exercised without a real SSH
+// connection. A docroot listed in nonEmpty comes back with entries; one listed
+// in unreadable exists but fails to list; every other docroot is absent.
+// history is the raw history.jsonl content (empty = no file).
 type scriptRunner struct {
-	nonEmpty map[string]bool
-	history  string
+	nonEmpty   map[string]bool
+	unreadable map[string]bool
+	history    string
 }
 
 func (s scriptRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
 	switch {
-	case strings.HasPrefix(cmd, "ls -A"):
+	case strings.Contains(cmd, "ls -A"):
 		for root, ne := range s.nonEmpty {
 			if ne && strings.Contains(cmd, root) {
 				return ssh.Result{Stdout: "index.php\nwp-content\n"}, nil
 			}
 		}
-		return ssh.Result{}, nil // empty or absent: nothing listed
+		for root, u := range s.unreadable {
+			if u && strings.Contains(cmd, root) {
+				return ssh.Result{ExitCode: 2, Stderr: "ls: cannot open directory: Permission denied\n"}, nil
+			}
+		}
+		return ssh.Result{ExitCode: docrootAbsentExit}, nil
 	case strings.HasPrefix(cmd, "cat "):
 		if s.history == "" {
 			return ssh.Result{ExitCode: 1}, nil // no history file yet
@@ -243,10 +250,12 @@ type syncCall struct {
 	opts     transfer.Options
 }
 
-func stubSync(t *testing.T, results ...struct {
+type syncOutcome struct {
 	stats *transfer.SyncStats
 	err   error
-}) *[]syncCall {
+}
+
+func stubSync(t *testing.T, results ...syncOutcome) *[]syncCall {
 	t.Helper()
 	prev := syncFn
 	t.Cleanup(func() { syncFn = prev })
@@ -286,21 +295,25 @@ func TestSyncOptionsGatingBothWays(t *testing.T) {
 	bsdTar := map[string]ssh.Tool{"tar": {Found: true, Version: "bsdtar 3.5.1"}, "gzip": {Found: true}}
 	noGzip := map[string]ssh.Tool{"tar": {Found: true, Version: "tar (GNU tar) 1.34"}}
 
+	bareTar := map[string]ssh.Tool{"tar": {Found: true}, "gzip": {Found: true}}
+
 	cases := []struct {
-		name           string
-		src, dst       map[string]ssh.Tool
-		compress, null bool
+		name                    string
+		src, dst                map[string]ssh.Tool
+		compress, null, unknown bool
 	}{
-		{"both gzip + gnu source", gnuTar, gnuTar, true, true},
-		{"dest lacks gzip", gnuTar, noGzip, false, true},
-		{"source lacks gzip", noGzip, gnuTar, false, true},
-		{"non-gnu source tar", bsdTar, gnuTar, true, false},
+		{"both gzip + gnu source", gnuTar, gnuTar, true, true, false},
+		{"dest lacks gzip", gnuTar, noGzip, false, true, false},
+		{"source lacks gzip", noGzip, gnuTar, false, true, false},
+		{"non-gnu source tar", bsdTar, gnuTar, true, false, false},
+		{"tar without version banner", bareTar, gnuTar, true, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			compress, null := syncOptions(&ssh.Capabilities{Tools: c.src}, &ssh.Capabilities{Tools: c.dst})
-			if compress != c.compress || null != c.null {
-				t.Errorf("syncOptions = (compress %v, null %v), want (%v, %v)", compress, null, c.compress, c.null)
+			compress, null, unknown := syncOptions(&ssh.Capabilities{Tools: c.src}, &ssh.Capabilities{Tools: c.dst})
+			if compress != c.compress || null != c.null || unknown != c.unknown {
+				t.Errorf("syncOptions = (compress %v, null %v, unknown %v), want (%v, %v, %v)",
+					compress, null, unknown, c.compress, c.null, c.unknown)
 			}
 		})
 	}
@@ -348,16 +361,7 @@ func recordsFor(runs []string) string { return strings.Join(runs, "\n") }
 func TestRunSyncPerSiteStatsInReport(t *testing.T) {
 	stats0 := &transfer.SyncStats{Compressed: true, FilesSent: 42, BytesSent: 1000, WireBytes: 400, FilesDeleted: 3, Duration: time.Second}
 	stats1 := &transfer.SyncStats{FilesSent: 7, BytesSent: 200, DestOnlyRemaining: 1, UnsafePaths: 1}
-	stubSync(t,
-		struct {
-			stats *transfer.SyncStats
-			err   error
-		}{stats0, nil},
-		struct {
-			stats *transfer.SyncStats
-			err   error
-		}{stats1, nil},
-	)
+	stubSync(t, syncOutcome{stats0, nil}, syncOutcome{stats1, nil})
 
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
@@ -446,10 +450,7 @@ func TestRunSyncDestHistoryFailureIsProminentWarning(t *testing.T) {
 func TestRunSyncStopsOnFirstSiteFailure(t *testing.T) {
 	source, dest := &fakeConn{}, &fakeConn{}
 	boom := errors.New("destination extract failed")
-	calls := stubSync(t, struct {
-		stats *transfer.SyncStats
-		err   error
-	}{&transfer.SyncStats{FilesSent: 5}, boom})
+	calls := stubSync(t, syncOutcome{&transfer.SyncStats{FilesSent: 5}, boom})
 
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
@@ -485,13 +486,13 @@ func TestMigrateSitesMapsDestRoots(t *testing.T) {
 	installs := []detect.Install{
 		{Framework: "wordpress", Root: "/home/u/public_html"},
 		{Framework: "drupal", Root: "/home/u/drupal"},
-		{Framework: "static", Root: "/home/u/orphan"}, // no project entry: defaults to its own root
+		{Framework: "static", Root: "/home/u/orphan"}, // no project entry: rebased onto the dest home
 	}
-	got := migrateSites(f, installs)
+	got := migrateSites(f, installs, "/home/u", "/home/d")
 	want := map[string]string{
-		"/home/u/public_html": "/home/d/www",
-		"/home/u/drupal":      "/home/u/drupal",
-		"/home/u/orphan":      "/home/u/orphan",
+		"/home/u/public_html": "/home/d/www",    // explicit dest_root wins
+		"/home/u/drupal":      "/home/d/drupal", // project entry without dest_root: rebased
+		"/home/u/orphan":      "/home/d/orphan", // no project entry: rebased
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d sites, want %d", len(got), len(want))
@@ -500,5 +501,65 @@ func TestMigrateSitesMapsDestRoots(t *testing.T) {
 		if want[s.install.Root] != s.destRoot {
 			t.Errorf("site %s → dest %q, want %q", s.install.Root, s.destRoot, want[s.install.Root])
 		}
+	}
+}
+
+func TestMapDestRoot(t *testing.T) {
+	cases := []struct {
+		name, srcRoot, srcHome, destHome, want string
+	}{
+		{"under home", "/home/alice/public_html", "/home/alice", "/home/bob", "/home/bob/public_html"},
+		{"nested under home", "/home/alice/sites/blog", "/home/alice", "/home/bob", "/home/bob/sites/blog"},
+		{"home itself", "/home/alice", "/home/alice", "/home/bob", "/home/bob"},
+		{"outside home keeps its path", "/var/www/site", "/home/alice", "/home/bob", "/var/www/site"},
+		{"same account", "/home/alice/public_html", "/home/alice", "/home/alice", "/home/alice/public_html"},
+		{"trailing slashes", "/home/alice/www", "/home/alice/", "/home/bob/", "/home/bob/www"},
+		{"unknown homes", "/home/alice/www", "", "", "/home/alice/www"},
+		{"prefix but not path boundary", "/home/alicedata/www", "/home/alice", "/home/bob", "/home/alicedata/www"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := mapDestRoot(c.srcRoot, c.srcHome, c.destHome); got != c.want {
+				t.Errorf("mapDestRoot(%q, %q, %q) = %q, want %q", c.srcRoot, c.srcHome, c.destHome, got, c.want)
+			}
+		})
+	}
+}
+
+func TestDestStateUnlistableDocrootIsAnError(t *testing.T) {
+	// An existing docroot whose listing fails must abort, not read as empty:
+	// "empty" would wave a live-but-unreadable site past the refusal policy.
+	r := scriptRunner{unreadable: map[string]bool{"/home/d/www": true}}
+	_, err := destStateResults(context.Background(), r, "/home/d", sites("/home/d/www"), false)
+	if err == nil || !strings.Contains(err.Error(), "cannot inspect /home/d/www") {
+		t.Errorf("unlistable docroot should be an error, got %v", err)
+	}
+}
+
+func TestRunSyncRecordsConvergedSitesOnPartialFailure(t *testing.T) {
+	// Site 1 converges, site 2 fails: site 1's destination record must exist
+	// anyway, or the rerun's destination-state policy refuses rehost's own
+	// work and the promised resume-by-rerun breaks.
+	source, dest := &fakeConn{}, &fakeConn{}
+	boom := errors.New("relay died")
+	stubSync(t,
+		syncOutcome{&transfer.SyncStats{FilesSent: 3}, nil},
+		syncOutcome{nil, boom})
+
+	var buf bytes.Buffer
+	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir()))
+	if !errors.Is(err, boom) {
+		t.Fatalf("the site-2 failure should surface, got %v", err)
+	}
+	destRecords := recordsFor(dest.runs)
+	if !strings.Contains(destRecords, "/home/d/www") {
+		t.Errorf("converged site 1 must be recorded on the destination:\n%s", destRecords)
+	}
+	if strings.Contains(destRecords, "/home/d/drupal") {
+		t.Errorf("failed site 2 must not be recorded:\n%s", destRecords)
+	}
+	if src := recordsFor(source.runs); !strings.Contains(src, `"sites":"1"`) {
+		t.Errorf("source summary should cover the one converged site:\n%s", src)
 	}
 }

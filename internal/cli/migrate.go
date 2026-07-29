@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,15 +46,19 @@ func newMigrateCmd(opts *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Execute the migration; idempotent, rerunning converges",
-		Long: `migrate runs the pre-flight for a real migration: it connects to both
-hosts, re-runs the compatibility gate (the same rules as 'rehost check'),
-confirms each source database is reachable, and enforces the
-destination-state policy — it refuses to touch a non-empty destination
-docroot that rehost did not itself create, unless --onto-existing is given.
+		Long: `migrate runs the pre-flight — it connects to both hosts, re-runs the
+compatibility gate (the same rules as 'rehost check'), confirms each source
+database is reachable, and enforces the destination-state policy: a
+non-empty destination docroot rehost did not itself create is refused
+unless --onto-existing is given.
 
-The file sync, database import and cutover steps are not wired yet, so a
-green pre-flight stops honestly without changing anything on the destination
-and exits non-zero (the migration did not happen).`,
+When the pre-flight is green it converges each site's files onto the
+destination through a manifest-driven tar pipe. The sync is additive by
+default (--delete removes destination-only files) and idempotent:
+rerunning re-sends only what changed. It then stops and exits non-zero,
+because database import, config rewrite, maintenance mode and cutover are
+not wired yet — the destination gets the site's files but is not a
+finished, working site.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMigrate(cmd, opts, docroots, ontoExisting, del)
@@ -125,7 +130,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	checks := check.Run(h.input)
 
 	// 3. Destination-state policy, per site, over the destination connection.
-	sites := migrateSites(f, h.source.installs)
+	sites := migrateSites(f, h.source.installs, h.source.caps.Home, h.dest.caps.Home)
 	destState, err := destStateResults(cmd.Context(), h.dest.client, h.dest.caps.Home, sites, ontoExisting)
 	if err != nil {
 		if u.mode == tui.ModeJSON {
@@ -149,11 +154,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	//    Capability facts are decided once here from the probe so the sync
 	//    engine never re-probes: compress needs gzip on both ends; nullList
 	//    needs a GNU source tar.
-	compress, nullList := syncOptions(h.source.caps, h.dest.caps)
-	if h.source.caps.Has("tar") && h.source.caps.Tools["tar"].Version == "" {
-		// The probe found tar but did not capture its version banner, so its
-		// GNU-ness is unknown. Settle it with one cheap check rather than
-		// assuming the portable (newline) degradation.
+	compress, nullList, nullUnknown := syncOptions(h.source.caps, h.dest.caps)
+	if nullUnknown {
 		nullList = sourceTarIsGNU(cmd.Context(), h.source.client)
 	}
 	plan := migratePlan{
@@ -176,12 +178,15 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 // syncOptions decides the two capability-gated Sync options from the two hosts'
 // probes: Compress needs gzip on the source and the destination; NullList (a
 // NUL-delimited, byte-exact file list) needs a GNU source tar, recognized by
-// its version banner. Pure over the probes, so the gating is unit-tested
-// directly.
-func syncOptions(srcCaps, dstCaps *ssh.Capabilities) (compress, nullList bool) {
+// its version banner. nullUnknown means the probe found tar but no banner, so
+// the caller must settle GNU-ness with a live check (sourceTarIsGNU) — the
+// whole decision lives here so probe-driven gating is unit-tested in one
+// place. Pure over the probes.
+func syncOptions(srcCaps, dstCaps *ssh.Capabilities) (compress, nullList, nullUnknown bool) {
 	compress = srcCaps.Has("gzip") && dstCaps.Has("gzip")
 	nullList = srcCaps.Has("tar") && strings.Contains(srcCaps.Tools["tar"].Version, "GNU")
-	return compress, nullList
+	nullUnknown = srcCaps.Has("tar") && srcCaps.Tools["tar"].Version == ""
+	return compress, nullList, nullUnknown
 }
 
 // sourceTarIsGNU is the fallback GNU-tar check when the probe found tar but did
@@ -197,14 +202,18 @@ func sourceTarIsGNU(ctx context.Context, r stateRunner) bool {
 }
 
 // runSync converges each site's files onto the destination in order, collects
-// the per-site stats, records run history after every site succeeds, renders
-// the combined report, and returns the honest-incomplete exit. A sync failure
-// stops before the next site and surfaces the error (no history is recorded —
-// the run did not converge).
+// the per-site stats, records run history, renders the combined report, and
+// returns the honest-incomplete exit. A sync failure stops before the next
+// site and surfaces the error. Each converged site is recorded on the
+// destination immediately — if a later site fails, the rerun's
+// destination-state policy must still recognize the finished docroots as
+// rehost-created, or the promised resume-by-rerun would refuse its own work.
 func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p migratePlan) error {
 	report := tui.MigrateReportView{Preflight: preflight}
 
 	var syncErr error
+	var warnings []string
+	succeeded := 0
 	for _, s := range p.sites {
 		u.progress("migrate: syncing %s → %s…", s.install.Root, s.destRoot)
 		excludes := recipe.ExcludeSuggestionsFor(s.install) // same excludes as dry-run, so deltas line up
@@ -220,9 +229,15 @@ func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p mi
 		report.Sites = append(report.Sites, siteSyncResult(s, stats, err))
 		if err != nil {
 			syncErr = fmt.Errorf("migrate: syncing %s: %w", s.install.Root, err)
-			break // stop before the next site; do not record a partial run
+			break
 		}
+		succeeded++
+		warnings = append(warnings, recordSiteMigrated(ctx, u, p, s.destRoot)...)
 	}
+	if succeeded > 0 {
+		warnings = append(warnings, recordSourceSummary(ctx, p, report.Sites[:succeeded])...)
+	}
+	report.Warnings = warnings
 
 	if syncErr != nil {
 		if rerr := u.renderer.MigrateReport(report); rerr != nil {
@@ -230,10 +245,6 @@ func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p mi
 		}
 		return syncErr
 	}
-
-	// Every site converged. Record the run — a warning, never a migration
-	// failure, if it cannot be written.
-	report.Warnings = recordMigrateHistory(ctx, u, p, report.Sites)
 	report.Notice = migrateIncompleteNotice
 	if err := u.renderer.MigrateReport(report); err != nil {
 		return err
@@ -261,29 +272,26 @@ func siteSyncResult(s siteDest, stats *transfer.SyncStats, err error) tui.SiteSy
 	return row
 }
 
-// recordMigrateHistory writes the run's paper trail after a successful sync and
-// returns any warnings (history failures never fail the migration). It records:
-//   - one EventMigrate per site on the DESTINATION host keyed by destination
-//     docroot — this is what makes the next run's destination-state policy treat
-//     the docroot as rehost-created (an idempotent rerun) instead of refusing
-//     it. A failed destination record is surfaced prominently because it means
-//     the next run will not recognize the docroot and will require
-//     --onto-existing.
-//   - one summary EventMigrate on the SOURCE host with aggregate stats,
-//     consistent with how dry-run leaves its trace on the source.
-func recordMigrateHistory(ctx context.Context, u ui, p migratePlan, rows []tui.SiteSyncResult) []string {
-	var warnings []string
-
-	for _, row := range rows {
-		u.progress("migrate: recording %s on the destination…", row.DestRoot)
-		entry := state.Entry{Event: state.EventMigrate, Site: row.DestRoot}
-		if err := state.Record(ctx, p.dest, p.destHome, entry); err != nil {
-			warnings = append(warnings, fmt.Sprintf(
-				"could not record the migration of %s on the destination (%v) — the next run will not recognize it as rehost-created and will need --onto-existing to converge onto it",
-				row.DestRoot, err))
-		}
+// recordSiteMigrated writes one EventMigrate on the DESTINATION host keyed by
+// destination docroot — what makes the next run's destination-state policy
+// treat the docroot as rehost-created (an idempotent rerun) instead of
+// refusing it. A failure is a prominent warning, never a migration failure:
+// it means the next run will not recognize the docroot and will require
+// --onto-existing.
+func recordSiteMigrated(ctx context.Context, u ui, p migratePlan, destRoot string) []string {
+	u.progress("migrate: recording %s on the destination…", destRoot)
+	entry := state.Entry{Event: state.EventMigrate, Site: destRoot}
+	if err := state.Record(ctx, p.dest, p.destHome, entry); err != nil {
+		return []string{fmt.Sprintf(
+			"could not record the migration of %s on the destination (%v) — the next run will not recognize it as rehost-created and will need --onto-existing to converge onto it",
+			destRoot, err)}
 	}
+	return nil
+}
 
+// recordSourceSummary writes one aggregate EventMigrate on the SOURCE host over
+// the converged sites, consistent with how dry-run leaves its trace there.
+func recordSourceSummary(ctx context.Context, p migratePlan, rows []tui.SiteSyncResult) []string {
 	var files, deleted int
 	var bytes int64
 	for _, row := range rows {
@@ -298,28 +306,51 @@ func recordMigrateHistory(ctx context.Context, u ui, p migratePlan, rows []tui.S
 		"files_deleted": strconv.Itoa(deleted),
 	}}
 	if err := state.Record(ctx, p.source, p.srcHome, summary); err != nil {
-		warnings = append(warnings, fmt.Sprintf("could not record the run on the source: %v", err))
+		return []string{fmt.Sprintf("could not record the run on the source: %v", err)}
 	}
-	return warnings
+	return nil
 }
 
 // migrateSites maps each detected source install to the destination docroot
 // migrate would populate: the project file's per-site dest_root when set,
-// otherwise the same path on the destination account.
-func migrateSites(f *project.File, installs []detect.Install) []siteDest {
+// otherwise the source path re-rooted under the destination home. A source
+// root outside the source home has no portable equivalent and keeps its own
+// path — set dest_root in migrate.yaml to override.
+func migrateSites(f *project.File, installs []detect.Install, srcHome, destHome string) []siteDest {
 	destByRoot := map[string]string{}
 	for _, s := range f.Sites {
-		destByRoot[s.Root] = s.DestinationRoot()
+		if s.DestRoot != "" {
+			destByRoot[s.Root] = s.DestRoot
+		}
 	}
 	sites := make([]siteDest, 0, len(installs))
 	for _, inst := range installs {
 		dest := destByRoot[inst.Root]
 		if dest == "" {
-			dest = inst.Root
+			dest = mapDestRoot(inst.Root, srcHome, destHome)
 		}
 		sites = append(sites, siteDest{install: inst, destRoot: dest})
 	}
 	return sites
+}
+
+// mapDestRoot rebases a source docroot onto the destination account: the same
+// home-relative path under the destination home. The old default — the source's
+// absolute path verbatim — pointed a cross-account migration at another user's
+// home (unwritable at best, an unserved directory at worst).
+func mapDestRoot(srcRoot, srcHome, destHome string) string {
+	srcHome = strings.TrimSuffix(srcHome, "/")
+	destHome = strings.TrimSuffix(destHome, "/")
+	if srcHome == "" || destHome == "" || srcHome == destHome {
+		return srcRoot
+	}
+	if srcRoot == srcHome {
+		return destHome
+	}
+	if rel, ok := strings.CutPrefix(srcRoot, srcHome+"/"); ok {
+		return path.Join(destHome, rel)
+	}
+	return srcRoot
 }
 
 // buildPreflight combines the compatibility-gate results and the
@@ -410,15 +441,28 @@ func destStateResults(ctx context.Context, r stateRunner, destHome string, sites
 	return results, nil
 }
 
+// docrootAbsentExit distinguishes "the docroot does not exist" (safe to
+// create into) from an ls that failed on an existing directory (refuse to
+// guess) without parsing stdout for sentinels.
+const docrootAbsentExit = 44
+
 // docrootNonEmpty reports whether the destination docroot holds anything. A
 // missing directory and an empty one both come back false — both are safe to
-// create into: `ls -A` lists nothing for an empty directory and errors to an
-// empty stdout for a missing one. Any listed entry (file or subdirectory)
-// makes it non-empty. Only a transport failure is an error.
+// create into. An existing directory that cannot be listed is an error, not
+// "empty": treating it as empty would wave an unreadable-but-writable live
+// docroot straight past the refuse-by-default destination-state policy.
 func docrootNonEmpty(ctx context.Context, r stateRunner, dir string) (bool, error) {
-	res, err := r.Run(ctx, "ls -A -- "+ssh.ShellQuote(dir)+" 2>/dev/null")
+	q := ssh.ShellQuote(dir)
+	res, err := r.Run(ctx, fmt.Sprintf("if [ -e %s ]; then ls -A -- %s; else exit %d; fi", q, q, docrootAbsentExit))
 	if err != nil {
 		return false, err
+	}
+	switch {
+	case res.ExitCode == docrootAbsentExit:
+		return false, nil
+	case res.ExitCode != 0:
+		return false, fmt.Errorf("cannot inspect %s (exit %d): %s — fix its permissions so rehost can tell whether it is safe to migrate into",
+			dir, res.ExitCode, ssh.FirstLine(res.Stderr))
 	}
 	return strings.TrimSpace(res.Stdout) != "", nil
 }
