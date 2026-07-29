@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	// Upstream go-yaml is archived but remains the de-facto standard;
@@ -164,21 +165,126 @@ const header = `# migrate.yaml — rehost project file (schema v%d)
 `
 
 // Save validates and atomically writes the project file with 0600 permissions.
+// When path already holds a parseable project file, Save preserves the
+// hand-written comments and key order of every section it does not change:
+// it splices the current values into the existing YAML tree, swapping a value
+// subtree only where the data actually differs (so a plan rerun keeps the
+// user's comments on source, destination, and the header). A fresh or
+// unparseable path is written from the struct under the standard header.
 func (f *File) Save(path string) error {
 	if err := f.Validate(); err != nil {
 		return err
 	}
+	existing, _ := os.ReadFile(path) // absent/unreadable → fresh write below
+	content, err := f.encode(existing)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, content)
+}
+
+// encode renders the project file, preserving the comments and layout of
+// existing when it is a parseable YAML mapping and emitting a fresh,
+// header-prefixed file otherwise.
+func (f *File) encode(existing []byte) ([]byte, error) {
 	var buf bytes.Buffer
+	if merged, ok := mergeExisting(existing, f); ok {
+		enc := yaml.NewEncoder(&buf)
+		enc.SetIndent(2)
+		if err := enc.Encode(merged); err != nil {
+			return nil, err
+		}
+		if err := enc.Close(); err != nil {
+			return nil, err
+		}
+		return buf.Bytes(), nil
+	}
 	fmt.Fprintf(&buf, header, SchemaVersion)
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(f); err != nil {
-		return err
+		return nil, err
 	}
 	if err := enc.Close(); err != nil {
-		return err
+		return nil, err
 	}
+	return buf.Bytes(), nil
+}
 
+// mergeExisting overlays f's top-level values onto the YAML document parsed
+// from existing, keeping the existing key order and every comment. It returns
+// (doc, true) on success, or (nil, false) when existing is not a parseable
+// mapping (the caller then writes a fresh file).
+func mergeExisting(existing []byte, f *File) (*yaml.Node, bool) {
+	if len(bytes.TrimSpace(existing)) == 0 {
+		return nil, false
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(existing, &doc); err != nil {
+		return nil, false
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil, false
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, false
+	}
+	var fresh yaml.Node
+	if err := fresh.Encode(f); err != nil || fresh.Kind != yaml.MappingNode {
+		return nil, false
+	}
+	root.Content = mergeMapping(root.Content, fresh.Content)
+	return &doc, true
+}
+
+// mergeMapping overlays the fresh key/value pairs onto the existing ones (both
+// the flat [k0,v0,k1,v1,…] Content of a MappingNode). Existing key order is
+// kept; a matching key keeps its comment-bearing key node and its value subtree
+// unless the data changed, in which case the value is swapped for fresh's;
+// fresh-only keys are appended and existing-only keys are dropped, so the
+// result tracks the struct while retaining comments on untouched sections.
+func mergeMapping(existing, fresh []*yaml.Node) []*yaml.Node {
+	freshVal := make(map[string]*yaml.Node, len(fresh)/2)
+	for i := 0; i+1 < len(fresh); i += 2 {
+		freshVal[fresh[i].Value] = fresh[i+1]
+	}
+	out := make([]*yaml.Node, 0, len(existing))
+	seen := make(map[string]bool, len(fresh)/2)
+	for i := 0; i+1 < len(existing); i += 2 {
+		k, v := existing[i], existing[i+1]
+		fv, ok := freshVal[k.Value]
+		if !ok {
+			continue // key no longer in the struct → drop
+		}
+		seen[k.Value] = true
+		if sameData(v, fv) {
+			out = append(out, k, v)
+		} else {
+			out = append(out, k, fv)
+		}
+	}
+	for i := 0; i+1 < len(fresh); i += 2 {
+		if k := fresh[i]; !seen[k.Value] {
+			out = append(out, k, fresh[i+1])
+		}
+	}
+	return out
+}
+
+// sameData reports whether two YAML nodes decode to the same data, ignoring
+// comments and formatting — the test for "did this section actually change".
+func sameData(a, b *yaml.Node) bool {
+	var av, bv any
+	if a.Decode(&av) != nil || b.Decode(&bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
+}
+
+// writeAtomic writes content to path via a same-directory 0600 temp file and a
+// rename, so a crash never leaves a half-written project file.
+func writeAtomic(path string, content []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".migrate-*.yaml.tmp")
 	if err != nil {
@@ -189,7 +295,7 @@ func (f *File) Save(path string) error {
 		_ = tmp.Close()
 		return err
 	}
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
+	if _, err := tmp.Write(content); err != nil {
 		_ = tmp.Close()
 		return err
 	}

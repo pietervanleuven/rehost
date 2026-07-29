@@ -143,3 +143,105 @@ func TestExampleIsLoadable(t *testing.T) {
 		t.Errorf("Example() should load cleanly: %v", err)
 	}
 }
+
+// TestSavePreservesComments is the regression guard for the plan-rewrites-
+// migrate.yaml gap: a Load→edit→Save cycle must keep the header and every
+// hand-written comment on sections it did not change, while still writing the
+// updated sites block.
+func TestSavePreservesComments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	orig := `# migrate.yaml — rehost project file (schema v1)
+# NEVER put passwords or secrets in this file; rehost prompts at runtime.
+version: 1
+name: my-site
+domain: my-site.example    # keep the DNS checks on
+source:
+  host: prod.example.com   # my production box
+  user: alice
+destination:
+  host: new.example.com
+  user: alice
+`
+	if err := os.WriteFile(path, []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f.Sites = []Site{{Framework: "wordpress", Root: "/home/alice/public_html", Version: "6.5"}}
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(got)
+	for _, want := range []string{
+		"# my production box",
+		"# keep the DNS checks on",
+		"# NEVER put passwords or secrets",
+		"framework: wordpress",
+		"root: /home/alice/public_html",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("Save dropped %q from:\n%s", want, out)
+		}
+	}
+	// The header must appear exactly once — no duplication on rewrite.
+	if n := strings.Count(out, "rehost project file (schema v"); n != 1 {
+		t.Errorf("header count = %d, want 1:\n%s", n, out)
+	}
+	// The result must still load and carry the edit.
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("reload after Save: %v", err)
+	}
+	if len(reloaded.Sites) != 1 || reloaded.Sites[0].Framework != "wordpress" {
+		t.Errorf("sites not persisted: %+v", reloaded.Sites)
+	}
+}
+
+// TestSaveDropsKeyRemovedFromStruct confirms the merge tracks the struct, not
+// just the file: clearing a field removes its key (and stale comment) rather
+// than stranding an orphaned line.
+func TestSaveDropsKeyRemovedFromStruct(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	orig := `version: 1
+name: my-site
+domain: gone.example   # about to be removed
+source:
+  host: prod.example.com
+  user: alice
+`
+	if err := os.WriteFile(path, []byte(orig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	f.Domain = "" // omitempty → the key should disappear entirely
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "domain:") || strings.Contains(string(got), "about to be removed") {
+		t.Errorf("cleared field left an orphan:\n%s", got)
+	}
+}
+
+// TestSaveFreshFileHasHeader confirms the create path (no existing file, e.g.
+// init) still emits the standard header.
+func TestSaveFreshFileHasHeader(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	if err := validFile().Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !strings.Contains(string(got), "rehost project file (schema v") {
+		t.Errorf("fresh Save missing header:\n%s", got)
+	}
+}
