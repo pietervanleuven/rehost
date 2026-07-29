@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/units"
 )
 
 // Conn is the destination-host capability Import needs: buffered Run for the
@@ -98,7 +99,7 @@ func Import(ctx context.Context, conn Conn, creds *Credentials, dumpPath string,
 	_ = vf.Close()
 	if !vstats.FooterOK {
 		return nil, fmt.Errorf("refusing to import %s: the local dump is incomplete — mysqldump's completion footer is missing (%s of SQL); re-run the dump",
-			dumpPath, humanBytes(vstats.Bytes))
+			dumpPath, units.HumanBytes(vstats.Bytes))
 	}
 
 	result := &ImportResult{

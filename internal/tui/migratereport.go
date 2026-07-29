@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/units"
 )
 
 // migratePreflightSchema versions the migrate pre-flight JSON envelope so
@@ -139,26 +140,12 @@ func (r plainRenderer) MigrateReport(v MigrateReportView) error {
 // siteSyncLine is the one-line summary of a site's sync, shared by the styled
 // and plain renderers.
 func siteSyncLine(s SiteSyncResult) string {
-	wire := humanBytes(s.WireBytes)
+	wire := units.HumanBytes(s.WireBytes)
 	if s.Compressed {
 		wire += " gzip"
 	}
 	return fmt.Sprintf("%d files · %s logical · %s wire · %d deleted · %d dest-only · %d unsafe · %.1fs",
-		s.FilesSent, humanBytes(s.BytesSent), wire, s.FilesDeleted, s.DestOnlyRemaining, s.UnsafePaths, s.Duration.Seconds())
-}
-
-// humanBytes renders a byte count as a compact human string for the report.
-func humanBytes(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", b)
-	}
+		s.FilesSent, units.HumanBytes(s.BytesSent), wire, s.FilesDeleted, s.DestOnlyRemaining, s.UnsafePaths, s.Duration.Seconds())
 }
 
 // --- JSON ---

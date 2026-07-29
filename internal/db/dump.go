@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/units"
 )
 
 // Streamer executes a remote command with streaming stdout; *ssh.Client
@@ -43,6 +44,17 @@ func dumpCmd(creds *Credentials) string {
 // mysqldump's). A verification failure returns the stats alongside the
 // error so callers can report what did arrive.
 func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*DumpStats, error) {
+	return streamVerifiedDump(ctx, s, dumpCmd(creds), w, creds, "mysqldump", "mysqldump's")
+}
+
+// streamVerifiedDump is the verification scaffolding Dump and DumpPHP share:
+// it runs remoteCmd, tees its gzipped stdout into w, gunzips the tee in
+// memory to count bytes/tables and watch for the completion footer, and maps
+// the outcome to one error. tool names the producer in failure messages;
+// whose possessive-cases it for the missing-footer message. Keeping both
+// producers on this one path is what guarantees they accept and reject the
+// same dumps.
+func streamVerifiedDump(ctx context.Context, s Streamer, remoteCmd string, w io.Writer, creds *Credentials, tool, whose string) (*DumpStats, error) {
 	stats := &DumpStats{}
 	start := time.Now()
 
@@ -54,7 +66,7 @@ func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*Du
 	}()
 
 	counted := &countingWriter{}
-	res, err := s.Stream(ctx, dumpCmd(creds), io.MultiWriter(w, counted, pw))
+	res, err := s.Stream(ctx, remoteCmd, io.MultiWriter(w, counted, pw))
 	_ = pw.Close()
 	<-analyzed
 	stats.CompressedBytes = counted.n
@@ -64,11 +76,11 @@ func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*Du
 		return stats, err
 	}
 	if res.ExitCode != 0 {
-		return stats, fmt.Errorf("mysqldump failed: %s", sanitizeReason(res.Stderr, creds.Password))
+		return stats, fmt.Errorf("%s failed: %s", tool, sanitizeReason(res.Stderr, creds.Password))
 	}
 	if !stats.FooterOK {
-		return stats, fmt.Errorf("dump of %s is incomplete — mysqldump's completion footer is missing (%s of SQL received)",
-			creds.Name, humanBytes(stats.Bytes))
+		return stats, fmt.Errorf("dump of %s is incomplete — %s completion footer is missing (%s of SQL received)",
+			creds.Name, whose, units.HumanBytes(stats.Bytes))
 	}
 	return stats, nil
 }
@@ -109,18 +121,4 @@ type countingWriter struct{ n int64 }
 func (c *countingWriter) Write(p []byte) (int, error) {
 	c.n += int64(len(p))
 	return len(p), nil
-}
-
-// humanBytes renders a byte count (not KiB) for dump messages.
-func humanBytes(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", b)
-	}
 }

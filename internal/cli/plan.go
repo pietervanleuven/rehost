@@ -75,19 +75,11 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	probeOne := func(ctx context.Context, i int) error {
 		t := targets[i]
 
-		// 1. Connect — the step most likely to fail or need a prompt.
-		u.progress("%s: connecting to %s…", t.role, targetLabel(t.cfg))
-		client, err := ssh.Dial(ctx, t.cfg, u.prompter)
+		client, caps, err := dialProbe(ctx, t.cfg, t.role, u)
 		if err != nil {
-			return fmt.Errorf("%s: %w", t.role, err)
+			return err
 		}
 		defer func() { _ = client.Close() }()
-
-		// 2. Probe capabilities — quick, one round trip.
-		caps, err := ssh.Probe(ctx, client)
-		if err != nil {
-			return fmt.Errorf("%s: %w", t.role, err)
-		}
 		u.progress("%s: connected to %s (%s) — scanning for websites…", t.role, caps.Target(), caps.Summary())
 
 		// 3. Scan for sites — the potentially slow recursive step.
@@ -141,10 +133,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 			g.Go(func() error { return probeOne(ctx, i) })
 		}
 		if err := g.Wait(); err != nil {
-			if u.mode == tui.ModeJSON {
-				u.renderer.Error(err) // keep stdout machine-readable
-			}
-			return err
+			return u.fail(err)
 		}
 	}
 

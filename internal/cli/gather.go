@@ -135,10 +135,9 @@ func (h *hosts) assembleInput() {
 // only, never stored or printed) and inspects each reachable database. The
 // client is returned open on success; any failure closes it before returning.
 func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) (*sourceGather, error) {
-	u.progress("source: connecting to %s…", targetLabel(cfg))
-	client, err := ssh.Dial(ctx, cfg, u.prompter)
+	client, caps, err := dialProbe(ctx, cfg, "source", u)
 	if err != nil {
-		return nil, fmt.Errorf("source: %w", err)
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -146,11 +145,6 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 			_ = client.Close()
 		}
 	}()
-
-	caps, err := ssh.Probe(ctx, client)
-	if err != nil {
-		return nil, fmt.Errorf("source: %w", err)
-	}
 	u.progress("source: connected to %s (%s) — scanning for websites…", caps.Target(), caps.Summary())
 
 	startRoots := docroots
@@ -232,10 +226,9 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 // the free space at the account home. The client is returned open on success;
 // any failure closes it before returning.
 func gatherDest(ctx context.Context, cfg ssh.Config, u ui) (*destGather, error) {
-	u.progress("destination: connecting to %s…", targetLabel(cfg))
-	client, err := ssh.Dial(ctx, cfg, u.prompter)
+	client, caps, err := dialProbe(ctx, cfg, "destination", u)
 	if err != nil {
-		return nil, fmt.Errorf("destination: %w", err)
+		return nil, err
 	}
 	ok := false
 	defer func() {
@@ -243,11 +236,6 @@ func gatherDest(ctx context.Context, cfg ssh.Config, u ui) (*destGather, error) 
 			_ = client.Close()
 		}
 	}()
-
-	caps, err := ssh.Probe(ctx, client)
-	if err != nil {
-		return nil, fmt.Errorf("destination: %w", err)
-	}
 	u.progress("destination: connected to %s (%s) — checking PHP and disk space…", caps.Target(), caps.Summary())
 
 	g := &destGather{client: client, caps: caps}
