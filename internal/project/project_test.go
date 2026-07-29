@@ -62,6 +62,40 @@ func TestLoadRejectsSecretFields(t *testing.T) {
 	}
 }
 
+func TestDestDBRoundTripAndValidation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	f := validFile()
+	f.Sites = []Site{{Framework: "wordpress", Root: "/home/u/public_html",
+		DestDB: &SiteDB{Name: "u12345_wp", User: "u12345_wp", Host: "127.0.0.1", Port: 3307}}}
+	if err := f.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if db := got.Sites[0].DestDB; db == nil || *db != *f.Sites[0].DestDB {
+		t.Errorf("dest_db round-trip mismatch: %+v", got.Sites[0].DestDB)
+	}
+
+	f.Sites[0].DestDB.Name = ""
+	if err := f.Validate(); err == nil || !strings.Contains(err.Error(), "dest_db needs a name") {
+		t.Errorf("dest_db without a name should fail validation, got %v", err)
+	}
+}
+
+func TestDestDBPasswordRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DefaultFilename)
+	content := "version: 1\nsource:\n  host: s.example.com\nsites:\n" +
+		"  - framework: wordpress\n    root: /home/u/site\n    dest_db:\n      name: db\n      password: hunter2\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "must not contain secrets") {
+		t.Errorf("a dest_db password must be rejected with secrets guidance, got %v", err)
+	}
+}
+
 func TestLoadRejectsUnknownVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), DefaultFilename)
 	content := "version: 2\nsource:\n  host: source.example.com\n"
