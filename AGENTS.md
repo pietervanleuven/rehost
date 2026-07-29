@@ -70,8 +70,9 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   `make snapshot` (goreleaser cross-build, publishes nothing).
 - `rehost plan [user@host[:port]]` — connect + capability + site detection +
   file inventory report; `--json` for machine output, plain text on non-TTY.
-  When run from a project file it rewrites its `sites:` section (note:
-  re-encoding drops hand-written YAML comments outside the header).
+  When run from a project file it rewrites its `sites:` section; hand-written
+  comments and layout on unchanged sections are preserved (the save path
+  splices values into the existing YAML tree, swapping only what changed).
 - `rehost init` — interactive wizard (TTY only): both hosts, connectivity test,
   writes migrate.yaml.
 - `rehost check` — compatibility gate (PHP version/extensions per framework,
