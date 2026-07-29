@@ -76,9 +76,10 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 - `rehost status` / `rehost history` — read-only flow summary and run log
   from the source's `.rehost/history.jsonl` (empty history is a normal
   exit-0 outcome).
-- `rehost migrate` — pre-flight (check gate + destination-state policy;
-  `--onto-existing`, `--delete`) then file sync per site; exits non-zero
-  until the DB/config/cutover steps exist.
+- `rehost migrate` — pre-flight (check gate + destination-state policy for
+  docroots and `dest_db` databases; `--onto-existing`, `--delete`), then per
+  site: file sync, maintenance window, final dump, delta pass, dump rewrite,
+  DB import + verify; exits non-zero until config rewrite and cutover exist.
 - `rehost unlock` — clears maintenance mode left by an interrupted run
   (live probe over history; nothing to unlock = exit 0).
 
@@ -109,11 +110,14 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   going).
 - `internal/searchreplace` — pure serialized-safe replacement core
   (wp search-replace --precise semantics, fuzzed round-trip invariant) +
-  the URL/docroot replacement-pair planner; DB application wired later.
+  the URL/docroot replacement-pair planner + `RewriteDump`, which applies
+  pairs inside a SQL dump's string literals (the local application point
+  migrate uses between dump and import).
 - `internal/db` — `Credentials` (Password excluded from JSON, in-memory only)
   + the `Extractor` seam recipes implement; `Inspect` learns version, size,
   charset and table counts in one round trip, feeding the password to mysql
-  via a defaults file on stdin (never argv/env); dump/import land in Phase 2.
+  via a defaults file on stdin (never argv/env); `Import` streams a verified
+  local dump into the destination's mysql, password over a 0600 FIFO.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
