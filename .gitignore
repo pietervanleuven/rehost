@@ -14,6 +14,5 @@
 # OS
 .DS_Store
 
-# Claude Code (per-developer tooling artifacts)
-/.claude/
-/skills-lock.json
+# Claude Code — skills and lockfile are shared; local settings stay per-developer
+/.claude/settings.local.json
