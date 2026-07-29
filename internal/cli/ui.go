@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -26,7 +27,7 @@ type ui struct {
 // stdout stays clean, and JSON mode stays silent so nothing but the document
 // reaches a consumer.
 func newUI(cmd *cobra.Command, opts *options) ui {
-	mode := opts.outputMode()
+	mode := opts.outputMode(cmd.OutOrStdout())
 	u := ui{
 		mode:        mode,
 		renderer:    tui.New(mode, cmd.OutOrStdout()),
@@ -46,15 +47,17 @@ func newUI(cmd *cobra.Command, opts *options) ui {
 }
 
 // outputMode picks the renderer: --json wins, then plain for non-TTY or
-// suppressed color, styled otherwise.
-func (o *options) outputMode() tui.Mode {
+// suppressed color, styled otherwise. The TTY test runs against the stream
+// the command actually writes to, so a redirected cobra out (tests, future
+// piping seams) is honored instead of the process-global stdout.
+func (o *options) outputMode(out io.Writer) tui.Mode {
 	if o.json {
 		return tui.ModeJSON
 	}
 	if o.noColor || os.Getenv("NO_COLOR") != "" {
 		return tui.ModePlain
 	}
-	if !term.IsTerminal(int(os.Stdout.Fd())) {
+	if f, ok := out.(*os.File); !ok || !term.IsTerminal(int(f.Fd())) {
 		return tui.ModePlain
 	}
 	return tui.ModeStyled

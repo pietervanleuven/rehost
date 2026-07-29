@@ -121,8 +121,7 @@ func statusReport(ctx context.Context, r stateRunner, home, projectFile string, 
 
 // buildStatusView turns the project file and newest-first history into the
 // renderer's data. It invents nothing: sites come from what plan persisted,
-// runs from what the source actually recorded, and migrate is honestly
-// reported as not yet implemented.
+// runs from what the source actually recorded.
 func buildStatusView(projectFile string, f *project.File, recent []state.Entry) tui.StatusView {
 	sites := make([]tui.StatusSite, 0, len(f.Sites))
 	for _, s := range f.Sites {
@@ -141,7 +140,7 @@ func buildStatusView(projectFile string, f *project.File, recent []state.Entry) 
 		Destination:        dest,
 		Sites:              sites,
 		Recent:             recent,
-		MigrateImplemented: false, // migrate is a Phase 3 stub
+		MigrateImplemented: true,
 	}
 }
 

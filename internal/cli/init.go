@@ -35,7 +35,7 @@ terminal — in scripts, write the project file by hand.`,
 }
 
 func runInit(cmd *cobra.Command, opts *options, force bool) error {
-	if opts.outputMode() != tui.ModeStyled {
+	if opts.outputMode(cmd.OutOrStdout()) != tui.ModeStyled {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Write %s by hand instead:\n\n%s\n", opts.projectFile, project.Example())
 		return errors.New("rehost init is an interactive wizard and needs a terminal — it cannot run with --json or piped/suppressed output")
 	}
