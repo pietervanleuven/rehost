@@ -71,11 +71,10 @@ type SiteDBResult struct {
 	Err        string   `json:"error,omitempty"`
 }
 
-// MigrateReportView is the combined migrate report: the pre-flight section and
-// the per-site file-sync results, plus the honest-stop notice that the
-// migration is not complete (no DB import, config rewrite or cutover yet) and
-// any non-fatal warnings (a failed history record downgrades to one). Complete
-// is always false in Phase 3.
+// MigrateReportView is the combined migrate report: the pre-flight section,
+// the per-site sync + database results, the closing notice, and any non-fatal
+// warnings (a failed history record downgrades to one). Complete is true when
+// every site converged.
 type MigrateReportView struct {
 	Preflight MigratePreflightView
 	Sites     []SiteSyncResult
@@ -251,9 +250,9 @@ func (r jsonRenderer) MigratePreflight(v MigratePreflightView) error {
 }
 
 // MigrateEnvelope is the versioned JSON shape of the combined migrate report:
-// the pre-flight section plus the per-site file-sync results. Complete is
-// always false in Phase 3 — file sync converges but DB import, config rewrite
-// and cutover are not wired yet.
+// the pre-flight section plus the per-site sync + database results. Complete
+// is true when every site converged; cutover (DNS/mail/SSL/cron) remains a
+// deliberately manual, reported step.
 type MigrateEnvelope struct {
 	Schema    string                   `json:"schema"`
 	Preflight MigratePreflightEnvelope `json:"preflight"`

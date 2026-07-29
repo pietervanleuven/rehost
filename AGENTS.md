@@ -51,8 +51,11 @@ FIFO-fed import with table-count verify, config rewrite pointing the
 synced wp-config.php / settings.php at the destination database (salts
 preserved; `drush cr` when available), maintenance lifted on every exit
 path (`unlock` recovers crashes). EventMigrate history lands per converged
-site on both hosts; the run still exits non-zero (`errMigrateIncomplete`)
-because the cutover report and post-migration checks remain unbuilt.
+site on both hosts; a converged run exits 0 and points at `rehost
+cutover` — the read-only go-live checklist (destination HTTP probe via a
+dial override, live DNS records + TTL advice, MX-at-source warning, SSL
+note, source crontab). Phase 3 is feature-complete; field validation
+(docs/TODO.md §1) is the gate before anything ships.
 
 Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
 will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
@@ -80,8 +83,10 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 - `rehost migrate` — pre-flight (check gate + destination-state policy for
   docroots and `dest_db` databases; `--onto-existing`, `--delete`), then per
   site: file sync, maintenance window, final dump, delta pass, dump rewrite,
-  DB import + verify, config rewrite (+ `drush cr`); exits non-zero until
-  the cutover report and post-migration checks exist.
+  DB import + verify, config rewrite (+ `drush cr`); a converged run exits 0.
+- `rehost cutover` — read-only go-live checklist: destination HTTP probe
+  (dial override, no hosts editing), DNS records + TTLs, MX/SSL/cron
+  instructions; changes nothing anywhere.
 - `rehost unlock` — clears maintenance mode left by an interrupted run
   (live probe over history; nothing to unlock = exit 0).
 
