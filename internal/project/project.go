@@ -46,20 +46,10 @@ type Site struct {
 	Root      string `yaml:"root"`
 	Version   string `yaml:"version,omitempty"`
 	// DestRoot is where this site's files land on the destination. Optional:
-	// when empty, migrate uses Root (the same path on the destination home).
-	// It never holds a secret — it is a filesystem path — so it does not
-	// weaken the "no secrets in migrate.yaml" guarantee.
+	// when empty, migrate rebases Root's home-relative path onto the
+	// destination home. It never holds a secret — it is a filesystem path —
+	// so it does not weaken the "no secrets in migrate.yaml" guarantee.
 	DestRoot string `yaml:"dest_root,omitempty"`
-}
-
-// DestinationRoot returns where this site's files land on the destination:
-// the explicit DestRoot when set, otherwise Root (same path on the
-// destination account).
-func (s Site) DestinationRoot() string {
-	if s.DestRoot != "" {
-		return s.DestRoot
-	}
-	return s.Root
 }
 
 // Host describes how to reach one host. Zero values defer to ~/.ssh/config
