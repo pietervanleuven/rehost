@@ -38,7 +38,7 @@ func TestPairs_URLVariantsAndOrder(t *testing.T) {
 			relIdx = i
 		}
 	}
-	if !(fullIdx >= 0 && relIdx >= 0 && fullIdx < relIdx) {
+	if fullIdx < 0 || relIdx < 0 || fullIdx >= relIdx {
 		t.Errorf("full URL must sort before protocol-relative: full=%d rel=%d", fullIdx, relIdx)
 	}
 }

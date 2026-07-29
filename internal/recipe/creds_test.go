@@ -31,15 +31,6 @@ func (f *fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
 	return ssh.Result{ExitCode: 127}, nil
 }
 
-const wpConfigPHP = `<?php
-define( 'DB_NAME', 'wp_prod' );
-define( 'DB_USER', "wpuser" );
-define( 'DB_PASSWORD', 'se'.'cret' ); // dynamic — regex layer sees nothing usable
-define( 'DB_HOST', 'localhost' );
-$table_prefix = 'wp_';
-require_once ABSPATH . 'wp-settings.php';
-`
-
 const wpConfigSimple = `<?php
 define('DB_NAME', 'blogdb');
 define('DB_USER', 'bloguser');

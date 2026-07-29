@@ -296,7 +296,7 @@ func DumpPHP(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (
 
 	counted := &countingWriter{}
 	res, err := s.Stream(ctx, dumpPHPCmd(creds), io.MultiWriter(w, counted, pw))
-	pw.Close()
+	_ = pw.Close()
 	<-analyzed
 	stats.CompressedBytes = counted.n
 	stats.Duration = time.Since(start)

@@ -95,7 +95,7 @@ func Import(ctx context.Context, conn Conn, creds *Credentials, dumpPath string,
 		return nil, err
 	}
 	analyzeDump(vf, vstats)
-	vf.Close()
+	_ = vf.Close()
 	if !vstats.FooterOK {
 		return nil, fmt.Errorf("refusing to import %s: the local dump is incomplete — mysqldump's completion footer is missing (%s of SQL); re-run the dump",
 			dumpPath, humanBytes(vstats.Bytes))
@@ -115,7 +115,7 @@ func Import(ctx context.Context, conn Conn, creds *Credentials, dumpPath string,
 	if err != nil {
 		return nil, err
 	}
-	defer df.Close()
+	defer func() { _ = df.Close() }()
 	counted := &progressReader{r: df, total: fi.Size(), step: progressStep(fi.Size()), cb: opts.Progress}
 	var payload io.Reader = counted
 	if !opts.RemoteGunzip {
@@ -123,7 +123,7 @@ func Import(ctx context.Context, conn Conn, creds *Credentials, dumpPath string,
 		if err != nil {
 			return nil, err
 		}
-		defer gz.Close()
+		defer func() { _ = gz.Close() }()
 		payload = gz
 	}
 
@@ -182,7 +182,7 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 		// cancelled or failed import still removes the FIFO.
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		conn.Run(cctx, "rm -f "+fifoRef)
+		_, _ = conn.Run(cctx, "rm -f "+fifoRef)
 	}()
 
 	runCtx, cancel := context.WithCancel(ctx)

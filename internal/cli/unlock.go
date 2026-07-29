@@ -49,7 +49,7 @@ func runUnlock(cmd *cobra.Command, opts *options) error {
 		}
 		return err
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	view, failed, err := unlockSites(cmd.Context(), db.Host{Run: client, Caps: caps}, caps.Home, caps.Target(), f)
 	if err != nil {
@@ -137,7 +137,7 @@ func unlockOne(ctx context.Context, h db.Host, s project.Site, historyLocked boo
 	if err != nil {
 		return row, false, fmt.Errorf("probing maintenance mode on %s: %w", s.Root, err)
 	}
-	if st != recipe.MaintenanceOn && !(st == recipe.MaintenanceUnknown && historyLocked) {
+	if st != recipe.MaintenanceOn && (st != recipe.MaintenanceUnknown || !historyLocked) {
 		row.Status = tui.UnlockNotLocked
 		return row, true, nil
 	}

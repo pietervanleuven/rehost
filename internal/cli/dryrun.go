@@ -164,7 +164,7 @@ func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, 
 	stats, dumpErr := dump(ctx, client, creds, f)
 	closeErr := f.Close()
 	if dumpErr != nil || closeErr != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		if dumpErr == nil {
 			dumpErr = closeErr
 		}

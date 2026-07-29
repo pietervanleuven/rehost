@@ -47,10 +47,10 @@ type hosts struct {
 // close releases both connections; safe to call with either gather missing.
 func (h *hosts) close() {
 	if h.source != nil && h.source.client != nil {
-		h.source.client.Close()
+		_ = h.source.client.Close()
 	}
 	if h.dest != nil && h.dest.client != nil {
-		h.dest.client.Close()
+		_ = h.dest.client.Close()
 	}
 }
 
@@ -143,7 +143,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 	ok := false
 	defer func() {
 		if !ok {
-			client.Close()
+			_ = client.Close()
 		}
 	}()
 
@@ -240,7 +240,7 @@ func gatherDest(ctx context.Context, cfg ssh.Config, u ui) (*destGather, error) 
 	ok := false
 	defer func() {
 		if !ok {
-			client.Close()
+			_ = client.Close()
 		}
 	}()
 

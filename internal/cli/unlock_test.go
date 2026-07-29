@@ -107,7 +107,7 @@ func TestUnlockToolFailureDoesNotAbortRun(t *testing.T) {
 	// A locked WordPress site whose .maintenance cannot be removed is a
 	// per-site failure, not a transport abort: the second site still clears.
 	r := &unlockRunner{results: map[string]ssh.Result{
-		"test -e": {ExitCode: 0},
+		"test -e":                             {ExitCode: 0},
 		"rm -f '/home/u/broken/.maintenance'": {ExitCode: 1, Stderr: "rm: permission denied"},
 		"rm -f '/home/u/ok/.maintenance'":     {ExitCode: 0},
 	}}

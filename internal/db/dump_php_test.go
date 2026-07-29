@@ -234,7 +234,7 @@ func TestPHPDumpEmitsViewsTriggersRoutines(t *testing.T) {
 
 	// Views come after every base table; triggers after views; the skipped
 	// routine and the footer come last.
-	if !(table < dropView && dropView < view && view < dropTrig && dropTrig < trig && trig < skip && skip < footer) {
+	if table >= dropView || dropView >= view || view >= dropTrig || dropTrig >= trig || trig >= skip || skip >= footer {
 		t.Errorf("wrong object order: table=%d dropView=%d view=%d dropTrig=%d trig=%d skip=%d footer=%d",
 			table, dropView, view, dropTrig, trig, skip, footer)
 	}
