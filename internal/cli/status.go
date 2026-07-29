@@ -62,23 +62,21 @@ Use --json for a machine-readable summary.`,
 }
 
 func runHistory(cmd *cobra.Command, opts *options) error {
-	u := newUI(cmd, opts)
-	f, err := loadProject(opts.projectFile)
-	if err != nil {
-		return err
-	}
-	client, caps, err := dialSource(cmd.Context(), f, u)
-	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err) // keep stdout machine-readable
-		}
-		return err
-	}
-	defer func() { _ = client.Close() }()
-	return historyReport(cmd.Context(), client, caps.Home, u.renderer)
+	return withSource(cmd, opts, func(ctx context.Context, u ui, _ *project.File, client *ssh.Client, caps *ssh.Capabilities) error {
+		return historyReport(ctx, client, caps.Home, u.renderer)
+	})
 }
 
 func runStatus(cmd *cobra.Command, opts *options) error {
+	return withSource(cmd, opts, func(ctx context.Context, u ui, f *project.File, client *ssh.Client, caps *ssh.Capabilities) error {
+		return statusReport(ctx, client, caps.Home, opts.projectFile, f, u.renderer)
+	})
+}
+
+// withSource owns the prologue every read-the-source command repeats — load
+// the project, dial and probe the source, keep JSON stdout machine-readable
+// on failure, close on the way out — and hands fn the live connection.
+func withSource(cmd *cobra.Command, opts *options, fn func(ctx context.Context, u ui, f *project.File, client *ssh.Client, caps *ssh.Capabilities) error) error {
 	u := newUI(cmd, opts)
 	f, err := loadProject(opts.projectFile)
 	if err != nil {
@@ -86,13 +84,10 @@ func runStatus(cmd *cobra.Command, opts *options) error {
 	}
 	client, caps, err := dialSource(cmd.Context(), f, u)
 	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err) // keep stdout machine-readable
-		}
-		return err
+		return u.fail(err)
 	}
 	defer func() { _ = client.Close() }()
-	return statusReport(cmd.Context(), client, caps.Home, opts.projectFile, f, u.renderer)
+	return fn(cmd.Context(), u, f, client, caps)
 }
 
 // historyReport reads the run history over r and renders it newest-first. It
@@ -154,7 +149,7 @@ func newestFirst(entries []state.Entry) []state.Entry {
 }
 
 // loadProject loads the project file, turning a missing file into the same
-// "run init first" guidance check gives.
+// "run init first" guidance everywhere.
 func loadProject(path string) (*project.File, error) {
 	f, err := project.Load(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -166,20 +161,35 @@ func loadProject(path string) (*project.File, error) {
 	return f, nil
 }
 
-// dialSource connects to the source and probes it, returning the client and
-// its capabilities (the account home the history file lives under, tool
-// availability the recipe layers gate on). The caller owns closing the client.
-func dialSource(ctx context.Context, f *project.File, u ui) (*ssh.Client, *ssh.Capabilities, error) {
-	cfg := f.Source.SSHConfig()
-	u.progress("source: connecting to %s…", targetLabel(cfg))
+// requireDestination rejects a project file without a destination section
+// with one shared remediation message; cmdName names the command that needs
+// it.
+func requireDestination(f *project.File, projectFile, cmdName string) error {
+	if f.Destination == nil {
+		return fmt.Errorf("%s has no destination — %s needs one; rerun 'rehost init' or add a destination section", projectFile, cmdName)
+	}
+	return nil
+}
+
+// dialProbe connects to one host and probes it; role ("source"/
+// "destination") prefixes progress lines and errors. A probe failure closes
+// the client; on success the caller owns closing it.
+func dialProbe(ctx context.Context, cfg ssh.Config, role string, u ui) (*ssh.Client, *ssh.Capabilities, error) {
+	u.progress("%s: connecting to %s…", role, targetLabel(cfg))
 	client, err := ssh.Dial(ctx, cfg, u.prompter)
 	if err != nil {
-		return nil, nil, fmt.Errorf("source: %w", err)
+		return nil, nil, fmt.Errorf("%s: %w", role, err)
 	}
 	caps, err := ssh.Probe(ctx, client)
 	if err != nil {
 		_ = client.Close()
-		return nil, nil, fmt.Errorf("source: %w", err)
+		return nil, nil, fmt.Errorf("%s: %w", role, err)
 	}
 	return client, caps, nil
+}
+
+// dialSource is dialProbe for the project's source host — the capabilities
+// carry the account home the history file lives under.
+func dialSource(ctx context.Context, f *project.File, u ui) (*ssh.Client, *ssh.Capabilities, error) {
+	return dialProbe(ctx, f.Source.SSHConfig(), "source", u)
 }
