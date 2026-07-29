@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -274,5 +275,128 @@ func TestMigratedDatabases(t *testing.T) {
 	// any database as filled — the overwrite guard stays armed.
 	if len(MigratedDatabases([]Entry{{Event: EventMigrate, Site: "/home/d/www"}})) != 0 {
 		t.Error("a docroot-only migrate record must not mark any database as filled")
+	}
+}
+
+func TestCompactHistoryUntouchedBelowKeep(t *testing.T) {
+	entries := []Entry{{Event: EventDryRun}, {Event: EventDryRun}, {Event: EventDryRun}}
+	got := CompactHistory(entries, 5)
+	if len(got) != len(entries) {
+		t.Errorf("nothing to drop when n <= keepRecent: got %d, want %d", len(got), len(entries))
+	}
+}
+
+func TestCompactHistoryKeepsRecentAndOrder(t *testing.T) {
+	var entries []Entry
+	for i := 0; i < 10; i++ {
+		entries = append(entries, Entry{Event: EventDryRun, Details: map[string]string{"i": strconv.Itoa(i)}})
+	}
+	got := CompactHistory(entries, 3)
+	if len(got) != 3 {
+		t.Fatalf("plain dry-runs should compact to keepRecent: got %d, want 3", len(got))
+	}
+	for j, want := range []string{"7", "8", "9"} {
+		if got[j].Details["i"] != want {
+			t.Errorf("kept[%d].i = %q, want %q (oldest-first tail preserved)", j, got[j].Details["i"], want)
+		}
+	}
+}
+
+func TestCompactHistoryPreservesMigratedAndLockedSets(t *testing.T) {
+	// A critical EventMigrate and an open maintenance lock sit far in the past,
+	// buried under enough recent noise that keepRecent alone would drop them.
+	entries := []Entry{
+		{Event: EventMigrate, Site: "/dest/old"}, // refusal exemption must survive
+		MaintenanceEntry("/src/stuck", true),     // unlock recovery must survive
+	}
+	for i := 0; i < 50; i++ {
+		entries = append(entries, Entry{Event: EventDryRun, Details: map[string]string{"i": strconv.Itoa(i)}})
+	}
+
+	got := CompactHistory(entries, 5)
+	if len(got) >= len(entries) {
+		t.Fatalf("expected compaction to shrink %d entries", len(entries))
+	}
+	if !sameSet(MigratedSites(got), MigratedSites(entries)) {
+		t.Errorf("MigratedSites changed: %v vs %v", MigratedSites(got), MigratedSites(entries))
+	}
+	if !sameSet(LockedSites(got), LockedSites(entries)) {
+		t.Errorf("LockedSites changed: %v vs %v", LockedSites(got), LockedSites(entries))
+	}
+}
+
+func TestCompactHistoryPreservesMigratedDatabases(t *testing.T) {
+	// An old EventMigrateDB record (no Site — keyed by database identity) must
+	// survive compaction, or the destination-DB overwrite guard would re-arm
+	// against rehost's own import and a rerun would demand --onto-existing.
+	id := "u_wp\x00u\x00localhost\x000"
+	entries := []Entry{DatabaseMigratedEntry(id)}
+	for i := 0; i < 50; i++ {
+		entries = append(entries, Entry{Event: EventDryRun})
+	}
+	got := CompactHistory(entries, 5)
+	if len(got) >= len(entries) {
+		t.Fatalf("expected compaction to shrink %d entries", len(entries))
+	}
+	if !MigratedDatabases(got)[id] {
+		t.Errorf("MigratedDatabases lost %q after compaction: %v", id, MigratedDatabases(got))
+	}
+}
+
+func TestCompactHistoryKeepsOnlyLatestMaintenancePerSite(t *testing.T) {
+	// on then a later off must both resolve to "not locked" after compaction;
+	// keeping only the latest (off) record is enough and correct.
+	entries := []Entry{MaintenanceEntry("/a", true), MaintenanceEntry("/a", false)}
+	for i := 0; i < 20; i++ {
+		entries = append(entries, Entry{Event: EventDryRun})
+	}
+	got := CompactHistory(entries, 2)
+	if LockedSites(got)["/a"] {
+		t.Errorf("/a should read back unlocked after compaction: %v", LockedSites(got))
+	}
+}
+
+func TestCompactBelowThresholdDoesNotRewrite(t *testing.T) {
+	// History returns three entries (< CompactThreshold): Compact reads once and
+	// issues no rewrite.
+	r := &fakeRunner{res: ssh.Result{Stdout: `{"event":"dry-run"}
+{"event":"dry-run"}
+{"event":"dry-run"}
+`}}
+	if err := Compact(context.Background(), r, "/home/u"); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if len(r.cmds) != 1 {
+		t.Fatalf("expected one command (the History read), got %d: %v", len(r.cmds), r.cmds)
+	}
+	if strings.Contains(r.cmds[0], "mv ") {
+		t.Errorf("a below-threshold file must not be rewritten:\n%s", r.cmds[0])
+	}
+}
+
+func TestCompactAboveThresholdRewritesAtomically(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`{"event":"migrate","site":"/dest/keep"}` + "\n")
+	b.WriteString(`{"event":"maintenance","site":"/src/locked","details":{"state":"on"}}` + "\n")
+	for i := 0; i < CompactThreshold; i++ {
+		b.WriteString(`{"event":"dry-run"}` + "\n")
+	}
+	r := &fakeRunner{res: ssh.Result{Stdout: b.String()}}
+	if err := Compact(context.Background(), r, "/home/u"); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if len(r.cmds) != 2 {
+		t.Fatalf("expected History read + rewrite, got %d commands", len(r.cmds))
+	}
+	rewrite := r.cmds[1]
+	for _, want := range []string{
+		"cat > '/home/u/.rehost/history.jsonl.tmp' <<'REHOST_STATE'",
+		"mv '/home/u/.rehost/history.jsonl.tmp' '/home/u/.rehost/history.jsonl'",
+		`"event":"migrate","site":"/dest/keep"`,      // critical record carried over
+		`"event":"maintenance","site":"/src/locked"`, // open lock carried over
+	} {
+		if !strings.Contains(rewrite, want) {
+			t.Errorf("rewrite command missing %q:\n%s", want, rewrite[:min(400, len(rewrite))])
+		}
 	}
 }

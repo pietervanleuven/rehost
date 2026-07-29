@@ -145,8 +145,13 @@ hosting and verify:
       old-TTL wait before the flip)
 - [ ] TUI: reports are static text; the bubbletea live checklist from the
       PLAN is deferred until the output stabilizes
-- [ ] `.rehost/history.jsonl` on the source grows unbounded — rotation or
-      pruning eventually
+- [x] `.rehost/history.jsonl` growth is bounded (2026-07-29): `state.Compact`
+      rewrites the file (atomic temp+mv) once it passes `CompactThreshold`
+      entries, keeping the last `CompactKeepRecent` plus the latest
+      EventMigrate/EventMaintenance per site — so `MigratedSites` (refusal
+      exemption) and `LockedSites` (unlock recovery) read back unchanged.
+      Best-effort, wired at the record-writing tails of `plan --dry-run` and
+      `migrate` (both hosts); `Record` itself stays a pristine single append
 - [x] golangci-lint installed locally (2.12.2 via Homebrew); the whole
       repo lints clean — write-path Close errors are now checked, deliberate
       best-effort calls are explicit `_ =`
