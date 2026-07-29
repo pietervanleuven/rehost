@@ -39,7 +39,7 @@ func newUI(cmd *cobra.Command, opts *options) ui {
 	}
 	u.progress = func(format string, a ...any) {
 		if mode != tui.ModeJSON {
-			fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", a...)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", a...)
 		}
 	}
 	return u

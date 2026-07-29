@@ -61,7 +61,7 @@ func Dial(ctx context.Context, cfg Config, p Prompter) (*Client, error) {
 	}
 	conn, chans, reqs, err := cryptossh.NewClientConn(netConn, cfg.Addr(), clientCfg)
 	if err != nil {
-		netConn.Close()
+		_ = netConn.Close()
 		return nil, fmt.Errorf("ssh handshake with %s: %w", cfg.Addr(), err)
 	}
 	return &Client{conn: cryptossh.NewClient(conn, chans, reqs), Config: cfg}, nil
@@ -252,12 +252,16 @@ func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, error) {
 	}, nil
 }
 
-func appendKnownHost(path, hostname string, remote net.Addr, key cryptossh.PublicKey) error {
+func appendKnownHost(path, hostname string, remote net.Addr, key cryptossh.PublicKey) (err error) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("recording host key: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("recording host key: %w", cerr)
+		}
+	}()
 	return knownhosts.WriteKnownHost(f, hostname, remote, key)
 }
 
@@ -291,9 +295,9 @@ func stageKnownHosts(files []string) (path string, cleanup func(), err error) {
 	if err != nil {
 		return "", nil, err
 	}
-	cleanup = func() { os.Remove(tmp.Name()) }
+	cleanup = func() { _ = os.Remove(tmp.Name()) }
 	if _, err := tmp.Write(clean.Bytes()); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		cleanup()
 		return "", nil, err
 	}

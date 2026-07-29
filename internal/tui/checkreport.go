@@ -32,8 +32,8 @@ func (r styledRenderer) CheckReport(results []check.Result) error {
 }
 
 func (r styledRenderer) checklist(title string, results []check.Result) error {
-	fmt.Fprintln(r.out, titleStyle.Render(title))
-	fmt.Fprintln(r.out)
+	fprintln(r.out, titleStyle.Render(title))
+	fprintln(r.out)
 	for _, res := range results {
 		var mark string
 		switch res.Severity {
@@ -46,18 +46,18 @@ func (r styledRenderer) checklist(title string, results []check.Result) error {
 		default:
 			mark = missingStyle.Render("✗")
 		}
-		fmt.Fprintf(r.out, "  %s %-32s %s\n", mark, res.Title, dimStyle.Render(res.Detail))
+		fprintf(r.out, "  %s %-32s %s\n", mark, res.Title, dimStyle.Render(res.Detail))
 	}
 	blockers, warnings := check.Summarize(results)
 	verdict := checkSummary(blockers, warnings)
-	fmt.Fprintln(r.out)
+	fprintln(r.out)
 	switch {
 	case blockers > 0:
-		fmt.Fprintln(r.out, missingStyle.Render(verdict))
+		fprintln(r.out, missingStyle.Render(verdict))
 	case warnings > 0:
-		fmt.Fprintln(r.out, warnStyle.Render(verdict))
+		fprintln(r.out, warnStyle.Render(verdict))
 	default:
-		fmt.Fprintln(r.out, okStyle.Render(verdict))
+		fprintln(r.out, okStyle.Render(verdict))
 	}
 	return nil
 }
@@ -73,13 +73,13 @@ func (r plainRenderer) checklist(results []check.Result) error {
 		if res.Severity == check.Blocker {
 			label = "[BLOCKER]"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", label, res.Title, res.Detail)
+		fprintf(w, "%s\t%s\t%s\n", label, res.Title, res.Detail)
 	}
 	if err := w.Flush(); err != nil {
 		return err
 	}
 	blockers, warnings := check.Summarize(results)
-	fmt.Fprintf(r.out, "\n%s\n", checkSummary(blockers, warnings))
+	fprintf(r.out, "\n%s\n", checkSummary(blockers, warnings))
 	return nil
 }
 
