@@ -35,7 +35,7 @@ func PHPExtensions(ctx context.Context, r runner) []string {
 // FreeKB measures the free space of the filesystem holding path via POSIX
 // `df -P -k`, or 0 when unknown.
 func FreeKB(ctx context.Context, r runner, path string) int64 {
-	res, err := r.Run(ctx, "df -P -k "+shQuote(path))
+	res, err := r.Run(ctx, "df -P -k "+ssh.ShellQuote(path))
 	if err != nil || res.ExitCode != 0 {
 		return 0
 	}
@@ -61,7 +61,7 @@ func FreeKB(ctx context.Context, r runner, path string) int64 {
 func DirsSizeKB(ctx context.Context, r runner, dirs []string) int64 {
 	var total int64
 	for _, dir := range dirs {
-		res, err := r.Run(ctx, "du -sk "+shQuote(dir)+" 2>/dev/null")
+		res, err := r.Run(ctx, "du -sk "+ssh.ShellQuote(dir)+" 2>/dev/null")
 		if err != nil {
 			continue
 		}
@@ -77,6 +77,3 @@ func DirsSizeKB(ctx context.Context, r runner, dirs []string) int64 {
 	}
 	return total
 }
-
-// shQuote single-quotes s for a POSIX shell.
-func shQuote(s string) string { return ssh.ShellQuote(s) }

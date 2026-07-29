@@ -46,6 +46,16 @@ func newUI(cmd *cobra.Command, opts *options) ui {
 	return u
 }
 
+// fail routes err through the renderer in JSON mode — stdout stays a
+// machine-readable document even on failure — and returns it unchanged, so
+// call sites read `return u.fail(err)`.
+func (u ui) fail(err error) error {
+	if u.mode == tui.ModeJSON {
+		u.renderer.Error(err)
+	}
+	return err
+}
+
 // outputMode picks the renderer: --json wins, then plain for non-TTY or
 // suppressed color, styled otherwise. The TTY test runs against the stream
 // the command actually writes to, so a redirected cobra out (tests, future

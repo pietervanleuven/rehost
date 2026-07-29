@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"regexp"
@@ -26,6 +27,31 @@ func ExtractorFor(framework string) db.Extractor {
 		}
 	}
 	return nil
+}
+
+// credLayer is one rung of a credential-extraction ladder: skipped unless
+// available, aborting on error (transport failures must not fall through to
+// a weaker layer), returning on a non-nil result, falling through otherwise.
+type credLayer struct {
+	available bool
+	extract   func(ctx context.Context) (*db.Credentials, error)
+}
+
+// extractLayered walks the ladder every recipe's ExtractCredentials shares:
+// framework CLI (authoritative) → PHP echo-helper → config-file parse.
+// Keeping the fall-through contract here means a change to the layering
+// rules cannot reach one framework and miss another.
+func extractLayered(ctx context.Context, layers []credLayer) (*db.Credentials, error) {
+	for _, l := range layers {
+		if !l.available {
+			continue
+		}
+		creds, err := l.extract(ctx)
+		if err != nil || creds != nil {
+			return creds, err
+		}
+	}
+	return nil, nil
 }
 
 // decodeFirstJSON unmarshals the first JSON value found in s into v,

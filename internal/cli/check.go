@@ -1,15 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 
 	"github.com/spf13/cobra"
 
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/project"
-	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
 func newCheckCmd(opts *options) *cobra.Command {
@@ -36,23 +32,17 @@ it is green. The exit status is non-zero while blockers remain.`,
 func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 	u := newUI(cmd, opts)
 
-	f, err := project.Load(opts.projectFile)
-	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("no project file at %s — run 'rehost init' first", opts.projectFile)
-	}
+	f, err := loadProject(opts.projectFile)
 	if err != nil {
 		return err
 	}
-	if f.Destination == nil {
-		return fmt.Errorf("%s has no destination — rerun 'rehost init' or add a destination section", opts.projectFile)
+	if err := requireDestination(f, opts.projectFile, "check"); err != nil {
+		return err
 	}
 
 	h, err := gatherHosts(cmd.Context(), u, f, docroots)
 	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err) // keep stdout machine-readable
-		}
-		return err
+		return u.fail(err)
 	}
 	defer h.close()
 
