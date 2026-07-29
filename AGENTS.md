@@ -178,6 +178,11 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
   - Release automation will be built on top of this later (semver derivation,
     changelog) — assume commit messages are machine-parsed, so follow the format
     strictly from the very first commit.
+- **Comments: sparse.** Godoc comments on exported identifiers stay (that's Go
+  convention), and inline comments are for what the code *can't* say — invariants,
+  protocol quirks, why a fallback exists. Never narrate the next line
+  (`// take the manifest`), add step/section headers inside a function, or explain
+  a change to the reviewer. When a comment merely restates the code, delete it.
 - Docs live in `docs/`. Keep IDEA.md and PLAN.md consistent when decisions change;
   PLAN.md is the source of truth.
 - TUI output must have a plain-text/JSON fallback for non-TTY (CI) use.
