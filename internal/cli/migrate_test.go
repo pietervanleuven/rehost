@@ -222,9 +222,11 @@ func TestMigratePreflightJSONEnvelope(t *testing.T) {
 // commands it receives — the history writes runSync issues land here — and can
 // be told to fail every Run to simulate a host that cannot record state.
 type fakeConn struct {
-	runs      []string
-	runErr    error
-	catStdout string // response to `cat -- <path>` reads
+	runs        []string
+	runErr      error
+	catStdout   string // response to `cat -- <path>` reads
+	crontab     string // response to `crontab -l`
+	crontabExit int
 }
 
 func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
@@ -232,8 +234,11 @@ func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
 	if f.runErr != nil {
 		return ssh.Result{}, f.runErr
 	}
-	if strings.HasPrefix(cmd, "cat -- ") {
+	switch {
+	case strings.HasPrefix(cmd, "cat -- "):
 		return ssh.Result{Stdout: f.catStdout}, nil
+	case strings.HasPrefix(cmd, "crontab -l"):
+		return ssh.Result{Stdout: f.crontab, ExitCode: f.crontabExit}, nil
 	}
 	return ssh.Result{ExitCode: 0}, nil
 }
@@ -331,8 +336,8 @@ func TestRunSyncInvokesSyncWithEndpointsAndOptions(t *testing.T) {
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
 		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, stateDir))
-	if !errors.Is(err, errMigrateIncomplete) {
-		t.Fatalf("a converged sync should exit with errMigrateIncomplete, got %v", err)
+	if err != nil {
+		t.Fatalf("a converged sync should exit clean, got %v", err)
 	}
 	if len(*calls) != 2 {
 		t.Fatalf("expected 2 sync calls, got %d", len(*calls))
@@ -370,8 +375,8 @@ func TestRunSyncPerSiteStatsInReport(t *testing.T) {
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
 		tui.MigratePreflightView{Passed: true}, twoSitePlan(&fakeConn{}, &fakeConn{}, t.TempDir()))
-	if !errors.Is(err, errMigrateIncomplete) {
-		t.Fatalf("got %v", err)
+	if err != nil {
+		t.Fatalf("a converged run should exit clean, got %v", err)
 	}
 	var env tui.MigrateEnvelope
 	if jerr := json.Unmarshal(buf.Bytes(), &env); jerr != nil {
@@ -380,11 +385,11 @@ func TestRunSyncPerSiteStatsInReport(t *testing.T) {
 	if env.Schema != "rehost.migrate.v1" {
 		t.Errorf("schema = %q", env.Schema)
 	}
-	if env.Complete {
-		t.Error("Phase 3 migrate is never complete")
+	if !env.Complete {
+		t.Error("a converged run should report complete")
 	}
-	if env.Notice == "" || !strings.Contains(env.Notice, "not wired yet") {
-		t.Errorf("envelope should carry the honest-incomplete notice, got %q", env.Notice)
+	if env.Notice == "" || !strings.Contains(env.Notice, "rehost cutover") {
+		t.Errorf("envelope should point at the cutover checklist, got %q", env.Notice)
 	}
 	if !env.Preflight.Passed {
 		t.Error("preflight section should report passed")
@@ -405,7 +410,7 @@ func TestRunSyncRecordsHistoryAfterSuccess(t *testing.T) {
 	stubSync(t)
 	var buf bytes.Buffer
 	if err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
-		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir())); !errors.Is(err, errMigrateIncomplete) {
+		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir())); err != nil {
 		t.Fatalf("got %v", err)
 	}
 	// One EventMigrate per site on the destination, each naming its dest root —
@@ -435,7 +440,7 @@ func TestRunSyncDestHistoryFailureIsProminentWarning(t *testing.T) {
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
 		tui.MigratePreflightView{Passed: true}, twoSitePlan(source, dest, t.TempDir()))
-	if !errors.Is(err, errMigrateIncomplete) {
+	if err != nil {
 		t.Fatalf("a failed history write must not fail the migration, got %v", err)
 	}
 	var env tui.MigrateEnvelope

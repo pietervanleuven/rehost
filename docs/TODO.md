@@ -6,9 +6,10 @@ unfinished*. Check items off rather than deleting them; prune a section when
 it is fully done. Keep entries honest — a gap nobody wrote down is a gap
 that ships.
 
-Status snapshot (2026-07-27): Phases 0–2 are feature-complete
-(`init` / `check` / `plan` incl. `--dry-run` collection). Nothing has run
-against a real shared host end-to-end yet.
+Status snapshot (2026-07-29): Phases 0–3 are feature-complete
+(`init` / `check` / `plan` / `migrate` / `cutover` + `status` / `history` /
+`unlock`). Nothing has run against a real shared host end-to-end yet —
+field validation (§1) is the gate before anything ships.
 
 ## 1. Field validation — the current gate (Phase 1 & 2 exit criteria)
 
@@ -38,6 +39,10 @@ hosting and verify:
 - [ ] `migrate` file sync between two real hosts: files land byte-exact,
       second run is a ~zero delta, refusal/rerun-exemption behave, and the
       destination history record appears
+- [ ] Full `migrate` with a `dest_db`: maintenance window visible on the
+      source, dump→rewrite→import lands a working DB, config rewrite boots
+      the site, second run is fast and ~zero (the idempotency proof), and
+      `rehost cutover`'s smoke test passes pre-DNS
 - [ ] Dest-root rebasing (no `dest_root` → home-relative path on the
       destination) lands files where the destination account actually
       serves them; `--delete` stand-down on a pruned (find exit 1) source
@@ -103,11 +108,18 @@ hosting and verify:
 - [x] `status` / `history` commands over `.rehost/history.jsonl`: read-only,
       newest-first, styled/plain/JSON (`rehost.history.v1` /
       `rehost.status.v1`), empty history = exit 0
-- [ ] Cutover report: DNS instructions with current TTLs, MX warning, SSL
-      re-issue note, crontab listing
-- [ ] Post-migration checks: HTTP smoke test via hosts-override, file/table
-      count diffs
-- [ ] Idempotency proof: second `migrate` run is fast and changes nothing
+- [x] Cutover report (2026-07-29): `rehost cutover` — read-only go-live
+      checklist with live DNS records + TTL-lowering advice, destination IP,
+      MX-at-source warning, SSL note, source crontab listing, and per-site
+      file counts from the persisted post-sync manifests
+- [x] Post-migration checks (2026-07-29): `cutover` probes the destination
+      over HTTP(S) with a dial override (hosts-file semantics without
+      editing hosts; TLS unverified on purpose — pre-cutover cert); a
+      failing probe leads the checklist with FIX FIRST. Table counts are
+      verified at import time. Deeper diffs = field-validation material
+- [ ] Idempotency proof — moved to the field-validation gate (§1): the
+      convergent design is unit-tested; "second run is fast and ~zero" is
+      only provable against real hosts
 
 ## 4. Known gaps & deferred polish (fine to ship Phase 3 without)
 
