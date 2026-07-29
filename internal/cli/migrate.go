@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -31,15 +30,10 @@ const destIDPrefix = "migrate.dest:"
 // steps are named honestly.
 const preflightNotice = "Pre-flight passed — proceeding to file sync, database migration and config rewrite. The cutover report comes later."
 
-// migrateIncompleteNotice is the honest-stop message printed after the run
-// converges: the destination holds the site's files and data, but config
-// rewrite and cutover are still missing, so it is not a finished site.
-const migrateIncompleteNotice = "Files, databases and config converged, but the migration is NOT complete: the cutover report and post-migration checks are not wired yet (Phase 3 — see docs/PLAN.md §6). Verify the destination site works (hosts-file override) before touching DNS."
-
-// errMigrateIncomplete is the non-zero exit returned after a successful file
-// sync: the files converged, but the remaining migration steps do not exist
-// yet, so the migration deliberately did not finish.
-var errMigrateIncomplete = errors.New("files, databases and config converged but the migration is not complete: the cutover report and post-migration checks are not wired yet")
+// migrateConvergedNotice closes a converged run: the destination matches the
+// source; what remains — DNS, mail, SSL, cron — is deliberately manual and
+// scripted by the cutover report.
+const migrateConvergedNotice = "Migration converged: files, databases and config are on the destination. Next: run 'rehost cutover' for the verified go-live checklist (DNS, mail, SSL, cron) — do not touch DNS before walking it."
 
 func newMigrateCmd(opts *options) *cobra.Command {
 	var docroots []string
@@ -50,8 +44,8 @@ func newMigrateCmd(opts *options) *cobra.Command {
 		Long: `migrate runs the pre-flight — it connects to both hosts, re-runs the
 compatibility gate (the same rules as 'rehost check'), confirms each source
 database is reachable, and enforces the destination-state policy: a
-non-empty destination docroot rehost did not itself create is refused
-unless --onto-existing is given.
+non-empty destination docroot or dest_db database rehost did not itself
+fill is refused unless --onto-existing is given.
 
 When the pre-flight is green it converges each site onto the destination:
 files through a manifest-driven tar pipe (additive by default; --delete
@@ -62,9 +56,9 @@ paths, an import into the panel-created destination database (its
 password is prompted at runtime, never stored), and a config rewrite
 pointing the synced wp-config.php / settings.php at that database
 (hash_salt and everything else preserved; 'drush cr' runs when drush is
-present). Rerunning converges incrementally. It then exits non-zero,
-because the cutover report and post-migration checks are not wired yet —
-verify the destination before touching DNS.`,
+present). Rerunning converges incrementally: only deltas transfer, the
+import re-converges deterministically. A converged run exits 0 — then run
+'rehost cutover' for the go-live checklist before touching DNS.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMigrate(cmd, opts, docroots, ontoExisting, del)
@@ -300,11 +294,9 @@ func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p mi
 		}
 		return syncErr
 	}
-	report.Notice = migrateIncompleteNotice
-	if err := u.renderer.MigrateReport(report); err != nil {
-		return err
-	}
-	return errMigrateIncomplete
+	report.Complete = true
+	report.Notice = migrateConvergedNotice
+	return u.renderer.MigrateReport(report)
 }
 
 // foldDelta adds the maintenance-window delta pass to a site's already
