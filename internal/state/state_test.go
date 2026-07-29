@@ -188,6 +188,57 @@ func TestRecordQuotesHomeWithSpace(t *testing.T) {
 	}
 }
 
+func TestLockedSites(t *testing.T) {
+	on := func(site string) Entry { return MaintenanceEntry(site, true) }
+	off := func(site string) Entry { return MaintenanceEntry(site, false) }
+
+	cases := []struct {
+		name    string
+		entries []Entry
+		want    []string // roots expected locked
+	}{
+		{"none", nil, nil},
+		{"single on with no later off", []Entry{on("/a")}, []string{"/a"}},
+		{"on then off clears it", []Entry{on("/a"), off("/a")}, nil},
+		{"on off on leaves it locked", []Entry{on("/a"), off("/a"), on("/a")}, []string{"/a"}},
+		{"multiple sites, mixed", []Entry{on("/a"), on("/b"), off("/b"), on("/c")}, []string{"/a", "/c"}},
+		{"off before any on is a no-op", []Entry{off("/a")}, nil},
+		{
+			"unrelated and malformed entries ignored",
+			[]Entry{
+				{Event: EventDryRun, Site: "/a"},                    // wrong event
+				{Event: EventMaintenance},                           // no site
+				{Event: EventMaintenance, Site: "/b", Details: nil}, // no state key
+				on("/c"),
+			},
+			[]string{"/c"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := LockedSites(c.entries)
+			if len(got) != len(c.want) {
+				t.Fatalf("LockedSites = %v, want %v", got, c.want)
+			}
+			for _, root := range c.want {
+				if !got[root] {
+					t.Errorf("expected %s locked, got %v", root, got)
+				}
+			}
+		})
+	}
+}
+
+func TestMaintenanceEntryRoundTrip(t *testing.T) {
+	// What MaintenanceEntry writes is exactly what LockedSites reads back.
+	if got := LockedSites([]Entry{MaintenanceEntry("/a", true)}); !got["/a"] {
+		t.Error("an on entry should read back as locked")
+	}
+	if got := LockedSites([]Entry{MaintenanceEntry("/a", true), MaintenanceEntry("/a", false)}); got["/a"] {
+		t.Error("a following off entry should clear the lock")
+	}
+}
+
 func TestMigratedSites(t *testing.T) {
 	entries := []Entry{
 		{Event: EventDryRun, Site: "/home/d/public_html"},  // not a migrate: ignored

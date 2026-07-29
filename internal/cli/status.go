@@ -67,7 +67,7 @@ func runHistory(cmd *cobra.Command, opts *options) error {
 	if err != nil {
 		return err
 	}
-	client, home, err := dialSource(cmd.Context(), f, u)
+	client, caps, err := dialSource(cmd.Context(), f, u)
 	if err != nil {
 		if u.mode == tui.ModeJSON {
 			u.renderer.Error(err) // keep stdout machine-readable
@@ -75,7 +75,7 @@ func runHistory(cmd *cobra.Command, opts *options) error {
 		return err
 	}
 	defer client.Close()
-	return historyReport(cmd.Context(), client, home, u.renderer)
+	return historyReport(cmd.Context(), client, caps.Home, u.renderer)
 }
 
 func runStatus(cmd *cobra.Command, opts *options) error {
@@ -84,7 +84,7 @@ func runStatus(cmd *cobra.Command, opts *options) error {
 	if err != nil {
 		return err
 	}
-	client, home, err := dialSource(cmd.Context(), f, u)
+	client, caps, err := dialSource(cmd.Context(), f, u)
 	if err != nil {
 		if u.mode == tui.ModeJSON {
 			u.renderer.Error(err) // keep stdout machine-readable
@@ -92,7 +92,7 @@ func runStatus(cmd *cobra.Command, opts *options) error {
 		return err
 	}
 	defer client.Close()
-	return statusReport(cmd.Context(), client, home, opts.projectFile, f, u.renderer)
+	return statusReport(cmd.Context(), client, caps.Home, opts.projectFile, f, u.renderer)
 }
 
 // historyReport reads the run history over r and renders it newest-first. It
@@ -168,19 +168,19 @@ func loadProject(path string) (*project.File, error) {
 }
 
 // dialSource connects to the source and probes it, returning the client and
-// the account home the history file lives under (the same home Record wrote
-// with). The caller owns closing the client.
-func dialSource(ctx context.Context, f *project.File, u ui) (*ssh.Client, string, error) {
+// its capabilities (the account home the history file lives under, tool
+// availability the recipe layers gate on). The caller owns closing the client.
+func dialSource(ctx context.Context, f *project.File, u ui) (*ssh.Client, *ssh.Capabilities, error) {
 	cfg := f.Source.SSHConfig()
 	u.progress("source: connecting to %s…", targetLabel(cfg))
 	client, err := ssh.Dial(ctx, cfg, u.prompter)
 	if err != nil {
-		return nil, "", fmt.Errorf("source: %w", err)
+		return nil, nil, fmt.Errorf("source: %w", err)
 	}
 	caps, err := ssh.Probe(ctx, client)
 	if err != nil {
 		client.Close()
-		return nil, "", fmt.Errorf("source: %w", err)
+		return nil, nil, fmt.Errorf("source: %w", err)
 	}
-	return client, caps.Home, nil
+	return client, caps, nil
 }

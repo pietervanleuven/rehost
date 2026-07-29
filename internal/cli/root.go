@@ -47,7 +47,7 @@ The flow: init → check → plan → migrate → cutover report.`,
 		newHistoryCmd(opts),
 		newVersionCmd(info),
 		newMigrateCmd(opts),
-		newStubCmd("unlock", "Clear maintenance mode on the source after a crash", 3),
+		newUnlockCmd(opts),
 	)
 	return root
 }

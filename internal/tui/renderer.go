@@ -54,6 +54,10 @@ type Renderer interface {
 	HistoryReport(entries []state.Entry) error
 	// StatusReport renders the "where am I in the flow" summary.
 	StatusReport(v StatusView) error
+	// UnlockReport renders the outcome of clearing maintenance mode on the
+	// source, one row per site. An all-"not locked" report is the normal
+	// "nothing to unlock" success.
+	UnlockReport(v UnlockView) error
 	Error(err error)
 }
 
