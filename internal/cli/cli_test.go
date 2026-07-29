@@ -180,16 +180,3 @@ func TestWriteSites(t *testing.T) {
 		t.Error("identical sites should not trigger a write")
 	}
 }
-
-func TestStubsFail(t *testing.T) {
-	for _, cmd := range []string{"unlock"} {
-		_, _, err := run(t, cmd)
-		if err == nil {
-			t.Errorf("stub %q should fail until implemented", cmd)
-			continue
-		}
-		if !strings.Contains(err.Error(), "not implemented") {
-			t.Errorf("stub %q error should say not implemented, got: %v", cmd, err)
-		}
-	}
-}
