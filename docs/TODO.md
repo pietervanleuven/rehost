@@ -93,8 +93,13 @@ hosting and verify:
       maintenance off. Remote `wp`/`drush` search-replace deferred — the
       local dump rewrite needs no destination CLI and runs before config
       rewrite exists; revisit if field data demands the remote path
-- [ ] Config rewrite: wp-config.php; Drupal settings.php incl.
-      `trusted_host_patterns` + `hash_salt`; `drush cr` post-import
+- [x] Config rewrite (2026-07-29): `ConfigRewriter` recipe seam;
+      wp-config.php DB defines and settings.php `$databases` entries spliced
+      in place on the destination (everything else — `hash_salt`, salts,
+      custom code — byte-exact; same-domain migrations keep
+      `trusted_host_patterns` valid as-is); `drush cr` runs post-rewrite
+      when the destination has drush, guidance otherwise; a config outside
+      the docroot (unsynced) degrades to by-hand instructions
 - [x] `status` / `history` commands over `.rehost/history.jsonl`: read-only,
       newest-first, styled/plain/JSON (`rehost.history.v1` /
       `rehost.status.v1`), empty history = exit 0

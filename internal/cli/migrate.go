@@ -29,17 +29,17 @@ const destIDPrefix = "migrate.dest:"
 // preflightNotice is the message a green pre-flight carries into the combined
 // report: the gate passed and execution starts now; the remaining unbuilt
 // steps are named honestly.
-const preflightNotice = "Pre-flight passed — proceeding to file sync and database migration. Config rewrite and the cutover report come later."
+const preflightNotice = "Pre-flight passed — proceeding to file sync, database migration and config rewrite. The cutover report comes later."
 
 // migrateIncompleteNotice is the honest-stop message printed after the run
 // converges: the destination holds the site's files and data, but config
 // rewrite and cutover are still missing, so it is not a finished site.
-const migrateIncompleteNotice = "Files and databases converged, but the migration is NOT complete: config rewrite and the cutover report are not wired yet (Phase 3 — see docs/PLAN.md §6). The destination's config still points at the source's database and paths — do not point DNS at it yet."
+const migrateIncompleteNotice = "Files, databases and config converged, but the migration is NOT complete: the cutover report and post-migration checks are not wired yet (Phase 3 — see docs/PLAN.md §6). Verify the destination site works (hosts-file override) before touching DNS."
 
 // errMigrateIncomplete is the non-zero exit returned after a successful file
 // sync: the files converged, but the remaining migration steps do not exist
 // yet, so the migration deliberately did not finish.
-var errMigrateIncomplete = errors.New("files and databases converged but the migration is not complete: config rewrite and cutover are not wired yet")
+var errMigrateIncomplete = errors.New("files, databases and config converged but the migration is not complete: the cutover report and post-migration checks are not wired yet")
 
 func newMigrateCmd(opts *options) *cobra.Command {
 	var docroots []string
@@ -58,11 +58,13 @@ files through a manifest-driven tar pipe (additive by default; --delete
 removes destination-only files), then — for sites with a dest_db in
 migrate.yaml — the database: maintenance mode on the source, a final
 verified dump, a file delta pass, a serialized-safe rewrite of docroot
-paths, and an import into the panel-created destination database (its
-password is prompted at runtime, never stored). Rerunning converges
-incrementally. It then exits non-zero, because config rewrite and the
-cutover report are not wired yet — the destination's config still points
-at the source until those land.`,
+paths, an import into the panel-created destination database (its
+password is prompted at runtime, never stored), and a config rewrite
+pointing the synced wp-config.php / settings.php at that database
+(hash_salt and everything else preserved; 'drush cr' runs when drush is
+present). Rerunning converges incrementally. It then exits non-zero,
+because the cutover report and post-migration checks are not wired yet —
+verify the destination before touching DNS.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMigrate(cmd, opts, docroots, ontoExisting, del)
@@ -96,6 +98,7 @@ type migratePlan struct {
 	srcStream    db.Streamer // dump exec on the source; nil = database step disabled
 	destConn     db.Conn     // import sessions on the destination
 	srcHost      db.Host     // maintenance toggles on the source
+	destHost     db.Host     // config rewrite + post-steps on the destination
 	srcCreds     map[string]*db.Credentials
 	srcDBs       map[string]*db.Inspection
 	destCreds    map[string]*db.Credentials
@@ -192,6 +195,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		srcStream:    h.source.client,
 		destConn:     h.dest.client,
 		srcHost:      db.Host{Run: h.source.client, Caps: h.source.caps},
+		destHost:     db.Host{Run: h.dest.client, Caps: h.dest.caps},
 		srcCreds:     h.source.creds,
 		srcDBs:       h.source.dbs,
 		destCreds:    destCreds,

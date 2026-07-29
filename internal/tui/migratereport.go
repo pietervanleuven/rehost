@@ -61,7 +61,14 @@ type SiteDBResult struct {
 	Unparseable  int    `json:"unparseable,omitempty"`  // serialized-looking values left untouched
 	SourceTables int    `json:"source_tables,omitempty"`
 	DestTables   int    `json:"dest_tables,omitempty"`
-	Err          string `json:"error,omitempty"`
+	// ConfigPath is the destination config file rewritten to point at the
+	// imported database; ConfigNote carries the do-it-by-hand guidance when
+	// the rewrite was unsupported. PostSteps are what ran (or must be run)
+	// afterwards, e.g. "drush cr".
+	ConfigPath string   `json:"config_path,omitempty"`
+	ConfigNote string   `json:"config_note,omitempty"`
+	PostSteps  []string `json:"post_steps,omitempty"`
+	Err        string   `json:"error,omitempty"`
 }
 
 // MigrateReportView is the combined migrate report: the pre-flight section and
@@ -185,6 +192,15 @@ func siteDBLine(d SiteDBResult) string {
 	}
 	if d.Maintenance != "" {
 		line += " · maintenance: " + d.Maintenance
+	}
+	if d.ConfigPath != "" {
+		line += " · config rewritten"
+	}
+	for _, step := range d.PostSteps {
+		line += " · " + step
+	}
+	if d.ConfigNote != "" {
+		line += " · config NOT rewritten: " + d.ConfigNote
 	}
 	return line
 }
