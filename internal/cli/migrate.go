@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
@@ -75,6 +76,7 @@ finished, working site.`,
 type siteDest struct {
 	install  detect.Install
 	destRoot string
+	destDB   *project.SiteDB // nil = files only, database not migrated
 }
 
 // migratePlan is the green-pre-flight hand-off to the sync engine: the live
@@ -87,6 +89,15 @@ type migratePlan struct {
 	sites        []siteDest
 	delete       bool
 	ontoExisting bool
+
+	srcStream    db.Streamer // dump exec on the source; nil = database step disabled
+	destConn     db.Conn     // import sessions on the destination
+	srcHost      db.Host     // maintenance toggles on the source
+	srcCreds     map[string]*db.Credentials
+	srcDBs       map[string]*db.Inspection
+	destCreds    map[string]*db.Credentials
+	srcMysqldump bool // source has mysqldump (else the PHP dump helper)
+	destGzip     bool // destination gunzips the relayed dump itself
 
 	compress   bool   // gzip on both hosts — pipe the relay through it
 	nullList   bool   // source tar is GNU — feed it a NUL-delimited file list
@@ -127,11 +138,31 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	checks := check.Run(h.input)
 
 	// 3. Destination-state policy, per site, over the destination connection.
+	//    The destination run history feeds both the docroot and the database
+	//    policy, so it is read once here.
 	sites := migrateSites(f, h.source.installs, h.source.caps.Home, h.dest.caps.Home)
-	destState, err := destStateResults(cmd.Context(), h.dest.client, h.dest.caps.Home, sites, ontoExisting)
+	entries, err := state.History(cmd.Context(), h.dest.client, h.dest.caps.Home)
+	if err != nil {
+		return u.fail(fmt.Errorf("reading destination run history: %w", err))
+	}
+	migrated := state.MigratedSites(entries)
+	destState, err := destStateResults(cmd.Context(), h.dest.client, sites, migrated, ontoExisting)
 	if err != nil {
 		return u.fail(err)
 	}
+
+	// 3b. Destination databases: prompt for the panel passwords (runtime
+	//     only, never stored) and verify each database exists — rehost never
+	//     runs CREATE DATABASE.
+	destCreds, err := destDBCredentials(sites, u.prompter.Password)
+	if err != nil {
+		return u.fail(err)
+	}
+	dbState, err := destDBResults(cmd.Context(), h.dest.client, sites, destCreds, migrated, ontoExisting)
+	if err != nil {
+		return u.fail(err)
+	}
+	destState = append(destState, dbState...)
 
 	// 4. Combine into one report and decide the outcome. A non-green pre-flight
 	//    is terminal: render it standalone (nothing was synced) and return the
@@ -155,6 +186,14 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	plan := migratePlan{
 		source:       h.source.client,
 		dest:         h.dest.client,
+		srcStream:    h.source.client,
+		destConn:     h.dest.client,
+		srcHost:      db.Host{Run: h.source.client, Caps: h.source.caps},
+		srcCreds:     h.source.creds,
+		srcDBs:       h.source.dbs,
+		destCreds:    destCreds,
+		srcMysqldump: h.source.caps.Has("mysqldump"),
+		destGzip:     h.dest.caps.Has("gzip"),
 		sites:        sites,
 		delete:       del,
 		ontoExisting: ontoExisting,
@@ -227,6 +266,21 @@ func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p mi
 		}
 		succeeded++
 		warnings = append(warnings, recordSiteMigrated(ctx, u, p, s.destRoot)...)
+
+		// Database choreography, after the files converged (the docroot
+		// record above must exist whatever happens next). srcStream is nil
+		// only in file-only unit fixtures.
+		if p.srcStream != nil {
+			dbRes, delta, dbWarnings, dbFailed := migrateSiteDB(ctx, u, p, s, src, dst, opts)
+			row := &report.Sites[len(report.Sites)-1]
+			row.DB = &dbRes
+			foldDelta(row, delta)
+			warnings = append(warnings, dbWarnings...)
+			if dbFailed {
+				syncErr = fmt.Errorf("migrate: database for %s: %s", s.install.Root, dbRes.Err)
+				break
+			}
+		}
 	}
 	if succeeded > 0 {
 		warnings = append(warnings, recordSourceSummary(ctx, p, report.Sites[:succeeded])...)
@@ -244,6 +298,21 @@ func runSync(ctx context.Context, u ui, preflight tui.MigratePreflightView, p mi
 		return err
 	}
 	return errMigrateIncomplete
+}
+
+// foldDelta adds the maintenance-window delta pass to a site's already
+// rendered bulk-sync numbers, so the row reports the whole transfer.
+func foldDelta(row *tui.SiteSyncResult, d *transfer.SyncStats) {
+	if d == nil {
+		return
+	}
+	row.FilesSent += d.FilesSent
+	row.BytesSent += d.BytesSent
+	row.WireBytes += d.WireBytes
+	row.FilesDeleted += d.FilesDeleted
+	row.DestOnlyRemaining = d.DestOnlyRemaining
+	row.UnsafePaths += d.UnsafePaths
+	row.Duration += d.Duration
 }
 
 // siteSyncResult folds one site's stats (possibly nil/partial on error) into
@@ -311,19 +380,18 @@ func recordSourceSummary(ctx context.Context, p migratePlan, rows []tui.SiteSync
 // root outside the source home has no portable equivalent and keeps its own
 // path — set dest_root in migrate.yaml to override.
 func migrateSites(f *project.File, installs []detect.Install, srcHome, destHome string) []siteDest {
-	destByRoot := map[string]string{}
+	byRoot := map[string]project.Site{}
 	for _, s := range f.Sites {
-		if s.DestRoot != "" {
-			destByRoot[s.Root] = s.DestRoot
-		}
+		byRoot[s.Root] = s
 	}
 	sites := make([]siteDest, 0, len(installs))
 	for _, inst := range installs {
-		dest := destByRoot[inst.Root]
+		cfg := byRoot[inst.Root]
+		dest := cfg.DestRoot
 		if dest == "" {
 			dest = mapDestRoot(inst.Root, srcHome, destHome)
 		}
-		sites = append(sites, siteDest{install: inst, destRoot: dest})
+		sites = append(sites, siteDest{install: inst, destRoot: dest, destDB: cfg.DestDB})
 	}
 	return sites
 }
@@ -369,6 +437,11 @@ func buildPreflight(checks, destState []check.Result) (tui.MigratePreflightView,
 		return view, fmt.Errorf("refusing to migrate onto non-empty destination docroot(s) rehost did not create: %s — rerun with --onto-existing to converge onto them anyway (there is no rollback yet)",
 			strings.Join(refused, ", "))
 	}
+	// A database blocker: the declared destination database is unusable or
+	// would be overwritten.
+	if blocked := blockingDBs(destState); len(blocked) > 0 {
+		return view, fmt.Errorf("destination database not ready for: %s — see the pre-flight rows above", strings.Join(blocked, ", "))
+	}
 
 	view.Passed = true
 	view.Notice = preflightNotice
@@ -380,8 +453,20 @@ func buildPreflight(checks, destState []check.Result) (tui.MigratePreflightView,
 func blockingRoots(destState []check.Result) []string {
 	var roots []string
 	for _, r := range destState {
-		if r.Severity == check.Blocker {
+		if r.Severity == check.Blocker && strings.HasPrefix(r.ID, destIDPrefix) {
 			roots = append(roots, strings.TrimPrefix(r.ID, destIDPrefix))
+		}
+	}
+	return roots
+}
+
+// blockingDBs returns the site roots whose destination-database row is a
+// blocker.
+func blockingDBs(destState []check.Result) []string {
+	var roots []string
+	for _, r := range destState {
+		if r.Severity == check.Blocker && strings.HasPrefix(r.ID, destDBIDPrefix) {
+			roots = append(roots, strings.TrimPrefix(r.ID, destDBIDPrefix))
 		}
 	}
 	return roots
@@ -394,19 +479,15 @@ func blockingRoots(destState []check.Result) []string {
 //   - a non-empty docroot rehost did not create is refused (blocker), unless
 //     ontoExisting overrides it (warning: there is no rollback yet).
 //
-// r drives both the docroot stat and the destination history read, so the
-// whole policy is unit-tested with a fake runner and no SSH. It never writes
-// anything on the destination and never touches the public docroot itself.
-func destStateResults(ctx context.Context, r stateRunner, destHome string, sites []siteDest, ontoExisting bool) ([]check.Result, error) {
+// migrated is the docroot set recovered from the destination's run history
+// (the caller reads it once for this and the database policy). r drives the
+// docroot stat, so the whole policy is unit-tested with a fake runner and no
+// SSH. It never writes anything on the destination and never touches the
+// public docroot itself.
+func destStateResults(ctx context.Context, r stateRunner, sites []siteDest, migrated map[string]bool, ontoExisting bool) ([]check.Result, error) {
 	if len(sites) == 0 {
 		return nil, nil
 	}
-	entries, err := state.History(ctx, r, destHome)
-	if err != nil {
-		return nil, fmt.Errorf("reading destination run history: %w", err)
-	}
-	migrated := state.MigratedSites(entries)
-
 	const title = "Destination docroot"
 	var results []check.Result
 	for _, s := range sites {

@@ -43,6 +43,25 @@ type SiteSyncResult struct {
 	UnsafePaths       int           `json:"unsafe_paths"`        // destination-only paths the safety check refused
 	Duration          time.Duration `json:"duration_ns"`
 	Err               string        `json:"error,omitempty"`
+	// DB is the site's database-migration outcome; nil when the run never
+	// reached the database step (file sync failed first).
+	DB *SiteDBResult `json:"db,omitempty"`
+}
+
+// SiteDBResult is one site's database choreography outcome: maintenance
+// window, final dump, rewrite, import, verification. Skipped names the
+// reason when the database was deliberately not migrated (no dest_db, no
+// source credentials) — the run still counts as converged for files.
+type SiteDBResult struct {
+	Name         string `json:"name,omitempty"` // destination database
+	Skipped      string `json:"skipped,omitempty"`
+	Maintenance  string `json:"maintenance,omitempty"` // method, or "unsupported: <why>"
+	DumpSQLBytes int64  `json:"dump_sql_bytes,omitempty"`
+	Replacements int    `json:"replacements,omitempty"` // values changed by search-replace
+	Unparseable  int    `json:"unparseable,omitempty"`  // serialized-looking values left untouched
+	SourceTables int    `json:"source_tables,omitempty"`
+	DestTables   int    `json:"dest_tables,omitempty"`
+	Err          string `json:"error,omitempty"`
 }
 
 // MigrateReportView is the combined migrate report: the pre-flight section and
@@ -88,6 +107,13 @@ func (r styledRenderer) MigrateReport(v MigrateReportView) error {
 		if s.Err != "" {
 			fprintf(r.out, "      %s\n", missingStyle.Render(s.Err))
 		}
+		if s.DB != nil {
+			style := dimStyle
+			if s.DB.Err != "" {
+				style = missingStyle
+			}
+			fprintf(r.out, "      %s\n", style.Render("db: "+siteDBLine(*s.DB)))
+		}
 	}
 	for _, w := range v.Warnings {
 		fprintf(r.out, "\n  %s %s\n", warnStyle.Render("!"), warnStyle.Render(w))
@@ -127,6 +153,9 @@ func (r plainRenderer) MigrateReport(v MigrateReportView) error {
 		if s.Err != "" {
 			fprintf(r.out, "         error: %s\n", s.Err)
 		}
+		if s.DB != nil {
+			fprintf(r.out, "         db: %s\n", siteDBLine(*s.DB))
+		}
 	}
 	for _, w := range v.Warnings {
 		fprintf(r.out, "  [warning] %s\n", w)
@@ -135,6 +164,29 @@ func (r plainRenderer) MigrateReport(v MigrateReportView) error {
 		fprintf(r.out, "\n%s\n", v.Notice)
 	}
 	return nil
+}
+
+// siteDBLine is the one-line summary of a site's database migration, shared
+// by the styled and plain renderers.
+func siteDBLine(d SiteDBResult) string {
+	switch {
+	case d.Err != "":
+		return fmt.Sprintf("%s FAILED: %s", d.Name, d.Err)
+	case d.Skipped != "":
+		return "skipped — " + d.Skipped
+	}
+	line := fmt.Sprintf("%s imported · %s SQL · %d/%d tables", d.Name,
+		units.HumanBytes(d.DumpSQLBytes), d.DestTables, d.SourceTables)
+	if d.Replacements > 0 || d.Unparseable > 0 {
+		line += fmt.Sprintf(" · %d values rewritten", d.Replacements)
+		if d.Unparseable > 0 {
+			line += fmt.Sprintf(" (%d unparseable, untouched)", d.Unparseable)
+		}
+	}
+	if d.Maintenance != "" {
+		line += " · maintenance: " + d.Maintenance
+	}
+	return line
 }
 
 // siteSyncLine is the one-line summary of a site's sync, shared by the styled
