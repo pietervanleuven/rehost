@@ -71,19 +71,28 @@ hosting and verify:
 - [x] Maintenance-mode primitives + `unlock` recovery command: Maintainer
       recipe seam (WP wp-cli→file, Drupal drush→direct-DB fallback, static
       no-op), write-ahead EventMaintenance records, live-probe-first unlock
-- [ ] Maintenance window in `migrate`: enable around final dump + delta
-      pass, crash-safe cleanup on every exit path
+- [x] Maintenance window in `migrate`: enabled around the final dump +
+      delta pass (write-ahead EventMaintenance record first), lifted on
+      every exit path on a cancellation-proof context; failures point at
+      `rehost unlock`
 - [x] DB import on destination: `db.Import` streams the footer-verified
       local dump into `gunzip -c | mysql` (password over a 0600 FIFO,
       never argv/env/disk; progress from local byte offsets; post-import
-      table-count verification) — not yet wired into `migrate`
+      table-count verification) — wired into `migrate` 2026-07-29
 - [x] Serialized-safe search-replace core: `internal/searchreplace`
       (`--precise` semantics, fuzzed round-trip, URL/docroot pair planner)
-      — application to the imported DB not yet wired
-- [ ] Wire dump→import→search-replace into `migrate` (the choreography:
-      maintenance on → final dump → delta pass → import → search-replace →
-      maintenance off); use `wp`/`drush` search-replace remotely when
-      present, the own core as fallback
+      — applied via `RewriteDump` to the dump stream locally between dump
+      and import (no destination framework CLI needed), wired 2026-07-29
+- [x] Wire dump→import→search-replace into `migrate` (2026-07-29):
+      per-site `dest_db` block names the panel-created destination database
+      (password prompted at runtime; verified in pre-flight — never CREATE
+      DATABASE; non-empty databases refused unless rehost-created or
+      `--onto-existing`, mirroring the docroot rule). Choreography:
+      maintenance on → final dump → file delta pass → serialized-safe
+      docroot rewrite of the dump → import + table-count verify →
+      maintenance off. Remote `wp`/`drush` search-replace deferred — the
+      local dump rewrite needs no destination CLI and runs before config
+      rewrite exists; revisit if field data demands the remote path
 - [ ] Config rewrite: wp-config.php; Drupal settings.php incl.
       `trusted_host_patterns` + `hash_salt`; `drush cr` post-import
 - [x] `status` / `history` commands over `.rehost/history.jsonl`: read-only,

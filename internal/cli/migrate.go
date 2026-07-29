@@ -27,19 +27,19 @@ import (
 const destIDPrefix = "migrate.dest:"
 
 // preflightNotice is the message a green pre-flight carries into the combined
-// report: the gate passed and file sync runs now, but the later execution steps
-// are not wired yet.
-const preflightNotice = "Pre-flight passed — proceeding to file sync. Database import, config rewrite and cutover come later."
+// report: the gate passed and execution starts now; the remaining unbuilt
+// steps are named honestly.
+const preflightNotice = "Pre-flight passed — proceeding to file sync and database migration. Config rewrite and the cutover report come later."
 
-// migrateIncompleteNotice is the honest-stop message printed after file sync
-// converges: the destination now holds the site's files, but the migration is
-// not a finished, working site yet.
-const migrateIncompleteNotice = "File sync converged, but the migration is NOT complete: database import, config rewrite, maintenance mode and cutover are not wired yet (Phase 3 — see docs/PLAN.md §6). The destination has the site's files but is not yet a working migrated site."
+// migrateIncompleteNotice is the honest-stop message printed after the run
+// converges: the destination holds the site's files and data, but config
+// rewrite and cutover are still missing, so it is not a finished site.
+const migrateIncompleteNotice = "Files and databases converged, but the migration is NOT complete: config rewrite and the cutover report are not wired yet (Phase 3 — see docs/PLAN.md §6). The destination's config still points at the source's database and paths — do not point DNS at it yet."
 
 // errMigrateIncomplete is the non-zero exit returned after a successful file
 // sync: the files converged, but the remaining migration steps do not exist
 // yet, so the migration deliberately did not finish.
-var errMigrateIncomplete = errors.New("file sync converged but the migration is not complete: database import, config rewrite and cutover are not wired yet")
+var errMigrateIncomplete = errors.New("files and databases converged but the migration is not complete: config rewrite and cutover are not wired yet")
 
 func newMigrateCmd(opts *options) *cobra.Command {
 	var docroots []string
@@ -53,13 +53,16 @@ database is reachable, and enforces the destination-state policy: a
 non-empty destination docroot rehost did not itself create is refused
 unless --onto-existing is given.
 
-When the pre-flight is green it converges each site's files onto the
-destination through a manifest-driven tar pipe. The sync is additive by
-default (--delete removes destination-only files) and idempotent:
-rerunning re-sends only what changed. It then stops and exits non-zero,
-because database import, config rewrite, maintenance mode and cutover are
-not wired yet — the destination gets the site's files but is not a
-finished, working site.`,
+When the pre-flight is green it converges each site onto the destination:
+files through a manifest-driven tar pipe (additive by default; --delete
+removes destination-only files), then — for sites with a dest_db in
+migrate.yaml — the database: maintenance mode on the source, a final
+verified dump, a file delta pass, a serialized-safe rewrite of docroot
+paths, and an import into the panel-created destination database (its
+password is prompted at runtime, never stored). Rerunning converges
+incrementally. It then exits non-zero, because config rewrite and the
+cutover report are not wired yet — the destination's config still points
+at the source until those land.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runMigrate(cmd, opts, docroots, ontoExisting, del)
