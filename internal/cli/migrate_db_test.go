@@ -112,8 +112,8 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
 		tui.MigratePreflightView{Passed: true}, p)
-	if !errors.Is(err, errMigrateIncomplete) {
-		t.Fatalf("got %v", err)
+	if err != nil {
+		t.Fatalf("a converged run should exit clean, got %v", err)
 	}
 	// Bulk + delta pass per site.
 	if len(*syncCalls) != 2 {
@@ -197,8 +197,8 @@ func TestRunSyncNoDestDBIsSkippedNotFailed(t *testing.T) {
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
 		tui.MigratePreflightView{Passed: true}, p)
-	if !errors.Is(err, errMigrateIncomplete) {
-		t.Fatalf("files-only migration should still converge, got %v", err)
+	if err != nil {
+		t.Fatalf("files-only migration should still converge cleanly, got %v", err)
 	}
 	var env tui.MigrateEnvelope
 	if jerr := json.Unmarshal(buf.Bytes(), &env); jerr != nil {

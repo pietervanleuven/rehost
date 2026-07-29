@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,6 +23,9 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+          # A bare run truncates duplicate findings (max-same-issues
+          # defaults to 3) — CI must see the true list.
+          args: --max-same-issues 0 --max-issues-per-linter 0
 
   test:
     strategy:
