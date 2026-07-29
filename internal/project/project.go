@@ -50,6 +50,22 @@ type Site struct {
 	// destination home. It never holds a secret — it is a filesystem path —
 	// so it does not weaken the "no secrets in migrate.yaml" guarantee.
 	DestRoot string `yaml:"dest_root,omitempty"`
+	// DestDB names the pre-created destination database this site's data
+	// imports into. Shared-host panels pre-create prefixed databases, so
+	// rehost verifies it is reachable and never runs CREATE DATABASE
+	// (PLAN.md §7). Optional: without it migrate syncs the site's files and
+	// skips the database, saying so. No password field by design — the
+	// destination DB password is prompted at runtime.
+	DestDB *SiteDB `yaml:"dest_db,omitempty"`
+}
+
+// SiteDB locates a destination database. It carries connection facts only;
+// the password is prompted at runtime, never stored.
+type SiteDB struct {
+	Name string `yaml:"name"`
+	User string `yaml:"user,omitempty"`
+	Host string `yaml:"host,omitempty"` // empty = localhost on the destination
+	Port int    `yaml:"port,omitempty"`
 }
 
 // Host describes how to reach one host. Zero values defer to ~/.ssh/config
@@ -114,6 +130,17 @@ func (f *File) Validate() error {
 	if f.Destination != nil {
 		if err := f.Destination.validate("destination"); err != nil {
 			return err
+		}
+	}
+	for i, s := range f.Sites {
+		if s.DestDB == nil {
+			continue
+		}
+		if s.DestDB.Name == "" {
+			return fmt.Errorf("sites[%d].dest_db needs a name (the panel-created destination database)", i)
+		}
+		if s.DestDB.Port < 0 || s.DestDB.Port > 65535 {
+			return fmt.Errorf("sites[%d].dest_db.port %d is out of range", i, s.DestDB.Port)
 		}
 	}
 	return nil
@@ -184,5 +211,11 @@ source:
 destination:                 # optional until 'rehost check'
   host: dest.example.com
   user: user
+# sites: is written by 'rehost plan'; per-site extras you may add by hand:
+#   dest_root: /home/user/public_html   # where files land (default: same
+#                                       # home-relative path on the destination)
+#   dest_db:                            # panel-created destination database;
+#     name: u12345_wp                   # migrate imports into it (password is
+#     user: u12345_wp                   # prompted at runtime, never stored)
 `
 }
