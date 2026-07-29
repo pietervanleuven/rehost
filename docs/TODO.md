@@ -64,11 +64,22 @@ hosting and verify:
       capability-gated, opt-in `--delete` with path-safety guards,
       EventMigrate history on both hosts; SFTP last resort still open, direct
       host-to-host rsync deferred — incremental on rerun
-- [ ] Maintenance mode on the source around final dump + delta pass;
-      crash-safe cleanup; `unlock` recovery command
-- [ ] DB import on destination (charset-correct) + serialized-safe
-      search-replace (port `wp search-replace` semantics; use `wp`/`drush`
-      remotely when present)
+- [x] Maintenance-mode primitives + `unlock` recovery command: Maintainer
+      recipe seam (WP wp-cli→file, Drupal drush→direct-DB fallback, static
+      no-op), write-ahead EventMaintenance records, live-probe-first unlock
+- [ ] Maintenance window in `migrate`: enable around final dump + delta
+      pass, crash-safe cleanup on every exit path
+- [x] DB import on destination: `db.Import` streams the footer-verified
+      local dump into `gunzip -c | mysql` (password over a 0600 FIFO,
+      never argv/env/disk; progress from local byte offsets; post-import
+      table-count verification) — not yet wired into `migrate`
+- [x] Serialized-safe search-replace core: `internal/searchreplace`
+      (`--precise` semantics, fuzzed round-trip, URL/docroot pair planner)
+      — application to the imported DB not yet wired
+- [ ] Wire dump→import→search-replace into `migrate` (the choreography:
+      maintenance on → final dump → delta pass → import → search-replace →
+      maintenance off); use `wp`/`drush` search-replace remotely when
+      present, the own core as fallback
 - [ ] Config rewrite: wp-config.php; Drupal settings.php incl.
       `trusted_host_patterns` + `hash_salt`; `drush cr` post-import
 - [x] `status` / `history` commands over `.rehost/history.jsonl`: read-only,
