@@ -165,7 +165,13 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
   docroot exempt from the refusal (idempotency). File sync is additive by default —
   destination-only files are reported, deleted only with an rsync-style `--delete` flag.
   Refuse-by-default is also the Phase 3 mitigation for half-failed imports; destination
-  snapshots before import are post-MVP polish.
+  snapshots before import are post-MVP polish. Implementation decisions (2026-07-29):
+  a site with no `dest_root` gets its home-relative source path rebased onto the
+  destination home (never the source's absolute path verbatim); an unlistable-but-existing
+  destination docroot aborts rather than reading as "empty"; `--delete` stands down for a
+  run whose source manifest is pruned (find exit 1 — deletions need a proven-complete
+  listing); each converged site records EventMigrate immediately so partial multi-site
+  runs rerun without friction.
 - **Trust guard (MARKETING.md §1):** the core CLI stays open source, free, and local
   forever. Never add a cloud data plane, phone-home/telemetry by default, nagging, or
   gates on single-site migration features — monetization lives *around* the tool
