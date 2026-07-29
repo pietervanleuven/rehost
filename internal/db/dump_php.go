@@ -63,6 +63,9 @@ try {
       while ($row = mysqli_fetch_row($res)) {
         $rows[] = $row;
       }
+      if (mysqli_error($db) !== '') {
+        throw new Exception('result stream died: ' . mysqli_error($db));
+      }
       mysqli_free_result($res);
       return $rows;
     };
@@ -73,6 +76,12 @@ try {
       }
       while ($row = mysqli_fetch_row($res)) {
         $cb($row);
+      }
+      // With MYSQLI_REPORT_OFF a dropped connection ends the fetch loop
+      // exactly like end-of-rows; without this check the dump would keep
+      // going and earn the completion footer while missing rows.
+      if (mysqli_error($db) !== '') {
+        throw new Exception('result stream died: ' . mysqli_error($db));
       }
       mysqli_free_result($res);
     };
@@ -101,6 +110,14 @@ try {
       $st = $db->query($sql);
       while ($row = $st->fetch(PDO::FETCH_NUM)) {
         $cb($row);
+      }
+      // fetch() returns false for both end-of-rows and a died stream; only
+      // errorCode distinguishes them (ERRMODE_EXCEPTION does not cover
+      // every driver-level fetch failure).
+      $code = $st->errorCode();
+      if ($code !== null && $code !== '00000') {
+        $info = $st->errorInfo();
+        throw new Exception('result stream died: ' . (isset($info[2]) ? $info[2] : $code));
       }
       $st->closeCursor();
     };
