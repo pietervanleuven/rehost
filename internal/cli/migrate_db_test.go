@@ -102,6 +102,7 @@ func TestDestDBResultsPolicy(t *testing.T) {
 
 func TestRunSyncDatabaseChoreography(t *testing.T) {
 	source, dest := &fakeConn{}, &fakeConn{}
+	dest.catStdout = "<?php\ndefine('DB_NAME','src');define('DB_USER','s');define('DB_PASSWORD','sp');define('DB_HOST','localhost');\n"
 	stateDir := t.TempDir()
 	p := dbPlan(source, dest, stateDir)
 	syncCalls := stubSync(t)
@@ -144,6 +145,15 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 	}
 	if d.Replacements == 0 {
 		t.Errorf("docroot rewrite should be reported: %+v", d)
+	}
+	// Config rewrite on the destination: the synced wp-config.php now points
+	// at the destination database.
+	if d.ConfigPath != "/home/d/www/wp-config.php" || d.ConfigNote != "" {
+		t.Errorf("config rewrite result = %+v", d)
+	}
+	destCmds := recordsFor(dest.runs)
+	if !strings.Contains(destCmds, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
+		t.Errorf("the rewritten config should be written on the destination:\n%s", destCmds)
 	}
 }
 
@@ -202,7 +212,7 @@ func TestRunSyncNoDestDBIsSkippedNotFailed(t *testing.T) {
 // --- fixtures ---
 
 func wpInstall(root string) detect.Install {
-	return detect.Install{Framework: "wordpress", Root: root}
+	return detect.Install{Framework: "wordpress", Root: root, ConfigFile: root + "/wp-config.php"}
 }
 
 // dbPlan is a one-site plan with the database seams populated.
@@ -214,6 +224,7 @@ func dbPlan(source, dest *fakeConn, stateDir string) migratePlan {
 		srcStream: nopStreamer{},
 		destConn:  dest,
 		srcHost:   db.Host{Run: source},
+		destHost:  db.Host{Run: dest},
 		srcCreds:  map[string]*db.Credentials{root: {Name: "wp_src", User: "u", Password: "pw"}},
 		destCreds: map[string]*db.Credentials{root: {Name: "u1_wp", User: "u1", Password: "pw2"}},
 		sites: []siteDest{
