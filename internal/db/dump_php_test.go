@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -273,6 +274,9 @@ func TestPHPDumpTriggerQueryDenied(t *testing.T) {
 // installed.
 func TestPHPDumpCommandThroughShell(t *testing.T) {
 	requirePHP(t)
+	if runtime.GOOS == "windows" {
+		t.Skip("the command runs on a remote POSIX shell; Windows argv re-quoting through Git Bash mangles it and tests the wrong thing")
+	}
 	cmd := exec.Command("sh", "-c", dumpPHPCmd(&Credentials{}))
 	var stderr bytes.Buffer
 	cmd.Stdout = io.Discard

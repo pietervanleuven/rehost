@@ -23,6 +23,9 @@ type fakeStreamer struct {
 
 func (f *fakeStreamer) Stream(_ context.Context, cmd string, w io.Writer) (ssh.Result, error) {
 	f.lastCmd = cmd
+	// A real stream takes time; without this, Windows' coarse clock can
+	// measure the whole transfer as zero duration and the rate collapses.
+	time.Sleep(2 * time.Millisecond)
 	for i := 0; i < f.chunks; i++ {
 		if _, err := w.Write(f.chunk); err != nil {
 			return f.res, err
