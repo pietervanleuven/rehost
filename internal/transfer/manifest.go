@@ -31,10 +31,15 @@ type FileEntry struct {
 // the delta a rerun must transfer — the incremental story on hosts without
 // rsync, and the resume story after an interrupt.
 type Manifest struct {
-	Root     string      `json:"root"`
-	TakenAt  time.Time   `json:"taken_at"`
-	Complete bool        `json:"complete"` // false = paths only (no GNU find)
-	Files    []FileEntry `json:"files"`
+	Root     string    `json:"root"`
+	TakenAt  time.Time `json:"taken_at"`
+	Complete bool      `json:"complete"` // false = paths only (no GNU find)
+	// Pruned means find exited 1: it ran but skipped entries it could not
+	// read, so the listing may be missing files. A pruned manifest is fine
+	// as a transfer source but must never justify deletions — a file absent
+	// from it is not proven absent from the site.
+	Pruned bool        `json:"pruned,omitempty"`
+	Files  []FileEntry `json:"files"`
 }
 
 // TotalBytes sums the file sizes (0 for a degraded manifest).
@@ -95,6 +100,7 @@ func TakeManifest(ctx context.Context, r runner, root string, excludes []string)
 			// documented skip-not-fatal case.
 			m.Files = v.parse(res.Stdout, root)
 			m.Complete = v.complete
+			m.Pruned = res.ExitCode == 1
 			sort.Slice(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })
 			return m, nil
 		case res.ExitCode == 1:
