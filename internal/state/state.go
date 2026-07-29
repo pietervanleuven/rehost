@@ -26,6 +26,16 @@ const historyFile = "history.jsonl"
 const (
 	EventDryRun  = "dry-run"
 	EventMigrate = "migrate"
+	// EventMaintenance records a maintenance-mode toggle on a source site,
+	// written before the framework command runs so a crashed run leaves a
+	// trace unlock can recover. The direction lives in Details.
+	EventMaintenance = "maintenance"
+)
+
+const (
+	maintenanceStateKey = "state"
+	maintenanceOn       = "on"
+	maintenanceOff      = "off"
 )
 
 // heredocMarker delimits the JSON line fed to the remote append. Quoted at
@@ -116,6 +126,42 @@ func History(ctx context.Context, r runner, home string) ([]Entry, error) {
 		entries = append(entries, e)
 	}
 	return entries, nil
+}
+
+// MaintenanceEntry builds the write-ahead record for a maintenance-mode
+// toggle on site. Callers Record it BEFORE flipping maintenance so a crashed
+// run is recoverable: on=true means "about to enable" (the site may be left
+// locked), on=false means "disabled" (the window is closed). Keeping the
+// on/off encoding here means LockedSites reads back exactly what this wrote.
+func MaintenanceEntry(site string, on bool) Entry {
+	value := maintenanceOff
+	if on {
+		value = maintenanceOn
+	}
+	return Entry{Event: EventMaintenance, Site: site, Details: map[string]string{maintenanceStateKey: value}}
+}
+
+// LockedSites returns the set of site roots that might still be in maintenance
+// mode: those whose most recent EventMaintenance record is an "on" with no
+// later "off". It is the recovery read side that lets unlock find sites a
+// crashed run may have left locked. Entries are processed in order (History
+// returns them oldest-first), so a later off clears an earlier on. Entries
+// with no Site, or a state other than on/off, are ignored. Mirrors
+// MigratedSites: a membership set the caller can probe per site.
+func LockedSites(entries []Entry) map[string]bool {
+	locked := map[string]bool{}
+	for _, e := range entries {
+		if e.Event != EventMaintenance || e.Site == "" {
+			continue
+		}
+		switch e.Details[maintenanceStateKey] {
+		case maintenanceOn:
+			locked[e.Site] = true
+		case maintenanceOff:
+			delete(locked, e.Site)
+		}
+	}
+	return locked
 }
 
 // MigratedSites returns the set of site roots that have a completed
