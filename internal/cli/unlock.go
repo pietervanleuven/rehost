@@ -13,6 +13,7 @@ import (
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 	"github.com/pietervanleuven/rehost/internal/state"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
@@ -37,34 +38,19 @@ source cannot be reached or a locked site could not be cleared.`,
 }
 
 func runUnlock(cmd *cobra.Command, opts *options) error {
-	u := newUI(cmd, opts)
-	f, err := loadProject(opts.projectFile)
-	if err != nil {
-		return err
-	}
-	client, caps, err := dialSource(cmd.Context(), f, u)
-	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err)
+	return withSource(cmd, opts, func(ctx context.Context, u ui, f *project.File, client *ssh.Client, caps *ssh.Capabilities) error {
+		view, failed, err := unlockSites(ctx, db.Host{Run: client, Caps: caps}, caps.Home, caps.Target(), f)
+		if err != nil {
+			return u.fail(err)
 		}
-		return err
-	}
-	defer func() { _ = client.Close() }()
-
-	view, failed, err := unlockSites(cmd.Context(), db.Host{Run: client, Caps: caps}, caps.Home, caps.Target(), f)
-	if err != nil {
-		if u.mode == tui.ModeJSON {
-			u.renderer.Error(err)
+		if rerr := u.renderer.UnlockReport(view); rerr != nil {
+			return rerr
 		}
-		return err
-	}
-	if rerr := u.renderer.UnlockReport(view); rerr != nil {
-		return rerr
-	}
-	if len(failed) > 0 {
-		return fmt.Errorf("could not clear maintenance mode on %d site(s): %s", len(failed), strings.Join(failed, ", "))
-	}
-	return nil
+		if len(failed) > 0 {
+			return fmt.Errorf("could not clear maintenance mode on %d site(s): %s", len(failed), strings.Join(failed, ", "))
+		}
+		return nil
+	})
 }
 
 // unlockSites clears maintenance mode across a source's sites and is the

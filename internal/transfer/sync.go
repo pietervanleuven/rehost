@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/units"
 )
 
 // Conn is the slice of *ssh.Client a Sync endpoint needs: a buffered exec for
@@ -155,7 +156,7 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 		for _, e := range send {
 			stats.BytesSent += e.Size
 		}
-		note(progress, "sending %d files (%s)", len(send), humanBytes(stats.BytesSent))
+		note(progress, "sending %d files (%s)", len(send), units.HumanBytes(stats.BytesSent))
 		wire, err := relay(ctx, src, dst, send, opts)
 		stats.WireBytes = wire
 		stats.FilesSent = len(send)
@@ -427,21 +428,5 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 func note(progress func(string), format string, a ...any) {
 	if progress != nil {
 		progress(fmt.Sprintf(format, a...))
-	}
-}
-
-// humanBytes renders a byte count as a compact human string for progress lines.
-// It intentionally duplicates nothing from inventory (which transfer must not
-// import); the report layer owns richer formatting.
-func humanBytes(b int64) string {
-	switch {
-	case b >= 1<<30:
-		return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30))
-	case b >= 1<<20:
-		return fmt.Sprintf("%.1f MiB", float64(b)/(1<<20))
-	case b >= 1<<10:
-		return fmt.Sprintf("%.1f KiB", float64(b)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", b)
 	}
 }

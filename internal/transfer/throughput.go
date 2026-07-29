@@ -1,6 +1,6 @@
-// Package transfer moves site files between hosts. Phase 2 content: a
-// tar-pipe throughput measurement for the dry run; the real sync engine
-// (rsync / manifest-driven tar / SFTP fallbacks) lands in Phase 3.
+// Package transfer moves site files between hosts: file manifests and their
+// diffs, a tar-pipe throughput measurement for the dry run, and the
+// manifest-driven tar-pipe sync engine migrate runs.
 package transfer
 
 import (
@@ -11,9 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/ssh"
 )
+
+// Streamer executes a remote command with streaming stdout; *ssh.Client
+// satisfies it. A local seam like runner and Conn, so measuring throughput
+// does not couple transfer to the database package.
+type Streamer interface {
+	Stream(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error)
+}
 
 // ThroughputStats is what a capped measurement observed.
 type ThroughputStats struct {
@@ -43,7 +49,7 @@ var errCapReached = errors.New("measurement cap reached")
 // the achievable rate, stopping after byteCap bytes or timeCap. It answers
 // two dry-run questions at once: does a tar pipe work on this host, and how
 // long would the real copy roughly take.
-func Throughput(ctx context.Context, s db.Streamer, root string, excludes []string, byteCap int64, timeCap time.Duration) (*ThroughputStats, error) {
+func Throughput(ctx context.Context, s Streamer, root string, excludes []string, byteCap int64, timeCap time.Duration) (*ThroughputStats, error) {
 	if byteCap <= 0 {
 		byteCap = DefaultByteCap
 	}

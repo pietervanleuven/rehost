@@ -14,26 +14,21 @@ import (
 // regex over the file. Multisite: the default site's settings (in.ConfigFile)
 // are used; per-subsite credentials are a later phase.
 func (d Drupal) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
-	if h.Run != nil && h.HasTool("drush") {
-		creds, err := drushCredentials(ctx, h.Run, in.Root)
-		if err != nil || creds != nil {
-			return creds, err
-		}
-	}
-	if h.Run != nil && h.HasTool("php") && in.ConfigFile != "" {
-		creds, err := drupalPHPCredentials(ctx, h.Run, in.ConfigFile)
-		if err != nil || creds != nil {
-			return creds, err
-		}
-	}
-	if h.FS != nil && in.ConfigFile != "" {
-		content, err := h.FS.ReadFile(ctx, in.ConfigFile)
-		if err != nil {
-			return nil, err
-		}
-		return parseDrupalSettings(content), nil
-	}
-	return nil, nil
+	return extractLayered(ctx, []credLayer{
+		{h.Run != nil && h.HasTool("drush"), func(ctx context.Context) (*db.Credentials, error) {
+			return drushCredentials(ctx, h.Run, in.Root)
+		}},
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+			return drupalPHPCredentials(ctx, h.Run, in.ConfigFile)
+		}},
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
+			if err != nil {
+				return nil, err
+			}
+			return parseDrupalSettings(content), nil
+		}},
+	})
 }
 
 // drushCredentials asks drush for the SQL config. `sql-conf` is the alias

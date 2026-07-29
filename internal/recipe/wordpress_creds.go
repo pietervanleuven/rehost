@@ -15,26 +15,21 @@ import (
 // Each layer hands over to the next on any failure; only transport errors
 // abort.
 func (w WordPress) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
-	if h.Run != nil && h.HasTool("wp") {
-		creds, err := wpCLICredentials(ctx, h.Run, in.Root)
-		if err != nil || creds != nil {
-			return creds, err
-		}
-	}
-	if h.Run != nil && h.HasTool("php") && in.ConfigFile != "" {
-		creds, err := wpPHPCredentials(ctx, h.Run, in.ConfigFile)
-		if err != nil || creds != nil {
-			return creds, err
-		}
-	}
-	if h.FS != nil && in.ConfigFile != "" {
-		content, err := h.FS.ReadFile(ctx, in.ConfigFile)
-		if err != nil {
-			return nil, err
-		}
-		return parseWPConfig(content), nil
-	}
-	return nil, nil
+	return extractLayered(ctx, []credLayer{
+		{h.Run != nil && h.HasTool("wp"), func(ctx context.Context) (*db.Credentials, error) {
+			return wpCLICredentials(ctx, h.Run, in.Root)
+		}},
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+			return wpPHPCredentials(ctx, h.Run, in.ConfigFile)
+		}},
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
+			if err != nil {
+				return nil, err
+			}
+			return parseWPConfig(content), nil
+		}},
+	})
 }
 
 // wpCLICredentials asks wp-cli for the config. --skip-plugins/--skip-themes

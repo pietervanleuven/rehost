@@ -70,9 +70,3 @@ func TestDirsSizeKB(t *testing.T) {
 		t.Errorf("DirsSizeKB = %d, want 3072", kb)
 	}
 }
-
-func TestShQuote(t *testing.T) {
-	if got := shQuote("/a b/it's"); got != `'/a b/it'\''s'` {
-		t.Errorf("shQuote = %s", got)
-	}
-}
