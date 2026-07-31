@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,13 @@ var (
 // dbIdentity keys credential prompting and inspection so sites sharing one
 // panel database are asked about and probed once.
 func dbIdentity(c *project.SiteDB) string {
+	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+}
+
+// dbCredIdentity is dbIdentity over resolved credentials. destDBResults gates
+// its overwrite guard on this, and migrateSiteDB records it after a successful
+// import, so the two agree on which database rehost has filled.
+func dbCredIdentity(c *db.Credentials) string {
 	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
 }
 
@@ -80,7 +88,7 @@ func destDBCredentials(sites []siteDest, password func(string) (string, error)) 
 // has no record of filling is refused unless --onto-existing, because the
 // import's DROP TABLE statements overwrite it. A site without dest_db gets a
 // warning row: files will sync, the database will not.
-func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map[string]*db.Credentials, migrated map[string]bool, ontoExisting bool) ([]check.Result, error) {
+func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map[string]*db.Credentials, migratedDBs map[string]bool, ontoExisting bool) ([]check.Result, error) {
 	const title = "Destination database"
 	inspected := map[string]*db.Inspection{}
 	var rows []check.Result
@@ -93,7 +101,7 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 				Detail: fmt.Sprintf("%s has no dest_db in migrate.yaml — files will sync, the database will NOT be migrated", root)})
 			continue
 		}
-		key := c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+		key := dbCredIdentity(c)
 		insp, seen := inspected[key]
 		if !seen {
 			var err error
@@ -107,10 +115,10 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 		case !insp.Connected:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Blocker,
 				Detail: fmt.Sprintf("cannot use %s: %s — create the database in the hosting panel and check dest_db's name/user, then rerun", c.Name, insp.Reason)})
-		case insp.Tables > 0 && !migrated[s.destRoot] && !ontoExisting:
+		case insp.Tables > 0 && !migratedDBs[key] && !ontoExisting:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Blocker,
 				Detail: fmt.Sprintf("%s already holds %d tables and rehost has no record of filling it — the import would overwrite them; empty the database or rerun with --onto-existing", c.Name, insp.Tables)})
-		case insp.Tables > 0 && !migrated[s.destRoot]:
+		case insp.Tables > 0 && !migratedDBs[key]:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Warning,
 				Detail: fmt.Sprintf("%s holds %d tables — overwriting because --onto-existing was set; there is no rollback yet", c.Name, insp.Tables)})
 		default:
@@ -215,22 +223,23 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 		return d, delta, warnings, true
 	}
 
-	// Serialized-safe rewrite, locally, before the data reaches the
-	// destination. Same-domain migrations yield docroot pairs only; no pairs
-	// means the dump is imported as-is.
+	// Local dump finalize, before the data reaches the destination: strip
+	// DEFINER clauses (always — a cross-account import aborts on a foreign
+	// definer) and apply the serialized-safe docroot rewrite. Same-domain
+	// migrations yield no docroot pairs, but the DEFINER pass still runs.
 	pairs := searchreplace.Pairs(searchreplace.PlanInput{SourceDocroot: root, DestDocroot: s.destRoot})
 	if len(pairs) > 0 {
 		u.progress("  rewriting paths in the dump…")
-		rstats, err := rewriteDumpFile(dumpPath, pairs)
-		if err != nil {
-			d.Err = fmt.Sprintf("rewriting the dump: %v", err)
-			return d, delta, warnings, true
-		}
-		d.Replacements = rstats.ValuesChanged
-		d.Unparseable = rstats.Unparseable
-		if rstats.Unparseable > 0 {
-			warnings = append(warnings, fmt.Sprintf("%s: %d serialized-looking values could not be parsed and were left untouched — inspect them after cutover", root, rstats.Unparseable))
-		}
+	}
+	rstats, err := finalizeDumpFile(dumpPath, pairs)
+	if err != nil {
+		d.Err = fmt.Sprintf("finalizing the dump: %v", err)
+		return d, delta, warnings, true
+	}
+	d.Replacements = rstats.ValuesChanged
+	d.Unparseable = rstats.Unparseable
+	if rstats.Unparseable > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s: %d serialized-looking values could not be parsed and were left untouched — inspect them after cutover", root, rstats.Unparseable))
 	}
 
 	// Import + verification.
@@ -262,6 +271,14 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 		warnings = append(warnings, fmt.Sprintf("%s: destination has %d tables but the dump carried %d — inspect before cutover", destCreds.Name, res.DestTables, res.SourceTables))
 	}
 
+	// Record that this destination database is now rehost-filled, keyed by its
+	// identity, so a rerun re-converges it instead of refusing it — and, unlike
+	// the docroot record, only after the import actually ran. A failed record is
+	// a warning: the next run would need --onto-existing, never data loss.
+	if err := state.Record(ctx, p.dest, p.destHome, state.DatabaseMigratedEntry(dbCredIdentity(destCreds))); err != nil {
+		warnings = append(warnings, fmt.Sprintf("%s: could not record the database migration on the destination (%v) — the next run will need --onto-existing to re-import into %s", root, err, destCreds.Name))
+	}
+
 	// Config rewrite: point the synced config at the imported database. An
 	// unsupported rewrite degrades to guidance — files and data converged,
 	// the user can edit one file by hand — but a transport failure is real.
@@ -291,6 +308,26 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 		default:
 			d.ConfigPath = res.Path
 			d.PostSteps = res.PostSteps
+		}
+	}
+
+	// The destination must never be left in maintenance mode. WordPress's
+	// .maintenance file is excluded from the sync, but Drupal's flag rides in
+	// the dumped database, so clear it on the destination now that the config
+	// points there. Best-effort: a failure is a warning and one manual command,
+	// never a failed migration. Skipped when the config was not rewritten —
+	// without it the destination config still points at the source DB, so a
+	// clear could not reach the right database.
+	if maintainer != nil && d.ConfigPath != "" {
+		destInstall := s.install
+		destInstall.Root = s.destRoot
+		destInstall.ConfigFile = d.ConfigPath
+		res, err := maintainer.DisableMaintenance(ctx, p.destHost, destInstall)
+		switch {
+		case err != nil:
+			warnings = append(warnings, fmt.Sprintf("%s: could not clear maintenance mode on the destination (%v) — clear it there by hand before cutover", s.destRoot, err))
+		case !res.Supported:
+			warnings = append(warnings, fmt.Sprintf("%s: could not clear maintenance mode on the destination — %s; clear it there by hand before cutover", s.destRoot, res.Note))
 		}
 	}
 	return d, delta, warnings, false
@@ -325,9 +362,12 @@ func dumpForImport(ctx context.Context, p migratePlan, creds *db.Credentials) (s
 	return path, stats, nil
 }
 
-// rewriteDumpFile applies the replacement pairs to a gzipped dump in place
-// (temp file + rename, so an interrupt leaves the original intact).
-func rewriteDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.Stats, error) {
+// finalizeDumpFile post-processes a gzipped dump in place (temp file + rename,
+// so an interrupt leaves the original intact): it strips DEFINER clauses from
+// the DDL, then applies the docroot replacement pairs inside string literals.
+// Both stages run over one gunzip→gzip pass; empty pairs still get the DEFINER
+// strip.
+func finalizeDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.Stats, error) {
 	in, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -352,7 +392,14 @@ func rewriteDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.St
 		return nil, err
 	}
 	gzOut := gzip.NewWriter(tmp)
-	stats, err := searchreplace.RewriteDump(gzIn, gzOut, pairs)
+
+	// DEFINER stripping feeds the rewrite through a pipe so the two stages
+	// stream rather than buffering the whole dump. A strip-side error closes
+	// the pipe with it, surfacing on the rewrite's read.
+	pr, pw := io.Pipe()
+	go func() { pw.CloseWithError(db.StripDefiners(gzIn, pw)) }()
+	stats, err := searchreplace.RewriteDump(pr, gzOut, pairs)
+	_ = pr.CloseWithError(err)
 	if err == nil {
 		err = gzOut.Close()
 	}
