@@ -70,3 +70,17 @@ func TestDirsSizeKB(t *testing.T) {
 		t.Errorf("DirsSizeKB = %d, want 3072", kb)
 	}
 }
+
+// A site nested under another's docroot must be counted once: du of the parent
+// already includes the child, so the child dir is dropped before summing.
+func TestDirsSizeKBSkipsNested(t *testing.T) {
+	r := fakeRunner{results: map[string]ssh.Result{
+		"du -sk '/home/u/public_html' 2>/dev/null": {Stdout: "5000\t/home/u/public_html\n"},
+		// The nested blog's du must never run — counting it double-counts.
+		"du -sk '/home/u/public_html/blog' 2>/dev/null": {Stdout: "2000\t/home/u/public_html/blog\n"},
+	}}
+	kb := DirsSizeKB(context.Background(), r, []string{"/home/u/public_html/blog", "/home/u/public_html"})
+	if kb != 5000 {
+		t.Errorf("DirsSizeKB = %d, want 5000 (nested blog must not be added again)", kb)
+	}
+}
