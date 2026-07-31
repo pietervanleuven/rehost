@@ -132,7 +132,10 @@ func parseString(b []byte, pos int) (node, int, error) {
 		return nil, pos, errParse
 	}
 	j += 2
-	if j+n+1 >= len(b) || b[j+n] != '"' || b[j+n+1] != ';' {
+	// n comes from readUint and may be up to maxInt, so j+n could overflow to
+	// a negative int; compare against the remaining length instead. n bytes of
+	// content plus the closing `";` need n <= len(b)-j-2.
+	if n > len(b)-j-2 || b[j+n] != '"' || b[j+n+1] != ';' {
 		return nil, pos, errParse
 	}
 	content := append([]byte(nil), b[j:j+n]...)
@@ -173,7 +176,7 @@ func parseObject(b []byte, pos, depth int) (node, int, error) {
 		return nil, pos, errParse
 	}
 	j += 2
-	if j+clen+1 >= len(b) || b[j+clen] != '"' || b[j+clen+1] != ':' {
+	if clen > len(b)-j-2 || b[j+clen] != '"' || b[j+clen+1] != ':' {
 		return nil, pos, errParse
 	}
 	class := append([]byte(nil), b[j:j+clen]...)
@@ -239,7 +242,7 @@ func parseCustom(b []byte, pos int) (node, int, error) {
 		return nil, pos, errParse
 	}
 	j += 2
-	if j+clen+1 >= len(b) || b[j+clen] != '"' || b[j+clen+1] != ':' {
+	if clen > len(b)-j-2 || b[j+clen] != '"' || b[j+clen+1] != ':' {
 		return nil, pos, errParse
 	}
 	j += clen + 2
@@ -251,7 +254,7 @@ func parseCustom(b []byte, pos int) (node, int, error) {
 		return nil, pos, errParse
 	}
 	j += 2
-	if j+dlen >= len(b) || b[j+dlen] != '}' {
+	if dlen > len(b)-j-1 || b[j+dlen] != '}' {
 		return nil, pos, errParse
 	}
 	j += dlen + 1
