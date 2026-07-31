@@ -155,15 +155,27 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 
 // writeSites refreshes the project file's sites section from the source
 // scan. It reports whether a write happened — an unchanged detection result
-// leaves the file untouched.
+// leaves the file untouched. Hand-added per-site config (dest_root, dest_db)
+// is carried over by root: detection only knows framework/root/version, so
+// rebuilding the list from scratch would silently drop the destination
+// mapping the user configured, and the next migrate would skip the database.
 func writeSites(f *project.File, path string, reports []tui.HostReport) (bool, error) {
+	existing := map[string]project.Site{}
+	for _, s := range f.Sites {
+		existing[s.Root] = s
+	}
 	var sites []project.Site
 	for _, hr := range reports {
 		if hr.Role != "source" {
 			continue
 		}
 		for _, inst := range hr.Installs {
-			sites = append(sites, project.Site{Framework: inst.Framework, Root: inst.Root, Version: inst.Version})
+			site := project.Site{Framework: inst.Framework, Root: inst.Root, Version: inst.Version}
+			if prev, ok := existing[inst.Root]; ok {
+				site.DestRoot = prev.DestRoot
+				site.DestDB = prev.DestDB
+			}
+			sites = append(sites, site)
 		}
 	}
 	if slices.Equal(f.Sites, sites) {
