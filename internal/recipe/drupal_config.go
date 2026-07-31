@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/ssh"
@@ -27,7 +28,7 @@ func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) 
 	if err != nil {
 		return ConfigRewriteResult{}, err
 	}
-	rewritten, err := rewriteDrupalSettings(content, rw.DB)
+	rewritten, missing, err := rewriteDrupalSettings(content, rw.DB)
 	if err != nil {
 		return ConfigRewriteResult{Supported: false,
 			Note: fmt.Sprintf("%s: %v — edit it by hand", confPath, err)}, nil
@@ -37,6 +38,16 @@ func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) 
 	}
 
 	res := ConfigRewriteResult{Path: confPath, Supported: true}
+	if len(missing) > 0 {
+		// The $databases entry does not expose these as literals (e.g.
+		// 'username' => getenv(...), or values pulled from an included file),
+		// so the rewrite could not point them at the destination — the synced
+		// settings.php still resolves them the source's way. Flag it as a
+		// manual step rather than reporting a clean success.
+		res.PostSteps = append(res.PostSteps, fmt.Sprintf(
+			"set the destination database %s in %s by hand — it is not a literal the rewrite could replace, so the site still uses the source's",
+			strings.Join(missing, " and "), confPath))
+	}
 	if h.HasTool("drush") {
 		cr, err := h.Run.Run(ctx, "cd "+ssh.ShellQuote(rw.DestRoot)+" && drush cr 2>&1")
 		switch {
@@ -53,33 +64,49 @@ func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) 
 	return res, nil
 }
 
-// rewriteDrupalSettings is the pure transform: the first
-// database/username/password/host entry each gets the destination value.
-// port is rewritten only when the config declares one; database is the only
-// key whose absence is an error (no $databases entry at all).
-func rewriteDrupalSettings(content []byte, creds db.Credentials) ([]byte, error) {
+// rewriteDrupalSettings is the pure transform: the first non-commented
+// database/username/password/host entry each gets the destination value. It
+// returns the auth-critical keys (username, password) it had a value for but
+// could not replace — the config exposes them some way the regex cannot match,
+// so the destination would still authenticate the source's way. port is
+// rewritten only when the config declares one; database is the only key whose
+// absence is an error (no $databases entry at all).
+func rewriteDrupalSettings(content []byte, creds db.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"
 	}
 	var ok bool
 	if content, ok = replaceDrupalValue(content, "database", creds.Name); !ok {
-		return nil, fmt.Errorf("no $databases 'database' entry found")
+		return nil, nil, fmt.Errorf("no $databases 'database' entry found")
 	}
-	content, _ = replaceDrupalValue(content, "username", creds.User)
-	content, _ = replaceDrupalValue(content, "password", creds.Password)
+	// Only a value we actually have but could not place is worth flagging: an
+	// empty source username/password has nothing to write, and the config may
+	// legitimately omit the key.
+	var missing []string
+	if content, ok = replaceDrupalValue(content, "username", creds.User); !ok && creds.User != "" {
+		missing = append(missing, "username")
+	}
+	if content, ok = replaceDrupalValue(content, "password", creds.Password); !ok && creds.Password != "" {
+		missing = append(missing, "password")
+	}
+	// host defaults to localhost when the entry omits it, which is the common
+	// correct case on shared hosts, so a missing host literal is not flagged.
 	content, _ = replaceDrupalValue(content, "host", host)
 	if creds.Port != 0 {
 		content, _ = replaceDrupalValue(content, "port", strconv.Itoa(creds.Port))
 	}
-	return content, nil
+	return content, missing, nil
 }
 
 // replaceDrupalValue splices a new single-quoted value into the first
-// `'key' => <literal>` occurrence (the shape of a $databases entry).
+// non-commented `'key' => <literal>` occurrence (the shape of a $databases
+// entry). Matching runs against a comment-masked copy so the `@code … @endcode`
+// example in a stock settings.php is never edited in place of the real block;
+// offsets in the mask line up with the original byte-for-byte.
 func replaceDrupalValue(content []byte, key, value string) ([]byte, bool) {
 	re := regexp.MustCompile(`['"]` + regexp.QuoteMeta(key) + `['"]\s*=>\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|\d+)`)
-	loc := re.FindSubmatchIndex(content)
+	loc := re.FindSubmatchIndex(maskPHPComments(content))
 	if loc == nil {
 		return content, false
 	}
