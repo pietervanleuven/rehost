@@ -92,15 +92,26 @@ func TestMissingFindWarns(t *testing.T) {
 
 func TestDatabaseRules(t *testing.T) {
 	in := Input{
-		Source:      capsWith("8.2", "rsync", "find"),
+		Source:      capsWith("8.2", "rsync", "find", "php"),
 		Destination: capsWith("8.2", "rsync"),
 		Installs:    []detect.Install{wpInstall},
 	}
 	if r := byID(t, Run(in), "db.dump"); r.Severity != Warning {
-		t.Errorf("missing mysqldump should warn (PHP fallback), got %+v", r)
+		t.Errorf("missing mysqldump with php should warn (PHP fallback), got %+v", r)
 	}
 	if r := byID(t, Run(in), "db.import"); r.Severity != Blocker {
 		t.Errorf("missing destination mysql must block, got %+v", r)
+	}
+
+	// Neither mysqldump nor a PHP CLI: nothing can dump, so the gate blocks
+	// rather than passing migrate through to fail at the dump step.
+	noDump := Input{
+		Source:      capsWith("", "rsync", "find"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+	}
+	if r := byID(t, Run(noDump), "db.dump"); r.Severity != Blocker {
+		t.Errorf("no mysqldump and no php must block, got %+v", r)
 	}
 
 	// Static-only accounts have no DB rules at all.
