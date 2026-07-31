@@ -13,6 +13,11 @@ func ExcludeSuggestionsFor(in detect.Install) []string {
 	switch in.Framework {
 	case "wordpress":
 		return append([]string{
+			// .maintenance is the runtime maintenance sentinel rehost writes on
+			// the source during the migration window; excluding it keeps the
+			// delta pass from carrying it onto the destination, where nothing
+			// clears it and the migrated site would serve a permanent 503.
+			".maintenance",
 			"wp-content/cache",
 			"wp-content/uploads/cache",
 			"wp-content/w3tc-cache",
