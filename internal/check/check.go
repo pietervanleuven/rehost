@@ -152,11 +152,15 @@ func checkDatabase(in Input, add addFunc) {
 	if !anyNeedsDB(in.Installs) {
 		return
 	}
-	if in.Source.Has("mysqldump") {
+	switch {
+	case in.Source.Has("mysqldump"):
 		add("db.dump", "Database dump (source)", Ok, "mysqldump available")
-	} else {
+	case in.Source.Has("php"):
 		add("db.dump", "Database dump (source)", Warning,
 			"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
+	default:
+		add("db.dump", "Database dump (source)", Blocker,
+			"the source has neither mysqldump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
 	}
 	if in.Destination.Has("mysql") {
 		add("db.import", "Database import (destination)", Ok, "mysql client available")
