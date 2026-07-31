@@ -180,3 +180,44 @@ func TestWriteSites(t *testing.T) {
 		t.Error("identical sites should not trigger a write")
 	}
 }
+
+// A plan rerun must preserve hand-added dest_db/dest_root, or the next migrate
+// silently skips the database the user configured.
+func TestWriteSitesPreservesDestConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "migrate.yaml")
+	f := &project.File{
+		Version: project.SchemaVersion,
+		Source:  project.Host{Host: "src.example.com"},
+		Sites: []project.Site{{
+			Framework: "wordpress", Root: "/home/u/public_html", Version: "6.5.1",
+			DestRoot: "/home/d/www",
+			DestDB:   &project.SiteDB{Name: "d_wp", User: "d_user"},
+		}},
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rerun detects the same site at a newer version; dest config must survive.
+	reports := []tui.HostReport{{Role: "source", Installs: []detect.Install{
+		{Framework: "wordpress", Root: "/home/u/public_html", Version: "6.5.2"},
+	}}}
+	if _, err := writeSites(f, path, reports); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := project.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Sites) != 1 {
+		t.Fatalf("sites = %+v", loaded.Sites)
+	}
+	s := loaded.Sites[0]
+	if s.Version != "6.5.2" {
+		t.Errorf("version not refreshed: %q", s.Version)
+	}
+	if s.DestRoot != "/home/d/www" || s.DestDB == nil || s.DestDB.Name != "d_wp" || s.DestDB.User != "d_user" {
+		t.Errorf("dest config dropped on rerun: dest_root=%q dest_db=%+v", s.DestRoot, s.DestDB)
+	}
+}
