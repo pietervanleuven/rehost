@@ -9,29 +9,27 @@ import (
 	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
-// wpMaintContent is the drop-in WordPress reads to serve its maintenance page;
-// wp-cli's maintenance-mode command writes the same .maintenance file, so the
-// file layer and the CLI layer drive one mechanism.
+// wpMaintContent is the drop-in WordPress reads to serve its maintenance page.
+// $upgrading is a live time() call, re-evaluated every request, so the page
+// never expires mid-migration the way wp-cli's fixed integer timestamp does.
 const wpMaintContent = "<?php $upgrading = time(); ?>"
 
 // wpMaintFile is the sentinel WordPress and wp-cli both use, in the docroot.
 func wpMaintFile(root string) string { return path.Join(root, ".maintenance") }
 
-// EnableMaintenance turns on WordPress maintenance mode: wp-cli first, falling
-// back to writing .maintenance directly. A crashed WP core upgrade leaves the
-// same file, so a site already showing the maintenance page stays consistent.
+// EnableMaintenance turns on WordPress maintenance mode by writing .maintenance
+// directly, with a live `time()` call as its $upgrading value so the page never
+// self-lifts. wp-cli's `maintenance-mode activate` is deliberately NOT used: it
+// stamps a fixed integer timestamp, which WordPress core stops honoring 10
+// minutes later (wp_is_maintenance_mode: time() - $upgrading >= 600) — so a
+// migration longer than that window would silently resume serving the live site
+// mid-dump and lose writes. Writing the same file wp-cli would is equivalent for
+// WordPress, which keys only on the file's presence and $upgrading value. A
+// crashed WP core upgrade leaves the same file, so a site already showing the
+// maintenance page stays consistent.
 func (WordPress) EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
 	if h.Run == nil {
 		return MaintenanceResult{Supported: false, Note: "no command runner to reach the source"}, nil
-	}
-	if h.HasTool("wp") {
-		ok, err := wpMaintCLI(ctx, h.Run, in.Root, "activate")
-		if err != nil {
-			return MaintenanceResult{}, err
-		}
-		if ok {
-			return MaintenanceResult{State: MaintenanceOn, Method: "wp-cli", Supported: true}, nil
-		}
 	}
 	if err := writeRemoteFile(ctx, h.Run, wpMaintFile(in.Root), wpMaintContent); err != nil {
 		return MaintenanceResult{}, err
