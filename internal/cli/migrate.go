@@ -146,6 +146,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		return u.fail(fmt.Errorf("reading destination run history: %w", err))
 	}
 	migrated := state.MigratedSites(entries)
+	migratedDBs := state.MigratedDatabases(entries)
 	destState, err := destStateResults(cmd.Context(), h.dest.client, sites, migrated, ontoExisting)
 	if err != nil {
 		return u.fail(err)
@@ -158,7 +159,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	if err != nil {
 		return u.fail(err)
 	}
-	dbState, err := destDBResults(cmd.Context(), h.dest.client, sites, destCreds, migrated, ontoExisting)
+	dbState, err := destDBResults(cmd.Context(), h.dest.client, sites, destCreds, migratedDBs, ontoExisting)
 	if err != nil {
 		return u.fail(err)
 	}
@@ -188,8 +189,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		dest:         h.dest.client,
 		srcStream:    h.source.client,
 		destConn:     h.dest.client,
-		srcHost:      db.Host{Run: h.source.client, Caps: h.source.caps},
-		destHost:     db.Host{Run: h.dest.client, Caps: h.dest.caps},
+		srcHost:      db.Host{Run: h.source.client, FS: detect.NewSSHFS(h.source.client), Caps: h.source.caps},
+		destHost:     db.Host{Run: h.dest.client, FS: detect.NewSSHFS(h.dest.client), Caps: h.dest.caps},
 		srcCreds:     h.source.creds,
 		srcDBs:       h.source.dbs,
 		destCreds:    destCreds,
