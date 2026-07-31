@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -91,6 +92,42 @@ func TestDumpMissingFooterFails(t *testing.T) {
 	s := &fakeStreamer{payload: gzipped(t, "-- MySQL dump\nCREATE TABLE t (id int);\n")}
 	if _, err := Dump(context.Background(), s, &Credentials{Name: "d"}, io.Discard); err == nil {
 		t.Error("dump without completion footer must fail")
+	}
+}
+
+// A dump cut short at a point where a row quotes the footer text must still
+// fail verification: the footer is only trusted as the final line.
+func TestDumpFooterInRowDataNotAccepted(t *testing.T) {
+	truncated := "-- MySQL dump\n" +
+		"CREATE TABLE t (id int, note text);\n" +
+		"INSERT INTO t VALUES (1,'see -- Dump completed on 2026-01-01 for details');\n"
+	s := &fakeStreamer{payload: gzipped(t, truncated)}
+	if _, err := Dump(context.Background(), s, &Credentials{Name: "d"}, io.Discard); err == nil {
+		t.Error("a footer string inside row data must not pass as a complete dump")
+	}
+}
+
+// Every CREATE TABLE is counted exactly once across an arbitrary number of
+// read-buffer boundaries, so the import table-count guard is not undercounted.
+func TestDumpTableCountAcrossChunks(t *testing.T) {
+	const tables = 400
+	var sb strings.Builder
+	sb.WriteString("-- MySQL dump\n")
+	for i := 0; i < tables; i++ {
+		// ~400 bytes per table pushes the dump well past the 64 KiB read buffer.
+		fmt.Fprintf(&sb, "CREATE TABLE t%d (id int);\n", i)
+		sb.WriteString("INSERT INTO t")
+		sb.WriteString(strings.Repeat("x", 380))
+		sb.WriteString(";\n")
+	}
+	sb.WriteString("-- Dump completed on 2026-07-27\n")
+	s := &fakeStreamer{payload: gzipped(t, sb.String())}
+	stats, err := Dump(context.Background(), s, &Credentials{Name: "d"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Tables != tables {
+		t.Errorf("Tables = %d, want %d (marker split across a read boundary was missed or double-counted)", stats.Tables, tables)
 	}
 }
 
