@@ -129,7 +129,10 @@ func toPort(v any) int {
 // syntax of Drupal's $databases entries.
 func firstConfigValue(content []byte, key string) string {
 	re := regexp.MustCompile(`['"]` + regexp.QuoteMeta(key) + `['"]\s*=>\s*(?:'([^']*)'|"([^"]*)")`)
-	if m := re.FindSubmatch(content); m != nil {
+	// Match against a comment-masked copy so the commented @code example in a
+	// stock settings.php is not read as real credentials. String-literal bytes
+	// survive masking, so the captured value equals the original.
+	if m := re.FindSubmatch(maskPHPComments(content)); m != nil {
 		if m[1] != nil {
 			return string(m[1])
 		}
