@@ -36,9 +36,6 @@ type StatusView struct {
 	Destination string        // configured destination, or "" when none
 	Sites       []StatusSite  // persisted by plan; empty until plan has run
 	Recent      []state.Entry // newest-first source run history (may be capped)
-	// MigrateImplemented gates the migrate line: false renders an honest
-	// "not implemented yet" instead of implying the step is available.
-	MigrateImplemented bool
 }
 
 // lastEvent returns the most recent entry with the given event, or nil.
@@ -188,14 +185,10 @@ func statusLines(v StatusView, emit func(label, value string)) {
 		emit("dry-run", "not run yet — run 'rehost plan --dry-run'")
 	}
 
-	if v.MigrateImplemented {
-		if m := v.lastEvent("migrate"); m != nil {
-			emit("migrate", "last run "+humanAge(m.Time))
-		} else {
-			emit("migrate", "not run yet — run 'rehost migrate'")
-		}
+	if m := v.lastEvent("migrate"); m != nil {
+		emit("migrate", "last run "+humanAge(m.Time))
 	} else {
-		emit("migrate", "not implemented yet (Phase 3) — see docs/PLAN.md §6")
+		emit("migrate", "not run yet — run 'rehost migrate'")
 	}
 }
 
@@ -221,14 +214,13 @@ func (r jsonRenderer) HistoryReport(entries []state.Entry) error {
 
 // StatusEnvelope is the versioned JSON shape of the status report.
 type StatusEnvelope struct {
-	Schema             string        `json:"schema"`
-	ProjectFile        string        `json:"project_file"`
-	Source             string        `json:"source"`
-	Destination        string        `json:"destination,omitempty"`
-	Sites              []StatusSite  `json:"sites"`
-	RecentRuns         []state.Entry `json:"recent_runs"`
-	LastDryRun         *state.Entry  `json:"last_dry_run,omitempty"`
-	MigrateImplemented bool          `json:"migrate_implemented"`
+	Schema      string        `json:"schema"`
+	ProjectFile string        `json:"project_file"`
+	Source      string        `json:"source"`
+	Destination string        `json:"destination,omitempty"`
+	Sites       []StatusSite  `json:"sites"`
+	RecentRuns  []state.Entry `json:"recent_runs"`
+	LastDryRun  *state.Entry  `json:"last_dry_run,omitempty"`
 }
 
 func (r jsonRenderer) StatusReport(v StatusView) error {
@@ -241,14 +233,13 @@ func (r jsonRenderer) StatusReport(v StatusView) error {
 		recent = []state.Entry{}
 	}
 	return encodeJSON(r.out, StatusEnvelope{
-		Schema:             statusSchema,
-		ProjectFile:        v.ProjectFile,
-		Source:             v.Source,
-		Destination:        v.Destination,
-		Sites:              sites,
-		RecentRuns:         recent,
-		LastDryRun:         v.lastEvent("dry-run"),
-		MigrateImplemented: v.MigrateImplemented,
+		Schema:      statusSchema,
+		ProjectFile: v.ProjectFile,
+		Source:      v.Source,
+		Destination: v.Destination,
+		Sites:       sites,
+		RecentRuns:  recent,
+		LastDryRun:  v.lastEvent("dry-run"),
 	})
 }
 
