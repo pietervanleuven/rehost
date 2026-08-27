@@ -35,7 +35,13 @@ over SSH — never through a third-party cloud.
 
 ## Install
 
-Download the binary for your OS/arch from the
+On macOS or Linux with [Homebrew](https://brew.sh):
+
+```bash
+brew install pietervanleuven/tap/rehost
+```
+
+Or download the binary for your OS/arch from the
 [latest release](https://github.com/pietervanleuven/rehost/releases/latest):
 
 ```bash
