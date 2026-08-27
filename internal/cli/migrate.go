@@ -332,6 +332,7 @@ func recordSiteMigrated(ctx context.Context, u ui, p migratePlan, destRoot strin
 			"could not record the migration of %s on the destination (%v) — the next run will not recognize it as rehost-created and will need --onto-existing to converge onto it",
 			destRoot, err)}
 	}
+	_ = state.Compact(ctx, p.dest, p.destHome) // best-effort: bound the history file
 	return nil
 }
 
@@ -354,6 +355,7 @@ func recordSourceSummary(ctx context.Context, p migratePlan, rows []tui.SiteSync
 	if err := state.Record(ctx, p.source, p.srcHome, summary); err != nil {
 		return []string{fmt.Sprintf("could not record the run on the source: %v", err)}
 	}
+	_ = state.Compact(ctx, p.source, p.srcHome) // best-effort: bound the history file
 	return nil
 }
 
