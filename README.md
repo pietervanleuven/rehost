@@ -31,10 +31,29 @@ over SSH — never through a third-party cloud.
 > unit-tested, but it has **not yet been validated end-to-end against real
 > shared hosts**. Until it has: keep backups of both hosts and try it on a
 > non-production site first. See [`docs/PLAN.md`](docs/PLAN.md) for the spec and
-> [`docs/TODO.md`](docs/TODO.md) for the validation gate. There are no packaged
-> binaries yet — build from source.
+> [`docs/TODO.md`](docs/TODO.md) for the validation gate.
 
 ## Install
+
+Download the binary for your OS/arch from the
+[latest release](https://github.com/pietervanleuven/rehost/releases/latest):
+
+```bash
+# example: Linux amd64 — swap in your OS (darwin/linux), arch (amd64/arm64),
+# and the version shown on the releases page
+curl -LO https://github.com/pietervanleuven/rehost/releases/latest/download/rehost_0.1.0_linux_amd64.tar.gz
+tar -xzf rehost_0.1.0_linux_amd64.tar.gz
+./rehost --help
+```
+
+Windows builds ship as `.zip`; `checksums.txt` is attached to every release
+for verification. Or, with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh release download --repo pietervanleuven/rehost --pattern '*linux_amd64*'
+```
+
+### From source
 
 Requires Go 1.26+.
 
