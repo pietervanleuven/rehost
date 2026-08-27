@@ -121,8 +121,6 @@ func (f *fakeRunner) Run(_ context.Context, cmd string) (Result, error) {
 			return Result{Stdout: "/bin/" + tool + "\n"}, nil
 		}
 		return Result{ExitCode: 1}, nil
-	case strings.HasPrefix(cmd, "which "):
-		return Result{ExitCode: 1}, nil
 	case cmd == "php -v":
 		return Result{Stdout: "PHP 7.4.33 (cli) (built: Nov  2 2022)\n"}, nil
 	case cmd == "tar --version":

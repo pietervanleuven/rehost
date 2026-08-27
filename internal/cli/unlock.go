@@ -39,7 +39,7 @@ source cannot be reached or a locked site could not be cleared.`,
 
 func runUnlock(cmd *cobra.Command, opts *options) error {
 	return withSource(cmd, opts, func(ctx context.Context, u ui, f *project.File, client *ssh.Client, caps *ssh.Capabilities) error {
-		view, failed, err := unlockSites(ctx, db.Host{Run: client, Caps: caps}, caps.Home, caps.Target(), f)
+		view, failed, err := unlockSites(ctx, db.Host{Run: client, FS: detect.NewSSHFS(client), Caps: caps}, caps.Home, caps.Target(), f)
 		if err != nil {
 			return u.fail(err)
 		}

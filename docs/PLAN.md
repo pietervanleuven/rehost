@@ -148,27 +148,27 @@ framework is adding a recipe, not touching the engine.
 ## 4. The Natural Flow
 
 ```
-init  ──▶  check  ──▶  plan  ──▶  migrate  ──▶  cutover
-(wizard)   (compat     (deep      (idempotent   (DNS/mail/SSL
-            gate)       scan +     execute,      report +
-            fix & rerun dry-run)   rerun=delta)  verify)
+init  ──▶  plan  ──▶  check  ──▶  migrate  ──▶  cutover
+(wizard)   (deep       (compat     (idempotent   (DNS/mail/SSL
+            scan +      gate)       execute,      report +
+            dry-run)    fix & rerun rerun=delta)  verify)
 ```
 
 1. **`migrate-cli init`** — interactive wizard (source *and* destination credentials up front),
    connectivity + auth test on both, writes the project file. Both hosts from the start: most
    fatal problems live on the destination, so surface them before any work is done.
-2. **`migrate-cli check`** — the **compatibility gate**. Light source scan (framework + versions),
+2. **`migrate-cli plan`** — deep scan and dry-run: full detection, credential extraction, DB dump
+   feasibility, file inventory + exclusions, DNS snapshot, detected sites written to the
+   project file — where the user then attaches per-site `dest_root`/`dest_db` before the gate.
+3. **`migrate-cli check`** — the **compatibility gate**. Light source scan (framework + versions),
    then source requirements vs destination capabilities:
    - PHP version + required extensions for the detected framework (e.g. Drupal needs `gd`, `pdo_mysql`, `mbstring`…)
    - DB server flavor/version, charset/collation support (utf8mb4)
    - disk space on destination vs source size; inode headroom
-   - remote tool availability both ends (`rsync`, `mysqldump`, `tar`, framework CLI)
-   - SSH capabilities (shell type, SFTP, exec restrictions)
+   - remote tool availability both ends (`mysqldump`, `tar`, `find`, framework CLI)
+   - a `dest_db` named for every database-backed site
    Output is the checklist table with **blockers vs warnings**. It's rerunnable until green: fix
    the destination (bump PHP version in the panel, create the DB, free space), run `check` again.
-3. **`migrate-cli plan`** — deep scan and dry-run: full detection, credential extraction, DB dump
-   feasibility, file inventory + exclusions, DNS snapshot, resulting migration plan written to the
-   project file. Refuses to proceed past unresolved `check` blockers.
 4. **`migrate-cli migrate`** — idempotent execution. First run = bulk copy while the site stays
    live; rerun near cutover = delta only, inside the maintenance-mode window. Records stats.
 5. **Cutover** — final report (printed after `migrate`, re-printable via `migrate-cli cutover`):
@@ -251,7 +251,7 @@ through, not a state machine you can wedge.
 - **Exit criteria:** `migrate-cli plan` connects to a real shared host and prints its capability report.
 
 ### Phase 1 — Check, Scan & Detect (weeks 2–3)
-**Goal: `init` → `check` → `plan` produce a complete, honest picture — and catch destination problems before any migration work.**
+**Goal: `init` → `plan` → `check` produce a complete, honest picture — and catch destination problems before any migration work.**
 - `init` wizard (huh form): both hosts' credentials, connectivity test, project file
 - Framework detection engine (recipe interface + fingerprints): **Drupal and WordPress first-class** (Drupal is the maintainer's daily driver — build both recipes in lockstep so the engine never gets WP-shaped), plus static; scan upward from docroot (wp-config.php/`.env` may sit above it); enumerate multiple installs, incl. Drupal multisite. Reference implementation: Plesk [Wappspector](https://github.com/plesk/wappspector)'s matcher set (§2.2) — port the fingerprint patterns rather than reinventing them; add BlindElephant-style file checksums for exact version pins
 - `check` compatibility gate: per-framework PHP version/extension requirements vs destination, DB version + utf8mb4 support, disk space, tool availability both ends — rerunnable until green
@@ -261,7 +261,7 @@ through, not a state machine you can wedge.
 - DNS snapshot module (A/AAAA, MX, NS, TXT, TTLs) + "mail points at source" warning logic
 - TUI checklist table (bubbletea) + plain/JSON output fallback
 - Blockers vs warnings model; `plan` writes the project file
-- **Exit criteria:** `init` + `check` + `plan` against a real Drupal site and a real WordPress site on shared hosting yield a correct project file with zero manual input beyond credentials; `check` correctly flags an incompatible destination (e.g. missing PHP extension) *before* any migration work.
+- **Exit criteria:** `init` + `plan` + `check` against a real Drupal site and a real WordPress site on shared hosting yield a correct project file with zero manual input beyond credentials; `check` correctly flags an incompatible destination (e.g. missing PHP extension) *before* any migration work.
 
 ### Phase 2 — Dry-run collection (week 4)
 **Goal: prove the pipeline without touching a destination.**
@@ -282,7 +282,7 @@ through, not a state machine you can wedge.
 - Post-migration checks: HTTP smoke test via hosts-override, diff of file counts, DB table counts
 - Cutover report: DNS instructions with current TTLs, MX warning, SSL re-issue note, crontab listing
 - Migration stats recorded (duration, timestamp, DB size, warnings) — source hidden folder + local history
-- **Exit criteria:** a real Drupal site and a real WordPress site migrated host-to-host with only `init` → `check` → `plan` → `migrate`, verified working on the destination; running `migrate` a second time completes in a fraction of the time and changes nothing (idempotency proof); killing the tool mid-run leaves no stuck maintenance mode after `unlock`. **This is the public v0.1 / show-HN moment.**
+- **Exit criteria:** a real Drupal site and a real WordPress site migrated host-to-host with only `init` → `plan` → `check` → `migrate`, verified working on the destination; running `migrate` a second time completes in a fraction of the time and changes nothing (idempotency proof); killing the tool mid-run leaves no stuck maintenance mode after `unlock`. **This is the public v0.1 / show-HN moment.**
 
 ### Phase 4 — Hardening & breadth (weeks 8–10)
 **Goal: it works on hosts we didn't test on.**

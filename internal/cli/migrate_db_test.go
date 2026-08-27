@@ -85,11 +85,11 @@ func TestDestDBResultsPolicy(t *testing.T) {
 				s.destDB = &project.SiteDB{Name: c.dbName}
 				creds["/home/u/site"] = &db.Credentials{Name: c.dbName}
 			}
-			migrated := map[string]bool{}
+			migratedDBs := map[string]bool{}
 			if c.migrated {
-				migrated["/home/d/site"] = true
+				migratedDBs[dbCredIdentity(creds["/home/u/site"])] = true
 			}
-			rows, err := destDBResults(context.Background(), &fakeConn{}, []siteDest{s}, creds, migrated, c.onto)
+			rows, err := destDBResults(context.Background(), &fakeConn{}, []siteDest{s}, creds, migratedDBs, c.onto)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -154,6 +154,16 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 	destCmds := recordsFor(dest.runs)
 	if !strings.Contains(destCmds, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
 		t.Errorf("the rewritten config should be written on the destination:\n%s", destCmds)
+	}
+	// The destination must be taken out of maintenance mode after cutover, or a
+	// synced/imported maintenance flag would serve a permanent 503.
+	if !strings.Contains(destCmds, "/home/d/www/.maintenance") {
+		t.Errorf("destination maintenance should be cleared after config rewrite:\n%s", destCmds)
+	}
+	// A DB-migration record must land on the destination so a rerun re-imports
+	// instead of refusing the database it just filled.
+	if !strings.Contains(destCmds, `"event":"migrate-db"`) {
+		t.Errorf("the destination should record the database migration:\n%s", destCmds)
 	}
 }
 
