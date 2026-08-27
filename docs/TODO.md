@@ -153,6 +153,25 @@ hosting and verify:
 - [ ] Extension requirement lists (recipe/requirements.go) are a pragmatic
       first cut — revisit against real framework docs when field failures
       appear
+- [x] `check`'s transfer rule described rsync/SFTP paths that do not exist
+      (2026-08-27): it now reports the real manifest-driven tar pipe, and
+      missing `tar` or `find` on either host is a blocker (the sync engine
+      needs both; there is no other transport)
+- [x] `dest_db` was invisible until migrate's pre-flight (2026-08-27):
+      `check` now warns per database-backed site without one (`db.dest`),
+      plan/check print next-step hints, and the documented flow is
+      init → plan → check → migrate → cutover everywhere (PLAN.md §4
+      updated — plan persists `sites:` so the user can attach
+      `dest_root`/`dest_db` before the gate)
+- [x] Dead code and speculative fallbacks removed (2026-08-27): the
+      hardcoded `MigrateImplemented` status flag, the sequential probe's
+      `which` fallback after `command -v`, and the live tar re-probe on a
+      missing version banner (no banner now just means non-GNU: NUL lists
+      off, the safe default); the docroot/database destination policies
+      share one `destPolicy` verdict function
+- [x] README refreshed for the Phase 3 feature set (status, migrate/cutover
+      section, truthful check example) and LICENSE added (Apache-2.0,
+      2026-08-27)
 
 ## 5. Later phases (pointers only — see PLAN.md §6)
 
