@@ -111,22 +111,22 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 			}
 			inspected[key] = insp
 		}
-		switch {
+		switch verdict := destPolicy(insp.Tables > 0, migratedDBs[key], ontoExisting); {
 		case !insp.Connected:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Blocker,
 				Detail: fmt.Sprintf("cannot use %s: %s — create the database in the hosting panel and check dest_db's name/user, then rerun", c.Name, insp.Reason)})
-		case insp.Tables > 0 && !migratedDBs[key] && !ontoExisting:
+		case verdict == destRefuse:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Blocker,
 				Detail: fmt.Sprintf("%s already holds %d tables and rehost has no record of filling it — the import would overwrite them; empty the database or rerun with --onto-existing", c.Name, insp.Tables)})
-		case insp.Tables > 0 && !migratedDBs[key]:
+		case verdict == destOverride:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Warning,
 				Detail: fmt.Sprintf("%s holds %d tables — overwriting because --onto-existing was set; there is no rollback yet", c.Name, insp.Tables)})
-		default:
-			detail := fmt.Sprintf("%s reachable (MySQL %s)", c.Name, insp.ServerVersion)
-			if insp.Tables > 0 {
-				detail += fmt.Sprintf(" — %d tables from a previous rehost run, import re-converges them", insp.Tables)
-			}
-			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok, Detail: detail})
+		case verdict == destRerun:
+			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
+				Detail: fmt.Sprintf("%s reachable (MySQL %s) — %d tables from a previous rehost run, import re-converges them", c.Name, insp.ServerVersion, insp.Tables)})
+		default: // destFresh
+			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
+				Detail: fmt.Sprintf("%s reachable (MySQL %s)", c.Name, insp.ServerVersion)})
 		}
 	}
 	return rows, nil
