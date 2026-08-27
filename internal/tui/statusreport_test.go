@@ -61,10 +61,9 @@ func TestStatusReportTextMentionsFlowSteps(t *testing.T) {
 		for _, want := range []string{
 			"migrate.yaml",
 			"deploy@src.example.com",
-			"not configured",      // no destination
-			"none detected yet",   // no sites
-			"not run yet",         // no dry-run
-			"not implemented yet", // migrate is a stub
+			"not configured",    // no destination
+			"none detected yet", // no sites
+			"not run yet",       // neither dry-run nor migrate has run
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("mode %d: status output missing %q:\n%s", mode, want, out)
