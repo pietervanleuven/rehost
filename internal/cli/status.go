@@ -130,12 +130,11 @@ func buildStatusView(projectFile string, f *project.File, recent []state.Entry) 
 		dest = targetLabel(f.Destination.SSHConfig())
 	}
 	return tui.StatusView{
-		ProjectFile:        projectFile,
-		Source:             targetLabel(f.Source.SSHConfig()),
-		Destination:        dest,
-		Sites:              sites,
-		Recent:             recent,
-		MigrateImplemented: true,
+		ProjectFile: projectFile,
+		Source:      targetLabel(f.Source.SSHConfig()),
+		Destination: dest,
+		Sites:       sites,
+		Recent:      recent,
 	}
 }
 
