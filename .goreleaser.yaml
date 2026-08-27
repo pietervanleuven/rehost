@@ -21,6 +21,27 @@ archives:
       - goos: windows
         formats: [zip]
 
+# Publishes/updates Casks/rehost.rb in pietervanleuven/homebrew-tap on every
+# release (a cask, not a formula — goreleaser deprecated `brews` for
+# pre-built binaries; casks are macOS-only, Linux users take the archive).
+# Needs the HOMEBREW_TAP_GITHUB_TOKEN secret (a token that can push to the
+# tap repo) in the release workflow's goreleaser step. The post-install hook
+# strips the quarantine attribute — the binaries are not notarized.
+homebrew_casks:
+  - repository:
+      owner: pietervanleuven
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/pietervanleuven/rehost
+    description: "Migrate a website between shared hosts over SSH, plan/apply style"
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rehost"]
+          end
+
 changelog:
   sort: asc
   groups:
