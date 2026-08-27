@@ -21,47 +21,32 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 ## Current State
 
-Phase 0 (foundation) and Phase 1 (check, scan & detect — PLAN.md §6) are
-implemented: SSH layer with capability probe, framework detection + recursive
-site discovery, the `init` wizard, the `check` compatibility gate
-(blockers-vs-warnings in `internal/check`), layered DB credential extraction
-(wp-cli/drush → PHP helper → regex), DB inspection (connectivity, version,
-size, charset/utf8mb4), the DNS snapshot with mail-points-at-source warning
-(optional `domain:` in migrate.yaml), file inventories with suggested
-exclusions, and `plan` persisting detected sites into the project file.
+`v0.1.0` shipped 2026-08-27 via release-please + goreleaser (GitHub Releases
+carries the cross-built archives); the repo is public at
+github.com/pietervanleuven/rehost. Phases 0–3 (PLAN.md §6) are
+feature-complete: SSH layer with capability probe, framework detection +
+recursive site discovery, the `init` wizard, `plan` (deep scan, dry-run
+`mysqldump | gzip` per site with PHP-helper fallback, tar-pipe throughput
+sample, file manifest, persists detected `sites:`), the `check` compatibility
+gate (blockers vs warnings in `internal/check`), layered DB credential
+extraction and inspection, the DNS snapshot, file inventories, and `migrate`
+(pre-flight, per-site file sync, maintenance choreography, dump rewrite, DB
+import + verify, config rewrite; a converged run exits 0) through `cutover`
+and `status`/`history`/`unlock` over `.rehost/history.jsonl`. Recent
+hardening: `check`'s transfer rule now reports the real manifest-driven
+tar-pipe (missing `tar`/`find` on either host is a blocker — no rsync/SFTP
+transport exists) and gained a `db.dest` warning per DB-backed site missing
+`dest_db`; history growth is bounded by semantic-safe `state.Compact`; the
+docroot/database destination policies share one `destPolicy` verdict.
 
-Phase 2 (dry-run collection — PLAN.md §6) is feature-complete: `plan
---dry-run` streams a footer-verified `mysqldump | gzip` per site into local
-`.rehost/dumps/` (PHP dump-helper fallback when mysqldump is missing),
-samples tar-pipe throughput (capped), takes a file manifest (GNU `find
--printf`, paths-only fallback) persisted to `.rehost/manifests/` — reruns
-report the delta as the incremental-convergence proof — and records run
-history in `.rehost/history.jsonl` on the source.
+**Field validation against a real Drupal and a real WordPress site on shared
+hosting has still not happened** (docs/TODO.md §1) — this remains the top
+priority and the gate before the marketing launch push, v0.1.0 notwithstanding.
 
-Both phases still need field validation against a real Drupal and a real
-WordPress site on shared hosting (Phase 1/2 exit criteria). Phase 3
-(PLAN.md §6) is nearly feature-complete: `migrate` runs the pre-flight
-(check gate + source-DB reachability + destination-state policy for both
-docroots and `dest_db` databases — verified, never created; passwords
-prompted at runtime) and, when green, converges each site: bulk file sync
-over the tar-pipe relay, then the database choreography — maintenance on
-(write-ahead EventMaintenance), verified final dump, file delta pass,
-serialized-safe docroot rewrite of the dump (`searchreplace.RewriteDump`),
-FIFO-fed import with table-count verify, config rewrite pointing the
-synced wp-config.php / settings.php at the destination database (salts
-preserved; `drush cr` when available), maintenance lifted on every exit
-path (`unlock` recovers crashes). EventMigrate history lands per converged
-site on both hosts; a converged run exits 0 and points at `rehost
-cutover` — the read-only go-live checklist (destination HTTP probe via a
-dial override, live DNS records + TTL advice, MX-at-source warning, SSL
-note, source crontab). Phase 3 is feature-complete; field validation
-(docs/TODO.md §1) is the gate before anything ships.
-
-Session decisions (2026-07-27): binary/CLI name is `rehost` and the domain
-will be `rehost.sh`; the GitHub repo is `pietervanleuven/rehost` and the module
-path is `github.com/pietervanleuven/rehost` (the local checkout dir is still
-`rehost-cli` — harmless, git does not care); secrets are never stored —
-migrate.yaml has no field that can hold one, passwords are prompted at runtime.
+Naming is final and shipped: CLI `rehost`, domain `rehost.sh`, repo and
+module path `github.com/pietervanleuven/rehost`. Secrets are never stored —
+migrate.yaml has no field that can hold one, passwords are prompted at
+runtime.
 
 ## Commands
 
@@ -76,8 +61,9 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 - `rehost init` — interactive wizard (TTY only): both hosts, connectivity test,
   writes migrate.yaml.
 - `rehost check` — compatibility gate (PHP version/extensions per framework,
-  DB tooling, transfer strategy, disk space); exits non-zero while blockers
-  remain.
+  DB tooling, manifest-driven tar-pipe transfer viability, a `db.dest`
+  warning per DB-backed site missing `dest_db`, disk space); exits non-zero
+  while blockers remain.
 - `rehost status` / `rehost history` — read-only flow summary and run log
   from the source's `.rehost/history.jsonl` (empty history is a normal
   exit-0 outcome).
@@ -243,7 +229,3 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
 - This file is shared by all AI agents (Claude Code, Gemini, etc.). Keep instructions
   tool-agnostic; tool-specific config belongs in each tool's own dotfolder
   (create when needed).
-- Name collision warning: the binary/repo name "migrate-cli" collides with
-  golang-migrate's `migrate`; MARKETING.md §5 recommends renaming to `rehost`
-  (fallback: `decamp`) but the decision isn't final — do not publish/register
-  anything under any name without checking with the user.
