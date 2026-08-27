@@ -105,6 +105,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		add("dryrun.state", "Run history (source)", check.Warning,
 			fmt.Sprintf("could not record the run in %s: %v", state.Dir(caps.Home), err))
 	}
+	_ = state.Compact(ctx, client, caps.Home) // best-effort: bound the history file
 	return results, nil
 }
 
