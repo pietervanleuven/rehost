@@ -18,18 +18,21 @@ over SSH — never through a third-party cloud.
 - **Framework auto-detection.** Recognizes WordPress, Drupal (7 / 8+, incl.
   multisite), and static sites from file fingerprints — no manual configuration.
 - **Capability probing with graceful fallbacks.** Detects what each host offers
-  (`rsync`, `mysqldump`, framework CLIs, shell type, PHP version) and adapts,
-  rather than assuming tools exist on a shared host.
+  (`tar`, `mysqldump`, framework CLIs, shell type, PHP version) and adapts —
+  no `mysqldump`? A PHP dump helper takes over. No `wp`/`drush`? Credentials
+  are read from the config file directly.
 - **A real `plan` step.** See exactly what a host is and what's on it before any
   changes — Terraform-style ergonomics for migrations.
 
-> **Status: early development.** The connection layer, capability probing,
-> framework detection, the `init` wizard, `rehost plan` (including `--dry-run`
-> collection: verified DB dumps, file manifests, throughput sampling), and the
-> `rehost check` compatibility gate work today. `migrate`, `status`, and
-> `unlock` are placeholders that exit with a "not implemented yet" message. See
-> [`docs/PLAN.md`](docs/PLAN.md) for the full spec and roadmap. There are no
-> packaged binaries yet — build from source.
+> **Status: feature-complete, not yet field-validated.** The whole flow works —
+> `init`, `plan` (incl. `--dry-run` rehearsal), `check`, `migrate` (file sync,
+> maintenance window, verified dump, serialized-safe rewrite, DB import, config
+> rewrite), `cutover`, `status`/`history`/`unlock` — and is extensively
+> unit-tested, but it has **not yet been validated end-to-end against real
+> shared hosts**. Until it has: keep backups of both hosts and try it on a
+> non-production site first. See [`docs/PLAN.md`](docs/PLAN.md) for the spec and
+> [`docs/TODO.md`](docs/TODO.md) for the validation gate. There are no packaged
+> binaries yet — build from source.
 
 ## Install
 
@@ -43,17 +46,20 @@ make build          # produces ./rehost
 ## The workflow
 
 ```
-init  ──▶  check  ──▶  plan  ──▶  migrate  ──▶  cutover
-(wizard)   (compat     (deep      (idempotent   (DNS/mail/SSL
-           gate)       scan)      execute)      report)
+init  ──▶  plan  ──▶  check  ──▶  migrate  ──▶  cutover
+(wizard)   (deep      (compat     (idempotent   (DNS/mail/SSL
+           scan)      gate)       execute)      report)
 ```
 
 Every command re-derives its state from the live hosts rather than trusting a
-cache, so any of them is safe to rerun at any point. Today `init` (wizard),
-`plan` (capability + framework + size report, persists detected sites into
-migrate.yaml), and `check` (compatibility gate: PHP, extensions, database
-reachability and charset, disk space, DNS/mail) do real work; `check` exits
-non-zero while blockers remain, so rerun it until it is green.
+cache, so any of them is safe to rerun at any point. `init` writes the project
+file; `plan` detects the sites and persists them into it — then you attach a
+`dest_root`/`dest_db` per site where the defaults don't fit; `check` gates
+until the destination can actually run the sites (exit non-zero while blockers
+remain — fix and rerun until green); `migrate` converges the destination onto
+the source and is safe to rerun (only deltas transfer); `cutover` is the
+read-only go-live checklist. `status`, `history`, and `unlock` (clears a
+maintenance mode left by an interrupted run) support the flow.
 
 ## Usage
 
@@ -102,7 +108,7 @@ actually run what the source hosts — before any migration work:
 Compatibility check
 
   ✓ Websites on the source          1 wordpress
-  ✓ File transfer strategy          rsync on both hosts — incremental delta sync
+  ✓ File transfer strategy          tar pipe over SSH — manifest-driven, reruns transfer only the delta (gzip-compressed)
   ✓ Database credentials (source)   public_html: wpdb@localhost (via wp-cli)
   ✓ Database connectivity (source)  MySQL 10.6.18-MariaDB · 57 tables · 210.3 MiB
   ✓ PHP on the destination          PHP 8.2.20 ≥ 7.2 required by wordpress 6.5.2
@@ -139,6 +145,37 @@ destination:
 - samples the achievable **transfer rate** over the tar pipe a real
   migration would use (capped, ~15 s per site)
 - records the run in `.rehost/history.jsonl` on the source host
+
+### Migrate and cutover
+
+When `check` is green, `migrate` converges each site onto the destination:
+files first through a manifest-driven tar pipe (additive by default;
+`--delete` opts into removing destination-only files), then — for sites with
+a `dest_db` in migrate.yaml — the database: maintenance mode on the source, a
+final verified dump, a file delta pass, a serialized-data-safe rewrite of
+docroot paths inside the dump, an import into the panel-created destination
+database, and a config rewrite pointing the synced `wp-config.php` /
+`settings.php` at it (salts and custom code preserved byte-exact).
+
+Safety model:
+
+- **Refuse-by-default.** A non-empty destination docroot or database that
+  rehost has no record of filling is refused; `--onto-existing` opts into
+  converging onto it. Reruns onto rehost's own work are recognized and just
+  converge.
+- **Verify, never create.** The destination database must already exist
+  (create it in the hosting panel); its password is prompted at runtime and
+  never stored.
+- **Idempotent.** Rerunning `migrate` is the resume story: only deltas
+  transfer, the import re-converges deterministically.
+- **Crash-safe maintenance mode.** The window is written ahead to the run
+  history and lifted on every exit path; after a hard crash, `rehost unlock`
+  clears it.
+
+A converged run exits 0 and points at `rehost cutover` — the read-only
+go-live checklist: destination HTTP probe (without touching DNS or
+`/etc/hosts`), current DNS records with TTL-lowering advice, an MX-at-source
+warning, SSL and cron notes. rehost never changes DNS.
 
 ### Output modes
 
@@ -245,5 +282,5 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org). See
 
 ## License
 
-Intended to be released under Apache-2.0 (open source, free, local — forever).
-The core migration tooling will never gate single-site migrations or phone home.
+[Apache-2.0](LICENSE) — open source, free, local, forever. The core migration
+tooling will never gate single-site migrations or phone home.

@@ -60,11 +60,14 @@ $databases['default']['default'] = array (
   'driver' => 'mysql',
 );
 `)
-	out, err := rewriteDrupalSettings(in, db.Credentials{
+	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
 		Name: "u1_dru", User: "u1", Password: "s3cr3t", Host: "127.0.0.1", Port: 3307,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("nothing should be missing, got %v", missing)
 	}
 	got := string(out)
 	for _, want := range []string{
@@ -84,8 +87,81 @@ $databases['default']['default'] = array (
 }
 
 func TestRewriteDrupalSettingsNoDatabasesFails(t *testing.T) {
-	if _, err := rewriteDrupalSettings([]byte("<?php"), db.Credentials{Name: "x"}); err == nil {
+	if _, _, err := rewriteDrupalSettings([]byte("<?php"), db.Credentials{Name: "x"}); err == nil {
 		t.Error("settings.php without $databases should fail")
+	}
+}
+
+// A stock settings.php keeps default.settings.php's commented @code example
+// above the real block the installer appends. The rewrite must edit the real
+// block, not the comment, or the migrated site connects to the source DB.
+func TestRewriteDrupalSettingsIgnoresDocCommentExample(t *testing.T) {
+	in := []byte(`<?php
+/**
+ * Example:
+ * @code
+ * $databases['default']['default'] = array(
+ *   'database' => 'databasename',
+ *   'username' => 'sqlusername',
+ *   'password' => 'sqlpassword',
+ *   'host' => 'localhost',
+ * );
+ * @endcode
+ */
+$databases['default']['default'] = array (
+  'database' => 'old_db',
+  'username' => 'old_user',
+  'password' => 'old_pass',
+  'host' => 'localhost',
+);
+`)
+	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
+		Name: "new_db", User: "new_user", Password: "new_pass",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("nothing should be missing, got %v", missing)
+	}
+	got := string(out)
+	// The example block stays verbatim; the real block is rewritten.
+	for _, want := range []string{
+		`'database' => 'databasename',`,
+		`'username' => 'sqlusername',`,
+		`'database' => 'new_db',`,
+		`'username' => 'new_user',`,
+		`'password' => 'new_pass',`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `'database' => 'databasename'`) && !strings.Contains(got, `'database' => 'new_db'`) {
+		t.Error("rewrote the commented example instead of the real block")
+	}
+}
+
+// When username/password are not plain literals (getenv, included file), the
+// rewrite cannot repoint them and must report them so migrate warns.
+func TestRewriteDrupalSettingsReportsUnwritableCreds(t *testing.T) {
+	in := []byte(`<?php
+$databases['default']['default'] = array (
+  'database' => 'old_db',
+  'username' => getenv('DB_USER'),
+  'password' => getenv('DB_PASS'),
+  'host' => 'localhost',
+);
+`)
+	_, missing, err := rewriteDrupalSettings(in, db.Credentials{
+		Name: "new_db", User: "new_user", Password: "new_pass",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"username": true, "password": true}
+	if len(missing) != 2 || !want[missing[0]] || !want[missing[1]] {
+		t.Errorf("missing = %v, want username and password", missing)
 	}
 }
 

@@ -85,8 +85,12 @@ func streamVerifiedDump(ctx context.Context, s Streamer, remoteCmd string, w io.
 	return stats, nil
 }
 
+// createTableMarker introduces every CREATE TABLE statement in the dumps
+// rehost produces (mysqldump and the PHP helper both put a newline before it).
+const createTableMarker = "\nCREATE TABLE"
+
 // analyzeDump gunzips the stream, counting SQL bytes and CREATE TABLE
-// statements and watching the tail for mysqldump's completion footer.
+// statements and watching the tail for the completion footer.
 func analyzeDump(r io.Reader, stats *DumpStats) {
 	defer func() { _, _ = io.Copy(io.Discard, r) }() // never stall the writer side
 
@@ -98,12 +102,25 @@ func analyzeDump(r io.Reader, stats *DumpStats) {
 
 	const tailKeep = 512
 	var tail []byte
+	// carry holds the trailing bytes of the previous chunk so a CREATE TABLE
+	// marker split across a read boundary is still counted exactly once: it is
+	// shorter than the marker, so any match it participates in must extend into
+	// the new chunk (a boundary-straddling match), never one already counted.
+	var carry []byte
 	buf := make([]byte, 64*1024)
 	for {
 		n, err := gz.Read(buf)
 		if n > 0 {
 			stats.Bytes += int64(n)
-			stats.Tables += strings.Count(string(buf[:n]), "\nCREATE TABLE")
+			combined := make([]byte, 0, len(carry)+n)
+			combined = append(combined, carry...)
+			combined = append(combined, buf[:n]...)
+			stats.Tables += strings.Count(string(combined), createTableMarker)
+			if keep := len(createTableMarker) - 1; len(combined) > keep {
+				carry = append(carry[:0], combined[len(combined)-keep:]...)
+			} else {
+				carry = append(carry[:0], combined...)
+			}
 			tail = append(tail, buf[:n]...)
 			if len(tail) > tailKeep {
 				tail = tail[len(tail)-tailKeep:]
@@ -113,7 +130,20 @@ func analyzeDump(r io.Reader, stats *DumpStats) {
 			break // io.EOF or a truncated gzip stream — the footer decides
 		}
 	}
-	stats.FooterOK = strings.Contains(string(tail), "-- Dump completed")
+	stats.FooterOK = footerComplete(tail)
+}
+
+// footerComplete reports whether the dump's last non-blank line is the
+// completion footer. Anchoring to the final line (rather than a substring
+// search anywhere in the tail) stops a truncated dump whose last bytes merely
+// quote "-- Dump completed" inside a row from passing as complete: real dumps
+// always end with the footer, after all data.
+func footerComplete(tail []byte) bool {
+	trimmed := strings.TrimRight(string(tail), "\r\n \t")
+	if i := strings.LastIndexByte(trimmed, '\n'); i >= 0 {
+		trimmed = trimmed[i+1:]
+	}
+	return strings.HasPrefix(trimmed, "-- Dump completed")
 }
 
 type countingWriter struct{ n int64 }

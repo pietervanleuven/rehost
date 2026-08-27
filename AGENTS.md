@@ -154,8 +154,9 @@ migrate.yaml has no field that can hold one, passwords are prompted at runtime.
 
 - **Language: Go** (not PHP) — see PLAN.md §2 for the full rationale (Deployer's PHP-SSH
   failure, rclone precedent, Charm TUI, single-binary distribution).
-- **Command flow:** `init` (wizard, both hosts) → `check` (compatibility gate, rerunnable
-  until green) → `plan` (deep scan + dry-run) → `migrate` (execute) → cutover report.
+- **Command flow:** `init` (wizard, both hosts) → `plan` (deep scan + dry-run; persists
+  `sites:` for the user to attach `dest_root`/`dest_db`) → `check` (compatibility gate,
+  rerunnable until green) → `migrate` (execute) → cutover report.
   Support commands: `status`, `history`, `unlock`, `cutover`.
 - **Idempotency is a core principle:** every step is convergent ("make destination match
   source"), rerunning `migrate` is safe and incremental; resume-after-crash = rerun.
