@@ -150,7 +150,15 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 	for _, r := range dryResults {
 		all = append(all, r...)
 	}
-	return u.renderer.PlanReport(reports, all, dryRun)
+	if err := u.renderer.PlanReport(reports, all, dryRun); err != nil {
+		return err
+	}
+	if projFile != nil {
+		u.progress("next: review the sites in %s (set dest_root and dest_db where needed), then run 'rehost check'", opts.projectFile)
+	} else {
+		u.progress("probed directly — nothing was written to %s; run 'rehost init' for a project file the rest of the flow can use", opts.projectFile)
+	}
+	return nil
 }
 
 // writeSites refreshes the project file's sites section from the source
