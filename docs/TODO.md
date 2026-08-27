@@ -6,10 +6,12 @@ unfinished*. Check items off rather than deleting them; prune a section when
 it is fully done. Keep entries honest — a gap nobody wrote down is a gap
 that ships.
 
-Status snapshot (2026-07-29): Phases 0–3 are feature-complete
-(`init` / `check` / `plan` / `migrate` / `cutover` + `status` / `history` /
-`unlock`). Nothing has run against a real shared host end-to-end yet —
-field validation (§1) is the gate before anything ships.
+Status snapshot (2026-08-27): Phases 0–3 are feature-complete
+(`init` / `plan` / `check` / `migrate` / `cutover` + `status` / `history` /
+`unlock`) and v0.1.0 is tagged and released (release-please + goreleaser
+binaries on GitHub Releases). Nothing has run against a real shared host
+end-to-end yet — field validation (§1) remains the gate for the public
+launch push (demo, Show HN), v0.1.0 notwithstanding.
 
 ## 1. Field validation — the current gate (Phase 1 & 2 exit criteria)
 
@@ -58,8 +60,8 @@ hosting and verify:
       only with `--delete`. Phase 3 is unblocked.
 - [x] **Module-path rename**: done — module path is
       `github.com/pietervanleuven/rehost`, matching the GitHub repo
-      (`pietervanleuven/rehost`). Nothing else gets published/registered
-      under any name without checking (AGENTS.md).
+      (`pietervanleuven/rehost`). Naming is final and shipped with v0.1.0;
+      the `rehost.sh` domain is reserved but not live yet.
 - [ ] Secret storage stays "prompt at runtime, never store" unless field
       validation shows real pain (PLAN.md §7).
 
