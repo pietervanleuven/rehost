@@ -30,7 +30,7 @@ func newRootCmd(info BuildInfo) *cobra.Command {
 another over SSH, with maximum auto-detection and a Terraform-style
 plan/apply workflow.
 
-The flow: init → check → plan → migrate → cutover report.`,
+The flow: init → plan → check → migrate → cutover report.`,
 		SilenceUsage: true,
 	}
 
