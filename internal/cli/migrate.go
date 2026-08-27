@@ -146,6 +146,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		return u.fail(fmt.Errorf("reading destination run history: %w", err))
 	}
 	migrated := state.MigratedSites(entries)
+	migratedDBs := state.MigratedDatabases(entries)
 	destState, err := destStateResults(cmd.Context(), h.dest.client, sites, migrated, ontoExisting)
 	if err != nil {
 		return u.fail(err)
@@ -158,7 +159,7 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	if err != nil {
 		return u.fail(err)
 	}
-	dbState, err := destDBResults(cmd.Context(), h.dest.client, sites, destCreds, migrated, ontoExisting)
+	dbState, err := destDBResults(cmd.Context(), h.dest.client, sites, destCreds, migratedDBs, ontoExisting)
 	if err != nil {
 		return u.fail(err)
 	}
@@ -179,17 +180,14 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	//    Capability facts are decided once here from the probe so the sync
 	//    engine never re-probes: compress needs gzip on both ends; nullList
 	//    needs a GNU source tar.
-	compress, nullList, nullUnknown := syncOptions(h.source.caps, h.dest.caps)
-	if nullUnknown {
-		nullList = sourceTarIsGNU(cmd.Context(), h.source.client)
-	}
+	compress, nullList := syncOptions(h.source.caps, h.dest.caps)
 	plan := migratePlan{
 		source:       h.source.client,
 		dest:         h.dest.client,
 		srcStream:    h.source.client,
 		destConn:     h.dest.client,
-		srcHost:      db.Host{Run: h.source.client, Caps: h.source.caps},
-		destHost:     db.Host{Run: h.dest.client, Caps: h.dest.caps},
+		srcHost:      db.Host{Run: h.source.client, FS: detect.NewSSHFS(h.source.client), Caps: h.source.caps},
+		destHost:     db.Host{Run: h.dest.client, FS: detect.NewSSHFS(h.dest.client), Caps: h.dest.caps},
 		srcCreds:     h.source.creds,
 		srcDBs:       h.source.dbs,
 		destCreds:    destCreds,
@@ -212,27 +210,13 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 // syncOptions decides the two capability-gated Sync options from the two hosts'
 // probes: Compress needs gzip on the source and the destination; NullList (a
 // NUL-delimited, byte-exact file list) needs a GNU source tar, recognized by
-// its version banner. nullUnknown means the probe found tar but no banner, so
-// the caller must settle GNU-ness with a live check (sourceTarIsGNU) — the
-// whole decision lives here so probe-driven gating is unit-tested in one
-// place. Pure over the probes.
-func syncOptions(srcCaps, dstCaps *ssh.Capabilities) (compress, nullList, nullUnknown bool) {
+// its version banner. A tar with no captured banner counts as non-GNU — the
+// safe default, since a false NullList only costs byte-exactness on the rare
+// newline-in-filename. Pure over the probes.
+func syncOptions(srcCaps, dstCaps *ssh.Capabilities) (compress, nullList bool) {
 	compress = srcCaps.Has("gzip") && dstCaps.Has("gzip")
 	nullList = srcCaps.Has("tar") && strings.Contains(srcCaps.Tools["tar"].Version, "GNU")
-	nullUnknown = srcCaps.Has("tar") && srcCaps.Tools["tar"].Version == ""
-	return compress, nullList, nullUnknown
-}
-
-// sourceTarIsGNU is the fallback GNU-tar check when the probe found tar but did
-// not capture its version banner: it asks tar itself, once. A transport failure
-// or a non-GNU tar both come back false — the safe answer, since a false
-// NullList only costs byte-exactness on the rare newline-in-filename.
-func sourceTarIsGNU(ctx context.Context, r stateRunner) bool {
-	res, err := r.Run(ctx, "tar --version 2>/dev/null | head -n 1")
-	if err != nil {
-		return false
-	}
-	return strings.Contains(res.Stdout, "GNU")
+	return compress, nullList
 }
 
 // runSync converges each site's files onto the destination in order, collects
@@ -432,13 +416,13 @@ func buildPreflight(checks, destState []check.Result) (tui.MigratePreflightView,
 	}
 	// A destination-state blocker is a refusal to touch a non-empty docroot
 	// rehost did not create.
-	if refused := blockingRoots(destState); len(refused) > 0 {
+	if refused := blockingIDs(destState, destIDPrefix); len(refused) > 0 {
 		return view, fmt.Errorf("refusing to migrate onto non-empty destination docroot(s) rehost did not create: %s — rerun with --onto-existing to converge onto them anyway (there is no rollback yet)",
 			strings.Join(refused, ", "))
 	}
 	// A database blocker: the declared destination database is unusable or
 	// would be overwritten.
-	if blocked := blockingDBs(destState); len(blocked) > 0 {
+	if blocked := blockingIDs(destState, destDBIDPrefix); len(blocked) > 0 {
 		return view, fmt.Errorf("destination database not ready for: %s — see the pre-flight rows above", strings.Join(blocked, ", "))
 	}
 
@@ -447,28 +431,41 @@ func buildPreflight(checks, destState []check.Result) (tui.MigratePreflightView,
 	return view, nil
 }
 
-// blockingRoots returns the destination docroots whose state result is a
-// blocker, recovered from each result's id.
-func blockingRoots(destState []check.Result) []string {
-	var roots []string
+// blockingIDs recovers the identifiers (docroots or site roots) of the
+// destination-policy rows with the given id prefix that came back blockers.
+func blockingIDs(destState []check.Result, prefix string) []string {
+	var ids []string
 	for _, r := range destState {
-		if r.Severity == check.Blocker && strings.HasPrefix(r.ID, destIDPrefix) {
-			roots = append(roots, strings.TrimPrefix(r.ID, destIDPrefix))
+		if r.Severity == check.Blocker && strings.HasPrefix(r.ID, prefix) {
+			ids = append(ids, strings.TrimPrefix(r.ID, prefix))
 		}
 	}
-	return roots
+	return ids
 }
 
-// blockingDBs returns the site roots whose destination-database row is a
-// blocker.
-func blockingDBs(destState []check.Result) []string {
-	var roots []string
-	for _, r := range destState {
-		if r.Severity == check.Blocker && strings.HasPrefix(r.ID, destDBIDPrefix) {
-			roots = append(roots, strings.TrimPrefix(r.ID, destDBIDPrefix))
-		}
+// destVerdict is the destination-state decision shared by the docroot and
+// database policies: refuse-by-default on a non-empty destination rehost has
+// no record of filling.
+type destVerdict int
+
+const (
+	destFresh    destVerdict = iota // empty or absent — safe to create into
+	destRerun                       // non-empty, but rehost filled it before (idempotent rerun)
+	destOverride                    // non-empty, foreign — converging because --onto-existing
+	destRefuse                      // non-empty, foreign — refused
+)
+
+func destPolicy(nonEmpty, migratedBefore, ontoExisting bool) destVerdict {
+	switch {
+	case !nonEmpty:
+		return destFresh
+	case migratedBefore:
+		return destRerun
+	case ontoExisting:
+		return destOverride
+	default:
+		return destRefuse
 	}
-	return roots
 }
 
 // destStateResults enforces the destination-state policy for each site:
@@ -497,17 +494,17 @@ func destStateResults(ctx context.Context, r stateRunner, sites []siteDest, migr
 		if err != nil {
 			return nil, fmt.Errorf("checking destination docroot %s: %w", root, err)
 		}
-		switch {
-		case !nonEmpty:
+		switch destPolicy(nonEmpty, migrated[root], ontoExisting) {
+		case destFresh:
 			results = append(results, check.Result{ID: id, Title: title, Severity: check.Ok,
 				Detail: fmt.Sprintf("%s is empty or absent — rehost will create the site there", root)})
-		case migrated[root]:
+		case destRerun:
 			results = append(results, check.Result{ID: id, Title: title, Severity: check.Ok,
 				Detail: fmt.Sprintf("%s is not empty, but rehost migrated it before — converging (idempotent rerun)", root)})
-		case ontoExisting:
+		case destOverride:
 			results = append(results, check.Result{ID: id, Title: title, Severity: check.Warning,
 				Detail: fmt.Sprintf("%s is not empty and rehost did not create it — converging because --onto-existing was set; there is no rollback yet, so back up the destination first", root)})
-		default:
+		case destRefuse:
 			results = append(results, check.Result{ID: id, Title: title, Severity: check.Blocker,
 				Detail: fmt.Sprintf("%s is not empty and rehost has no record of migrating it — refusing to touch it; rerun with --onto-existing to converge onto it anyway", root)})
 		}

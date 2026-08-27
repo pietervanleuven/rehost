@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pietervanleuven/rehost/internal/check"
+	"github.com/pietervanleuven/rehost/internal/project"
 )
 
 func newCheckCmd(opts *options) *cobra.Command {
@@ -46,6 +47,10 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 	}
 	defer h.close()
 
+	// Only check feeds the dest_db-visibility rule: migrate's pre-flight
+	// verifies the declared databases itself, with richer per-site rows.
+	h.input.DestDBs = destDBsConfigured(f)
+
 	results := check.Run(h.input)
 	if err := u.renderer.CheckReport(results); err != nil {
 		return err
@@ -53,5 +58,16 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 	if blockers, _ := check.Summarize(results); blockers > 0 {
 		return fmt.Errorf("check found %d blocker(s) — fix them and rerun 'rehost check'", blockers)
 	}
+	u.progress("check is green — next: rehost plan --dry-run to rehearse, or rehost migrate to execute")
 	return nil
+}
+
+// destDBsConfigured maps each project-file site root to whether it names a
+// dest_db, feeding the check gate's visibility rule.
+func destDBsConfigured(f *project.File) map[string]bool {
+	m := make(map[string]bool, len(f.Sites))
+	for _, s := range f.Sites {
+		m[s.Root] = s.DestDB != nil
+	}
+	return m
 }

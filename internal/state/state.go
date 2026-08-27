@@ -30,7 +30,17 @@ const (
 	// written before the framework command runs so a crashed run leaves a
 	// trace unlock can recover. The direction lives in Details.
 	EventMaintenance = "maintenance"
+	// EventMigrateDB records that rehost imported into a specific destination
+	// database (identity in Details[databaseKey]). It is distinct from
+	// EventMigrate — a docroot record written after file sync, before any DB
+	// write — so the destination-DB overwrite guard is only waived once rehost
+	// has actually filled that database, never merely by a files-only run.
+	EventMigrateDB = "migrate-db"
 )
+
+// databaseKey holds the destination database identity in an EventMigrateDB
+// entry's Details.
+const databaseKey = "database"
 
 const (
 	maintenanceStateKey = "state"
@@ -179,4 +189,27 @@ func MigratedSites(entries []Entry) map[string]bool {
 		}
 	}
 	return sites
+}
+
+// DatabaseMigratedEntry builds the record written on the destination after a
+// database import succeeds. identity is an opaque key the caller keeps stable
+// across runs (name/user/host/port) so a rerun recognizes the database it
+// filled. Keeping the encoding here means MigratedDatabases reads back exactly
+// what this wrote.
+func DatabaseMigratedEntry(identity string) Entry {
+	return Entry{Event: EventMigrateDB, Details: map[string]string{databaseKey: identity}}
+}
+
+// MigratedDatabases returns the set of destination database identities rehost
+// itself imported into (an EventMigrateDB record names each). It lets a rerun
+// tell a database it filled — safe to re-import into — from a stranger's
+// non-empty database the import would overwrite. Mirrors MigratedSites.
+func MigratedDatabases(entries []Entry) map[string]bool {
+	dbs := map[string]bool{}
+	for _, e := range entries {
+		if e.Event == EventMigrateDB && e.Details[databaseKey] != "" {
+			dbs[e.Details[databaseKey]] = true
+		}
+	}
+	return dbs
 }
