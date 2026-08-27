@@ -59,6 +59,11 @@ type Input struct {
 	// client on the source).
 	SourceDBs map[string]*db.Inspection
 
+	// DestDBs maps install root → true when migrate.yaml names a dest_db
+	// for that site. nil map = not gathered (the rule stays silent); an
+	// empty map means gathered and nothing configured.
+	DestDBs map[string]bool
+
 	// Domain is the site's public domain from the project file; "" = none
 	// configured. DNS is its snapshot; nil with Domain set = lookup failed.
 	Domain string
@@ -78,6 +83,7 @@ func Run(in Input) []Result {
 	checkSites(in, add)
 	checkTransfer(in, add)
 	checkDatabase(in, add)
+	checkDestDB(in, add)
 	checkCredentials(in, add)
 	checkDBConnect(in, add)
 	checkCharset(in, add)
@@ -127,36 +133,53 @@ func checkSites(in Input, add addFunc) {
 	add("sites", title, Ok, strings.Join(parts, ", "))
 }
 
+// checkTransfer mirrors what internal/transfer actually does: every sync is
+// a manifest-driven tar pipe, so tar and find are needed on both hosts and
+// there is no other transport to fall back to.
 func checkTransfer(in Input, add addFunc) {
 	const title = "File transfer strategy"
-	switch {
-	case in.Source.Has("rsync") && in.Destination.Has("rsync"):
-		add("transfer.files", title, Ok, "rsync on both hosts — incremental delta sync")
-	case in.Source.Has("tar") && in.Destination.Has("tar"):
-		detail := "tar stream over SSH"
+	if missing := hostsMissing(in, "tar"); missing != "" {
+		add("transfer.files", title, Blocker,
+			"tar is missing on the "+missing+" — rehost streams files through a tar pipe over SSH and has no other transport; migrate cannot sync files")
+	} else {
+		detail := "tar pipe over SSH — manifest-driven, reruns transfer only the delta"
 		if in.Source.Has("gzip") && in.Destination.Has("gzip") {
 			detail += " (gzip-compressed)"
 		}
-		add("transfer.files", title, Info, detail+" — no rsync, reruns re-copy more than a delta sync would")
-	default:
-		add("transfer.files", title, Warning,
-			"no rsync or tar available on both hosts — only the slow SFTP fallback is possible")
+		add("transfer.files", title, Ok, detail)
 	}
-	if !in.Source.Has("find") {
-		add("transfer.find", "File inventory", Warning,
-			"'find' is missing on the source — building the file manifest for incremental reruns will be slow")
+	if missing := hostsMissing(in, "find"); missing != "" {
+		add("transfer.find", "File inventory", Blocker,
+			"'find' is missing on the "+missing+" — the file manifests that drive the sync cannot be built; migrate cannot tell what to transfer")
 	}
+}
+
+// hostsMissing names the hosts lacking a tool ("source", "destination",
+// "source and destination"), or "" when both have it.
+func hostsMissing(in Input, tool string) string {
+	var missing []string
+	if !in.Source.Has(tool) {
+		missing = append(missing, "source")
+	}
+	if !in.Destination.Has(tool) {
+		missing = append(missing, "destination")
+	}
+	return strings.Join(missing, " and ")
 }
 
 func checkDatabase(in Input, add addFunc) {
 	if !anyNeedsDB(in.Installs) {
 		return
 	}
-	if in.Source.Has("mysqldump") {
+	switch {
+	case in.Source.Has("mysqldump"):
 		add("db.dump", "Database dump (source)", Ok, "mysqldump available")
-	} else {
+	case in.Source.Has("php"):
 		add("db.dump", "Database dump (source)", Warning,
 			"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
+	default:
+		add("db.dump", "Database dump (source)", Blocker,
+			"the source has neither mysqldump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
 	}
 	if in.Destination.Has("mysql") {
 		add("db.import", "Database import (destination)", Ok, "mysql client available")
@@ -164,6 +187,30 @@ func checkDatabase(in Input, add addFunc) {
 		add("db.import", "Database import (destination)", Blocker,
 			"the mysql client is missing on the destination — the database cannot be imported")
 	}
+}
+
+// checkDestDB reports which database-backed sites name a destination
+// database. migrate only migrates a site's database when migrate.yaml has a
+// dest_db block for it — surfacing the gap here means the user learns while
+// rerunning check, not from a warning buried in migrate's pre-flight.
+func checkDestDB(in Input, add addFunc) {
+	const title = "Destination database (dest_db)"
+	if !anyNeedsDB(in.Installs) || in.DestDBs == nil {
+		return
+	}
+	var missing []string
+	for _, inst := range in.Installs {
+		if recipe.RequirementsFor(inst).NeedsDB && !in.DestDBs[inst.Root] {
+			missing = append(missing, inst.Root)
+		}
+	}
+	if len(missing) > 0 {
+		add("db.dest", title, Warning,
+			"no dest_db in migrate.yaml for: "+strings.Join(missing, ", ")+
+				" — migrate would sync these sites' files only; create the database in the destination panel and add a dest_db block to migrate it")
+		return
+	}
+	add("db.dest", title, Ok, "every database-backed site names a destination database")
 }
 
 // checkCredentials reports whether the source sites' database credentials

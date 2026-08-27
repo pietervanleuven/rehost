@@ -94,6 +94,32 @@ func TestParseDrupalSettingsRegex(t *testing.T) {
 	}
 }
 
+// The regex layer must read the real $databases block, not the commented
+// @code example a stock settings.php ships above it.
+func TestParseDrupalSettingsIgnoresDocComment(t *testing.T) {
+	settings := `<?php
+/**
+ * @code
+ * $databases['default']['default'] = array(
+ *   'database' => 'databasename',
+ *   'username' => 'sqlusername',
+ *   'password' => 'sqlpassword',
+ * );
+ * @endcode
+ */
+$databases['default']['default'] = array(
+  'database' => 'real_db',
+  'username' => 'real_user',
+  'password' => 'real_pass',
+  'host' => 'localhost',
+);
+`
+	creds := parseDrupalSettings([]byte(settings))
+	if creds == nil || creds.Name != "real_db" || creds.User != "real_user" || creds.Password != "real_pass" {
+		t.Fatalf("parseDrupalSettings read the comment, not the real block: %+v", creds)
+	}
+}
+
 func TestParseDrushSQLConf(t *testing.T) {
 	out := `{"database":"drupal_prod","username":"druser","password":"drpass","host":"localhost","port":"","driver":"mysql","prefix":""}`
 	creds := parseDrushSQLConf(out)

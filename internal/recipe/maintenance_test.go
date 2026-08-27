@@ -18,18 +18,33 @@ var wpInstall = detect.Install{Framework: "wordpress", Root: "/home/u/public_htm
 // layer keyed on HasTool is skipped (a nil Caps would optimistically try it).
 func noTool() *ssh.Capabilities { return &ssh.Capabilities{Tools: map[string]ssh.Tool{}} }
 
-func TestWordPressEnableWPCLI(t *testing.T) {
-	// wp-cli present and succeeding: the CLI layer wins and nothing else runs.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"wp maintenance-mode activate": {ExitCode: 0}}}
-	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r}, wpInstall)
+func TestWordPressEnableWritesLiveTimeFileNotWPCLI(t *testing.T) {
+	// Even with wp-cli available, enable must write .maintenance directly with a
+	// live time() call — wp-cli's fixed timestamp self-lifts after 10 minutes,
+	// resuming the live site mid-migration and losing writes.
+	r := &fakeRunner{byContains: map[string]ssh.Result{
+		"wp maintenance-mode activate": {ExitCode: 0},
+		"cat > ":                       {ExitCode: 0},
+	}}
+	caps := &ssh.Capabilities{Tools: map[string]ssh.Tool{"wp": {Found: true}}}
+	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r, Caps: caps}, wpInstall)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
-	if !res.Supported || res.State != MaintenanceOn || res.Method != "wp-cli" {
-		t.Fatalf("result = %+v, want on via wp-cli", res)
+	if !res.Supported || res.State != MaintenanceOn || res.Method != "file" {
+		t.Fatalf("result = %+v, want on via file", res)
 	}
-	if len(r.calls) != 1 {
-		t.Errorf("wp-cli success must short-circuit, ran %d commands: %v", len(r.calls), r.calls)
+	var wroteLiveTime bool
+	for _, c := range r.calls {
+		if strings.Contains(c, "wp maintenance-mode activate") {
+			t.Errorf("enable must not use wp-cli (fixed timestamp): %q", c)
+		}
+		if strings.Contains(c, "cat > ") && strings.Contains(c, ".maintenance") && strings.Contains(c, "$upgrading = time()") {
+			wroteLiveTime = true
+		}
+	}
+	if !wroteLiveTime {
+		t.Errorf("enable must write .maintenance with a live time() call, calls: %v", r.calls)
 	}
 }
 
@@ -55,27 +70,6 @@ func TestWordPressDisableWPCLIRemovesFile(t *testing.T) {
 	}
 	if !removed {
 		t.Errorf("wp-cli disable must also remove .maintenance, calls: %v", r.calls)
-	}
-}
-
-func TestWordPressEnableWPCLIFailsFallsToFile(t *testing.T) {
-	// wp-cli present but failing (default 127) falls through to writing the file.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"cat > ": {ExitCode: 0}}}
-	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r}, wpInstall)
-	if err != nil {
-		t.Fatalf("EnableMaintenance: %v", err)
-	}
-	if !res.Supported || res.State != MaintenanceOn || res.Method != "file" {
-		t.Fatalf("result = %+v, want on via file fallback", res)
-	}
-	var wrote bool
-	for _, c := range r.calls {
-		if strings.Contains(c, "cat > ") && strings.Contains(c, ".maintenance") && strings.Contains(c, "$upgrading") {
-			wrote = true
-		}
-	}
-	if !wrote {
-		t.Errorf("fallback must write the .maintenance drop-in, calls: %v", r.calls)
 	}
 }
 

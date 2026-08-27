@@ -207,11 +207,6 @@ func probeSequential(ctx context.Context, r runner, host string) (*Capabilities,
 		if res, err := r.Run(ctx, "command -v "+t); err == nil && res.ExitCode == 0 {
 			path = strings.TrimSpace(firstLine(res.Stdout))
 		}
-		if path == "" {
-			if res, err := r.Run(ctx, "which "+t); err == nil && res.ExitCode == 0 {
-				path = strings.TrimSpace(firstLine(res.Stdout))
-			}
-		}
 		tool := Tool{Name: t, Found: path != ""}
 		if tool.Found {
 			tool.Path = path

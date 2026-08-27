@@ -257,3 +257,22 @@ func TestMigratedSites(t *testing.T) {
 		t.Error("no entries should yield an empty set")
 	}
 }
+
+func TestMigratedDatabases(t *testing.T) {
+	// What DatabaseMigratedEntry writes is exactly what MigratedDatabases reads.
+	id := "u_wp\x00u\x00localhost\x000"
+	entries := []Entry{
+		{Event: EventMigrate, Site: "/home/d/www"}, // a docroot record, not a DB one
+		DatabaseMigratedEntry(id),
+		{Event: EventMigrateDB}, // no identity: ignored
+	}
+	got := MigratedDatabases(entries)
+	if len(got) != 1 || !got[id] {
+		t.Errorf("MigratedDatabases = %v, want just %q", got, id)
+	}
+	// A files-only run (docroot migrate record, no DB record) must not register
+	// any database as filled — the overwrite guard stays armed.
+	if len(MigratedDatabases([]Entry{{Event: EventMigrate, Site: "/home/d/www"}})) != 0 {
+		t.Error("a docroot-only migrate record must not mark any database as filled")
+	}
+}
