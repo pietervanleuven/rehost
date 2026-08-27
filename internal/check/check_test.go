@@ -43,8 +43,8 @@ var wpInstall = detect.Install{Framework: "wordpress", Version: "6.5.2", Root: "
 
 func TestGreenPath(t *testing.T) {
 	in := Input{
-		Source:            capsWith("8.2.1", "rsync", "tar", "gzip", "mysqldump", "find"),
-		Destination:       capsWith("8.3.11", "rsync", "tar", "gzip", "mysql"),
+		Source:            capsWith("8.2.1", "tar", "gzip", "mysqldump", "find"),
+		Destination:       capsWith("8.3.11", "tar", "gzip", "mysql", "find"),
 		Installs:          []detect.Install{wpInstall},
 		DestPHPExtensions: []string{"mysqli", "curl", "gd", "mbstring", "openssl", "zip"},
 		SourceSitesKB:     1024,
@@ -55,8 +55,8 @@ func TestGreenPath(t *testing.T) {
 	if blockers != 0 || warnings != 0 {
 		t.Fatalf("green input produced %d blockers, %d warnings: %+v", blockers, warnings, results)
 	}
-	if r := byID(t, results, "transfer.files"); r.Severity != Ok || !strings.Contains(r.Detail, "rsync") {
-		t.Errorf("transfer should be ok via rsync, got %+v", r)
+	if r := byID(t, results, "transfer.files"); r.Severity != Ok || !strings.Contains(r.Detail, "tar pipe") {
+		t.Errorf("transfer should be ok via the tar pipe, got %+v", r)
 	}
 }
 
@@ -67,26 +67,60 @@ func TestNoSitesWarns(t *testing.T) {
 	}
 }
 
-func TestTransferFallbacks(t *testing.T) {
+func TestTransferMissingTarBlocks(t *testing.T) {
 	in := Input{
 		Source:      capsWith("", "tar", "gzip", "find"),
-		Destination: capsWith("", "tar", "gzip"),
+		Destination: capsWith("", "gzip", "find"),
 	}
-	if r := byID(t, Run(in), "transfer.files"); r.Severity != Info || !strings.Contains(r.Detail, "tar") {
-		t.Errorf("tar-only hosts should be info, got %+v", r)
+	r := byID(t, Run(in), "transfer.files")
+	if r.Severity != Blocker || !strings.Contains(r.Detail, "destination") {
+		t.Errorf("missing destination tar should block and name the host, got %+v", r)
 	}
 
 	in.Source = capsWith("", "find")
-	in.Destination = capsWith("")
-	if r := byID(t, Run(in), "transfer.files"); r.Severity != Warning {
-		t.Errorf("no rsync/tar should warn, got %+v", r)
+	in.Destination = capsWith("", "find")
+	r = byID(t, Run(in), "transfer.files")
+	if r.Severity != Blocker || !strings.Contains(r.Detail, "source and destination") {
+		t.Errorf("tar missing everywhere should block and name both hosts, got %+v", r)
 	}
 }
 
-func TestMissingFindWarns(t *testing.T) {
-	in := Input{Source: capsWith("", "rsync"), Destination: capsWith("", "rsync")}
-	if r := byID(t, Run(in), "transfer.find"); r.Severity != Warning {
-		t.Errorf("missing find should warn, got %+v", r)
+func TestMissingFindBlocks(t *testing.T) {
+	in := Input{Source: capsWith("", "tar"), Destination: capsWith("", "tar", "find")}
+	if r := byID(t, Run(in), "transfer.find"); r.Severity != Blocker {
+		t.Errorf("missing find should block (manifests drive the sync), got %+v", r)
+	}
+	in.Source = capsWith("", "tar", "find")
+	if hasID(Run(in), "transfer.find") {
+		t.Error("find on both hosts should produce no transfer.find row")
+	}
+}
+
+func TestDestDBRule(t *testing.T) {
+	in := Input{
+		Source:      capsWith("", "tar", "find"),
+		Destination: capsWith("", "tar", "find"),
+		Installs:    []detect.Install{wpInstall},
+	}
+	if hasID(Run(in), "db.dest") {
+		t.Error("nil DestDBs (not gathered) should stay silent")
+	}
+
+	in.DestDBs = map[string]bool{}
+	r := byID(t, Run(in), "db.dest")
+	if r.Severity != Warning || !strings.Contains(r.Detail, wpInstall.Root) {
+		t.Errorf("missing dest_db should warn and name the site, got %+v", r)
+	}
+
+	in.DestDBs = map[string]bool{wpInstall.Root: true}
+	if r := byID(t, Run(in), "db.dest"); r.Severity != Ok {
+		t.Errorf("configured dest_db should be ok, got %+v", r)
+	}
+
+	in.Installs = []detect.Install{{Framework: "static", Root: "/home/u/www"}}
+	in.DestDBs = map[string]bool{}
+	if hasID(Run(in), "db.dest") {
+		t.Error("static-only sites need no dest_db row")
 	}
 }
 
