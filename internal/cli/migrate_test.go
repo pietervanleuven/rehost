@@ -307,22 +307,22 @@ func TestSyncOptionsGatingBothWays(t *testing.T) {
 	bareTar := map[string]ssh.Tool{"tar": {Found: true}, "gzip": {Found: true}}
 
 	cases := []struct {
-		name                    string
-		src, dst                map[string]ssh.Tool
-		compress, null, unknown bool
+		name           string
+		src, dst       map[string]ssh.Tool
+		compress, null bool
 	}{
-		{"both gzip + gnu source", gnuTar, gnuTar, true, true, false},
-		{"dest lacks gzip", gnuTar, noGzip, false, true, false},
-		{"source lacks gzip", noGzip, gnuTar, false, true, false},
-		{"non-gnu source tar", bsdTar, gnuTar, true, false, false},
-		{"tar without version banner", bareTar, gnuTar, true, false, true},
+		{"both gzip + gnu source", gnuTar, gnuTar, true, true},
+		{"dest lacks gzip", gnuTar, noGzip, false, true},
+		{"source lacks gzip", noGzip, gnuTar, false, true},
+		{"non-gnu source tar", bsdTar, gnuTar, true, false},
+		{"tar without version banner is non-gnu", bareTar, gnuTar, true, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			compress, null, unknown := syncOptions(&ssh.Capabilities{Tools: c.src}, &ssh.Capabilities{Tools: c.dst})
-			if compress != c.compress || null != c.null || unknown != c.unknown {
-				t.Errorf("syncOptions = (compress %v, null %v, unknown %v), want (%v, %v, %v)",
-					compress, null, unknown, c.compress, c.null, c.unknown)
+			compress, null := syncOptions(&ssh.Capabilities{Tools: c.src}, &ssh.Capabilities{Tools: c.dst})
+			if compress != c.compress || null != c.null {
+				t.Errorf("syncOptions = (compress %v, null %v), want (%v, %v)",
+					compress, null, c.compress, c.null)
 			}
 		})
 	}
