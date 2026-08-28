@@ -30,11 +30,14 @@ type DumpStats struct {
 // dumpCmd builds the remote pipeline. --single-transaction --quick keeps a
 // consistent InnoDB snapshot without buffering; --no-tablespaces avoids the
 // PROCESS-privilege error shared hosts hit on MySQL 8; gzip compresses on
-// the wire. Credentials travel like Inspect's: defaults file on stdin.
+// the wire. Credentials travel like Inspect's: defaults file on stdin. The
+// heredoc redirection must sit on mysqldump, before the pipe — a trailing
+// redirection in a pipeline attaches to the last command, which would feed
+// the defaults file to gzip instead.
 func dumpCmd(creds *Credentials) string {
 	return "mysqldump --defaults-extra-file=/dev/stdin --single-transaction --quick --no-tablespaces --routines --triggers " +
 		ssh.ShellQuote(creds.Name) +
-		" | gzip <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+		" <<'REHOST_CNF' | gzip\n" + clientDefaults(creds) + "REHOST_CNF"
 }
 
 // Dump streams a gzipped mysqldump of the database into w while verifying
