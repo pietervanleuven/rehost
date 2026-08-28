@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -38,6 +40,7 @@ const migrateConvergedNotice = "Migration converged: files, databases and config
 func newMigrateCmd(opts *options) *cobra.Command {
 	var docroots []string
 	var ontoExisting, del bool
+	var dbPasswordFile string
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Execute the migration; idempotent, rerunning converges",
@@ -61,12 +64,13 @@ import re-converges deterministically. A converged run exits 0 — then run
 'rehost cutover' for the go-live checklist before touching DNS.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runMigrate(cmd, opts, docroots, ontoExisting, del)
+			return runMigrate(cmd, opts, docroots, ontoExisting, del, dbPasswordFile)
 		},
 	}
 	cmd.Flags().StringArrayVar(&docroots, "docroot", nil, "website root(s) to search instead of the account home (repeatable)")
 	cmd.Flags().BoolVar(&ontoExisting, "onto-existing", false, "converge onto a non-empty destination docroot rehost did not create (no rollback yet)")
 	cmd.Flags().BoolVar(&del, "delete", false, "delete destination-only files during file sync (rsync --delete; off by default, sync is additive)")
+	cmd.Flags().StringVar(&dbPasswordFile, "db-password-file", "", "file holding the destination database password (also: REHOST_DB_PASSWORD); enables non-interactive runs")
 	return cmd
 }
 
@@ -113,7 +117,7 @@ type migratePlan struct {
 // the internal/transfer engine.
 var syncFn = transfer.Sync
 
-func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisting, del bool) error {
+func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisting, del bool, dbPasswordFile string) error {
 	u := newUI(cmd, opts)
 
 	f, err := loadProject(opts.projectFile)
@@ -134,6 +138,21 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	}
 	defer h.close()
 
+	// 1b. Advisory cross-run lock on the destination: two concurrent runs
+	//     would interleave tar pipes into the same docroots and race the
+	//     history compaction. Released on every exit; a crash leaves a stale
+	//     lock whose error message says how to clear it.
+	if err := state.AcquireLock(cmd.Context(), h.dest.client, h.dest.caps.Home); err != nil {
+		return u.fail(err)
+	}
+	defer func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(cmd.Context()), 30*time.Second)
+		defer cancel()
+		if err := state.ReleaseLock(cctx, h.dest.client, h.dest.caps.Home); err != nil {
+			u.progress("warning: %v", err)
+		}
+	}()
+
 	// 2. Compatibility gate — the same rules 'rehost check' runs.
 	checks := check.Run(h.input)
 
@@ -152,10 +171,28 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		return u.fail(err)
 	}
 
-	// 3b. Destination databases: prompt for the panel passwords (runtime
-	//     only, never stored) and verify each database exists — rehost never
-	//     runs CREATE DATABASE.
-	destCreds, err := destDBCredentials(sites, u.prompter.Password)
+	// 3b. Gate on compatibility and docroot policy BEFORE any password is
+	//     asked for: the operator must not type secrets into a run that is
+	//     about to refuse. A non-green pre-flight is terminal: render it
+	//     standalone (nothing was synced) and return the refusal/blocker as
+	//     the exit reason.
+	view, outcome := buildPreflight(checks, destState)
+	if outcome != nil {
+		if err := u.renderer.MigratePreflight(view); err != nil {
+			return err
+		}
+		return outcome
+	}
+
+	// 3c. Destination databases, prompted last: the panel passwords (runtime
+	//     only, never stored — --db-password-file/REHOST_DB_PASSWORD are the
+	//     non-interactive channel) and a verify pass per database — rehost
+	//     never runs CREATE DATABASE.
+	passwordFn, err := dbPasswordSource(u, dbPasswordFile)
+	if err != nil {
+		return u.fail(err)
+	}
+	destCreds, err := destDBCredentials(sites, passwordFn)
 	if err != nil {
 		return u.fail(err)
 	}
@@ -165,10 +202,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	}
 	destState = append(destState, dbState...)
 
-	// 4. Combine into one report and decide the outcome. A non-green pre-flight
-	//    is terminal: render it standalone (nothing was synced) and return the
-	//    refusal/blocker as the exit reason.
-	view, outcome := buildPreflight(checks, destState)
+	// 4. Re-combine with the database rows and decide the final outcome.
+	view, outcome = buildPreflight(checks, destState)
 	if outcome != nil {
 		if err := u.renderer.MigratePreflight(view); err != nil {
 			return err
@@ -205,6 +240,26 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		stateDir:     filepath.Join(filepath.Dir(opts.projectFile), ".rehost"),
 	}
 	return runSync(cmd.Context(), u, view, plan)
+}
+
+// dbPasswordSource returns the password callback for destination databases:
+// --db-password-file, then REHOST_DB_PASSWORD, then the interactive prompt.
+// The file/env channels apply to every dest_db identity and are what makes a
+// --json/automation run possible at all — the non-interactive prompter
+// always errors. Nothing is ever written back to migrate.yaml.
+func dbPasswordSource(u ui, file string) (func(string) (string, error), error) {
+	if file != "" {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("reading --db-password-file: %w", err)
+		}
+		pw := strings.TrimRight(string(raw), "\r\n")
+		return func(string) (string, error) { return pw, nil }, nil
+	}
+	if pw, ok := os.LookupEnv("REHOST_DB_PASSWORD"); ok {
+		return func(string) (string, error) { return pw, nil }, nil
+	}
+	return u.prompter.Password, nil
 }
 
 // syncOptions decides the two capability-gated Sync options from the two hosts'
