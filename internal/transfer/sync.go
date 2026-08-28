@@ -327,7 +327,10 @@ func destTarCmd(root string, compress bool) string {
 // fileList renders the send set as a delimited byte slice for the source tar's
 // stdin. Terminator style (a separator after every path) is correct for both
 // NUL (-T - --null) and newline (-T -) modes. Only paths cross this channel,
-// so it is bounded by file count, not file data.
+// so it is bounded by file count, not file data. Every entry is prefixed with
+// ./ — in newline mode tar would otherwise read a dash-prefixed filename
+// (plantable by anyone who can write to the source docroot) as an option,
+// which for names like --checkpoint-action=exec=… is remote command execution.
 func fileList(entries []FileEntry, null bool) []byte {
 	sep := byte('\n')
 	if null {
@@ -335,6 +338,7 @@ func fileList(entries []FileEntry, null bool) []byte {
 	}
 	var b bytes.Buffer
 	for _, e := range entries {
+		b.WriteString("./")
 		b.WriteString(e.Path)
 		b.WriteByte(sep)
 	}
