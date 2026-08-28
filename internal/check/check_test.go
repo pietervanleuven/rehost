@@ -263,6 +263,21 @@ func TestCharsetRules(t *testing.T) {
 		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
 	}
 
+	// Debian/Ubuntu-packaged MySQL 8: the package revision after the dash
+	// ("0ubuntu0.22.04.1") must not be read as the version.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64 ((Ubuntu))"}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "8.0.36") {
+		t.Errorf("distro-packaged MySQL 8 should be ok as 8.0.36, got %+v", r)
+	}
+
+	// Debian-packaged MariaDB: Distrib still wins over the client version.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 15.1 Distrib 10.11.6-MariaDB, for debian-linux-gnu (x86_64) using  EditLine wrapper"}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "10.11.6") {
+		t.Errorf("debian MariaDB should be ok as 10.11.6, got %+v", r)
+	}
+
 	// Unparseable version: info, not a false pass.
 	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: ""}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Info {
