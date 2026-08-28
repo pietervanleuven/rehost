@@ -59,10 +59,13 @@ func rewriteWPConfig(content []byte, creds db.Credentials) ([]byte, error) {
 }
 
 // replacePHPDefine splices a new single-quoted value into the first
-// define('KEY', <literal>) occurrence, touching nothing else.
+// non-commented define('KEY', <literal>) occurrence, touching nothing else.
+// Matching runs against a comment-masked copy — a commented-out define above
+// the live one (common after hand edits) must not win — and offsets in the
+// mask line up with the original byte-for-byte.
 func replacePHPDefine(content []byte, key, value string) ([]byte, bool) {
 	re := regexp.MustCompile(`define\(\s*['"]` + regexp.QuoteMeta(key) + `['"]\s*,\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`)
-	loc := re.FindSubmatchIndex(content)
+	loc := re.FindSubmatchIndex(maskPHPComments(content))
 	if loc == nil {
 		return content, false
 	}

@@ -76,34 +76,48 @@ func rewriteDrupalSettings(content []byte, creds db.Credentials) ([]byte, []stri
 	if host == "" {
 		host = "localhost"
 	}
+	// All splicing is confined to the default connection's own array literal:
+	// a settings.php that configures memcache/redis servers or a 'migrate'
+	// connection before $databases must never have their 'host'/'password'
+	// entries rewritten in its place.
+	start, end, found := drupalDefaultConnRange(maskPHPComments(content))
+	if !found {
+		return nil, nil, fmt.Errorf("no $databases assignment found")
+	}
+	region := append([]byte(nil), content[start:end]...)
 	var ok bool
-	if content, ok = replaceDrupalValue(content, "database", creds.Name); !ok {
+	if region, ok = replaceDrupalValue(region, "database", creds.Name); !ok {
 		return nil, nil, fmt.Errorf("no $databases 'database' entry found")
 	}
 	// Only a value we actually have but could not place is worth flagging: an
 	// empty source username/password has nothing to write, and the config may
 	// legitimately omit the key.
 	var missing []string
-	if content, ok = replaceDrupalValue(content, "username", creds.User); !ok && creds.User != "" {
+	if region, ok = replaceDrupalValue(region, "username", creds.User); !ok && creds.User != "" {
 		missing = append(missing, "username")
 	}
-	if content, ok = replaceDrupalValue(content, "password", creds.Password); !ok && creds.Password != "" {
+	if region, ok = replaceDrupalValue(region, "password", creds.Password); !ok && creds.Password != "" {
 		missing = append(missing, "password")
 	}
 	// host defaults to localhost when the entry omits it, which is the common
 	// correct case on shared hosts, so a missing host literal is not flagged.
-	content, _ = replaceDrupalValue(content, "host", host)
+	region, _ = replaceDrupalValue(region, "host", host)
 	if creds.Port != 0 {
-		content, _ = replaceDrupalValue(content, "port", strconv.Itoa(creds.Port))
+		region, _ = replaceDrupalValue(region, "port", strconv.Itoa(creds.Port))
 	}
-	return content, missing, nil
+	out := make([]byte, 0, len(content)-(end-start)+len(region))
+	out = append(out, content[:start]...)
+	out = append(out, region...)
+	out = append(out, content[end:]...)
+	return out, missing, nil
 }
 
 // replaceDrupalValue splices a new single-quoted value into the first
-// non-commented `'key' => <literal>` occurrence (the shape of a $databases
-// entry). Matching runs against a comment-masked copy so the `@code … @endcode`
-// example in a stock settings.php is never edited in place of the real block;
-// offsets in the mask line up with the original byte-for-byte.
+// non-commented `'key' => <literal>` occurrence. The caller passes the
+// default connection's array literal (drupalDefaultConnRange), never the
+// whole file. Matching runs against a comment-masked copy so a commented-out
+// entry is never edited in place of the real one; offsets in the mask line
+// up with the original byte-for-byte.
 func replaceDrupalValue(content []byte, key, value string) ([]byte, bool) {
 	re := regexp.MustCompile(`['"]` + regexp.QuoteMeta(key) + `['"]\s*=>\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|\d+)`)
 	loc := re.FindSubmatchIndex(maskPHPComments(content))
