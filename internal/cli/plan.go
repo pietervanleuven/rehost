@@ -274,8 +274,10 @@ func parseTarget(s string) (ssh.Config, error) {
 			return cfg, fmt.Errorf("invalid port %q in target %q", port, s)
 		}
 		cfg.Host, cfg.Port = host, p
+	} else if strings.HasPrefix(rest, "[") && strings.HasSuffix(rest, "]") {
+		cfg.Host = rest[1 : len(rest)-1] // bracketed IPv6 without a port
 	} else {
-		cfg.Host = rest
+		cfg.Host = rest // hostname, or a bare IPv6 literal
 	}
 	if cfg.Host == "" || strings.Contains(cfg.Host, "@") {
 		return cfg, fmt.Errorf("invalid target %q — expected user@host[:port]", s)
