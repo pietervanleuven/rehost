@@ -238,17 +238,18 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 	return nil
 }
 
-// countTablesSQL counts the destination's tables the same way Inspect does,
-// via DATABASE() so the count is scoped to the imported schema.
-const countTablesSQL = `SELECT COUNT(*) FROM information_schema.TABLES WHERE table_schema = DATABASE();`
+// countTablesSQL counts the destination's BASE tables, scoped to the
+// imported schema via DATABASE(). Views are excluded on purpose: the dump
+// side counts CREATE TABLE statements, which cover base tables only, and a
+// database with views would otherwise always report a false mismatch.
+const countTablesSQL = `SELECT COUNT(*) FROM information_schema.TABLES WHERE table_schema = DATABASE() AND TABLE_TYPE = 'BASE TABLE';`
 
 // countTables reads the destination table count for verification. mysql's
 // stdin is free again here, so the password rides the Inspect-style defaults
 // file on stdin (heredoc) rather than a FIFO.
 func countTables(ctx context.Context, r Runner, creds *Credentials) (int, error) {
 	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(countTablesSQL) + " " + ssh.ShellQuote(creds.Name) +
-		" <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+		ssh.ShellQuote(countTablesSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return 0, err

@@ -28,8 +28,7 @@ type SQLResult struct {
 // sanitized Reason, never an error.
 func RunSQL(ctx context.Context, r Runner, creds *Credentials, sql string) (*SQLResult, error) {
 	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(sql) + " " + ssh.ShellQuote(creds.Name) +
-		" <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+		ssh.ShellQuote(sql) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

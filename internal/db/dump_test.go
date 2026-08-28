@@ -205,3 +205,26 @@ printf -- '-- MySQL dump stub of %s\n-- Dump completed on test\n' "$last"
 		t.Errorf("database name missing from stub argv:\n%s", sql)
 	}
 }
+
+// A credential that embeds the heredoc marker as its own line must not
+// terminate the defaults-file heredoc early.
+func TestCredsHeredocMarkerCollision(t *testing.T) {
+	creds := &Credentials{Name: "d", User: "u", Password: "x\nREHOST_CNF\ny"}
+	cmd := dumpCmd(creds)
+	marker := "REHOST_CNFZ"
+	if !strings.Contains(cmd, "<<'"+marker+"'") || !strings.HasSuffix(cmd, marker) {
+		t.Errorf("marker should grow past the colliding credential:\n%s", cmd)
+	}
+}
+
+// The inspected charset pins the dump connection.
+func TestDumpCmdCharset(t *testing.T) {
+	with := dumpCmd(&Credentials{Name: "d", Charset: "latin1"})
+	if !strings.Contains(with, "--default-character-set='latin1'") {
+		t.Errorf("charset flag missing: %s", with)
+	}
+	without := dumpCmd(&Credentials{Name: "d"})
+	if strings.Contains(without, "--default-character-set") {
+		t.Errorf("no inspected charset → no flag: %s", without)
+	}
+}

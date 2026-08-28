@@ -101,9 +101,27 @@ func parseSentinelCreds(stdout, method string) *db.Credentials {
 
 // applyHost stores a configured DB host, splitting a ":port" suffix into
 // Port. A non-numeric suffix (a socket path like "localhost:/tmp/mysql.sock")
-// stays in Host untouched.
+// stays in Host untouched. IPv6 literals are only split in the bracketed
+// [addr]:port form — a bare "::1" must never be read as host ":" port 1.
 func applyHost(creds *db.Credentials, host string) {
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
+	if strings.HasPrefix(host, "[") {
+		if i := strings.Index(host, "]"); i >= 0 {
+			addr, rest := host[1:i], host[i+1:]
+			if port, ok := strings.CutPrefix(rest, ":"); ok {
+				if p, err := strconv.Atoi(port); err == nil && p > 0 && p < 65536 {
+					creds.Host, creds.Port = addr, p
+					return
+				}
+			}
+			if rest == "" {
+				creds.Host = addr
+				return
+			}
+		}
+		creds.Host = host
+		return
+	}
+	if i := strings.LastIndexByte(host, ':'); i >= 0 && strings.IndexByte(host, ':') == i {
 		if port, err := strconv.Atoi(host[i+1:]); err == nil && port > 0 && port < 65536 {
 			creds.Host, creds.Port = host[:i], port
 			return
