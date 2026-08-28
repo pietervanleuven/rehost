@@ -81,6 +81,7 @@ func Run(in Input) []Result {
 	}
 
 	checkSites(in, add)
+	checkMultisite(in, add)
 	checkTransfer(in, add)
 	checkDatabase(in, add)
 	checkDestDB(in, add)
@@ -420,17 +421,12 @@ func checkExtensions(in Input, add addFunc) {
 
 func checkDisk(in Input, add addFunc) {
 	const title = "Disk space on the destination"
-	var dbKB int64
-	for _, insp := range in.SourceDBs {
-		if insp != nil {
-			dbKB += insp.SizeKB
-		}
-	}
-	needed := in.SourceSitesKB + dbKB
+	// Only the site files land under the destination home; the imported
+	// database lives on the MySQL server's storage, which df of the home
+	// does not measure — counting it here produced false blockers (and
+	// false confidence) against the wrong quota. It gets its own row below.
+	needed := in.SourceSitesKB
 	what := fmt.Sprintf("%s of site data", humanKB(in.SourceSitesKB))
-	if dbKB > 0 {
-		what = fmt.Sprintf("%s of site data + %s of database", humanKB(in.SourceSitesKB), humanKB(dbKB))
-	}
 	switch {
 	case in.SourceSitesKB == 0 || in.DestFreeKB == 0:
 		add("disk.space", title, Info, "could not measure site size or free space")
@@ -439,10 +435,21 @@ func checkDisk(in Input, add addFunc) {
 			fmt.Sprintf("%s needed but only %s is free", what, humanKB(in.DestFreeKB)))
 	case in.DestFreeKB < needed*3/2:
 		add("disk.space", title, Warning,
-			fmt.Sprintf("tight: %s needed, %s free — dumps and temp files need headroom", what, humanKB(in.DestFreeKB)))
+			fmt.Sprintf("tight: %s needed, %s free — temp files need headroom", what, humanKB(in.DestFreeKB)))
 	default:
 		add("disk.space", title, Ok,
 			fmt.Sprintf("%s free for %s", humanKB(in.DestFreeKB), what))
+	}
+
+	var dbKB int64
+	for _, insp := range in.SourceDBs {
+		if insp != nil {
+			dbKB += insp.SizeKB
+		}
+	}
+	if dbKB > 0 {
+		add("disk.db", "Database size", Info,
+			fmt.Sprintf("%s of database data will be imported — it lands on the destination's MySQL storage (not the home quota), and the dump is staged on THIS machine first: keep at least that much free locally", humanKB(dbKB)))
 	}
 }
 
@@ -554,6 +561,23 @@ func checkDNSTTL(in Input, add addFunc) {
 		// of an authoritative 86400. Never call that cutover-ready.
 		add("dns.ttl", title, Info,
 			fmt.Sprintf("TTLs read %ds or lower, but only from a resolver cache (the decaying remainder, not the configured value) — confirm the real TTL at the DNS provider before planning a fast cutover", maxTTL))
+	}
+}
+
+// checkMultisite refuses multisite installs outright: rehost's rewrite and
+// exclude machinery is single-site, and a half-migrated multisite (only the
+// default site's database and config rewritten) is worse than an honest no.
+func checkMultisite(in Input, add addFunc) {
+	const title = "Multisite"
+	for _, inst := range in.Installs {
+		switch {
+		case inst.Extra["multisite"] == "true":
+			add("site.multisite", title, Blocker,
+				fmt.Sprintf("%s is a WordPress multisite (MULTISITE is true) — rehost migrates single-site installs and a partial rewrite would break the network; migrate it with a multisite-aware tool for now", inst.Root))
+		case inst.Framework == "drupal" && len(inst.Sites) > 1:
+			add("site.multisite", title, Blocker,
+				fmt.Sprintf("%s is a Drupal multisite (%s) — rehost migrates single-site installs and would only rewrite sites/default; migrate it by hand for now", inst.Root, strings.Join(inst.Sites, ", ")))
+		}
 	}
 }
 
