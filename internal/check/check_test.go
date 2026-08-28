@@ -285,7 +285,7 @@ func TestCharsetRules(t *testing.T) {
 	}
 }
 
-func TestDiskIncludesDatabaseSize(t *testing.T) {
+func TestDiskSplitsDatabaseFromHomeQuota(t *testing.T) {
 	in := Input{
 		Source:        capsWith("", "rsync", "find"),
 		Destination:   capsWith("", "rsync"),
@@ -293,9 +293,14 @@ func TestDiskIncludesDatabaseSize(t *testing.T) {
 		DestFreeKB:    1100,
 		SourceDBs:     map[string]*db.Inspection{"/a": {Connected: true, SizeKB: 500}},
 	}
-	// 1000 sites + 500 db = 1500 needed > 1100 free → blocker.
-	if r := byID(t, Run(in), "disk.space"); r.Severity != Blocker || !strings.Contains(r.Detail, "database") {
-		t.Errorf("db size must count toward disk need, got %+v", r)
+	// The database lands on MySQL storage, not the home quota: 1000 KiB of
+	// files against 1100 KiB free is tight, not blocked by the DB's 500.
+	if r := byID(t, Run(in), "disk.space"); r.Severity != Warning || strings.Contains(r.Detail, "database") {
+		t.Errorf("db size must not count against the home quota, got %+v", r)
+	}
+	// The database size gets its own row, naming the local staging need.
+	if r := byID(t, Run(in), "disk.db"); r.Severity != Info || !strings.Contains(r.Detail, "THIS machine") {
+		t.Errorf("db size should be reported separately, got %+v", r)
 	}
 }
 
@@ -502,5 +507,32 @@ func TestStrictestMinPHPPicksHighest(t *testing.T) {
 	})
 	if minPHP != "8.3" || !strings.Contains(needer, "drupal 11") {
 		t.Errorf("strictestMinPHP = %q for %q, want 8.3 for drupal 11", minPHP, needer)
+	}
+}
+
+func TestMultisiteBlocks(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find"),
+		Destination: capsWith("8.2", "rsync"),
+	}
+
+	// Single-site installs: silent.
+	in.Installs = []detect.Install{wpInstall}
+	if hasID(Run(in), "site.multisite") {
+		t.Error("single-site installs must not trigger the multisite rule")
+	}
+
+	// WordPress network install: blocker.
+	wpMulti := wpInstall
+	wpMulti.Extra = map[string]string{"multisite": "true"}
+	in.Installs = []detect.Install{wpMulti}
+	if r := byID(t, Run(in), "site.multisite"); r.Severity != Blocker || !strings.Contains(r.Detail, "multisite") {
+		t.Errorf("WP multisite must block, got %+v", r)
+	}
+
+	// Drupal with more than one configured site: blocker.
+	in.Installs = []detect.Install{{Framework: "drupal", Root: "/home/u/drupal", Sites: []string{"default", "shop.example.com"}}}
+	if r := byID(t, Run(in), "site.multisite"); r.Severity != Blocker || !strings.Contains(r.Detail, "shop.example.com") {
+		t.Errorf("Drupal multisite must block naming the sites, got %+v", r)
 	}
 }
