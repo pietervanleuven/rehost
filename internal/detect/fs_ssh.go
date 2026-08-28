@@ -3,6 +3,7 @@ package detect
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pietervanleuven/rehost/internal/ssh"
@@ -61,6 +62,32 @@ func (f sshFS) ReadFile(ctx context.Context, p string) ([]byte, error) {
 }
 
 func (f sshFS) List(ctx context.Context, dir string) ([]string, error) {
+	// NUL separation first: ls output splits a newline-bearing filename
+	// (creatable by any co-tenant) into two bogus entries, and ls cannot
+	// NUL-separate portably. The `dir/. ! -name . -prune` idiom lists the
+	// immediate children, dotfiles included.
+	base := strings.TrimSuffix(dir, "/")
+	res, err := f.r.Run(ctx, "find "+shellQuote(base+"/.")+" ! -name . -prune -print0")
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode == 127 || res.ExitCode == 126 || (res.ExitCode != 0 && res.Stdout == "") {
+		return f.listLS(ctx, dir)
+	}
+	var names []string
+	for _, p := range strings.Split(res.Stdout, "\x00") {
+		if name := strings.TrimPrefix(p, base+"/./"); name != "" && name != p {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names) // find's order is arbitrary; ls's was sorted
+	return names, nil
+}
+
+// listLS is the fallback listing for hosts whose find is missing or too
+// restricted; a filename containing a newline splits here — the price of the
+// degraded path.
+func (f sshFS) listLS(ctx context.Context, dir string) ([]string, error) {
 	// -A lists dotfiles but omits . and ..; -1 is one per line.
 	res, err := f.r.Run(ctx, fmt.Sprintf("ls -1A %s", shellQuote(dir)))
 	if err != nil {
@@ -101,13 +128,13 @@ func (f sshFS) Find(ctx context.Context, roots, markers []string, opts FindOptio
 		return WalkFind(ctx, f, roots, markers, opts)
 	}
 	var hits []string
-	for _, line := range strings.Split(res.Stdout, "\n") {
-		if p := strings.TrimRight(line, "\r"); p != "" {
+	for _, p := range strings.Split(res.Stdout, "\x00") {
+		if p != "" {
 			hits = append(hits, p)
 		}
 	}
-	// A total blank with a hard error and no output: the predicates may be
-	// unsupported (busybox variants). Fall back to be safe.
+	// A total blank with a hard error and no output: the predicates (or
+	// -print0) may be unsupported (busybox variants). Fall back to be safe.
 	if len(hits) == 0 && res.ExitCode != 0 {
 		return WalkFind(ctx, f, roots, markers, opts)
 	}
@@ -163,7 +190,10 @@ func findCommand(roots, markers []string, maxDepth int, prune []string) string {
 		}
 		b.WriteString(" -path " + shellQuote("*/"+m))
 	}
-	b.WriteString(` \) -print 2>/dev/null`)
+	// -print0: a newline in a directory name along a marker path would split
+	// one hit into two bogus ones; NUL keeps hits byte-exact. Hosts whose
+	// find lacks it error with no output, which triggers the walk fallback.
+	b.WriteString(` \) -print0 2>/dev/null`)
 	return b.String()
 }
 
