@@ -95,3 +95,44 @@ func TestRewriteDumpUnterminatedLiteralFails(t *testing.T) {
 		t.Errorf("unterminated literal should fail, got %v", err)
 	}
 }
+
+// Apostrophes inside block comments and backtick identifiers must not open
+// phantom literals — routine/trigger dumps carry both.
+func TestRewriteDumpCommentsAndIdentsOpaque(t *testing.T) {
+	in := "/*!50003 CREATE TRIGGER t BEFORE INSERT -- don't touch 'this' */;\n" +
+		"CREATE TABLE `it's odd` (id int);\n" +
+		"INSERT INTO `it's odd` VALUES ('https://old.example.com/x');\n"
+	var out bytes.Buffer
+	stats, err := RewriteDump(strings.NewReader(in), &out,
+		[]Pair{{From: "old.example.com", To: "new.example.org"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "/*!50003 CREATE TRIGGER t BEFORE INSERT -- don't touch 'this' */;") {
+		t.Errorf("block comment must pass through byte-exact:\n%s", got)
+	}
+	if !strings.Contains(got, "CREATE TABLE `it's odd`") {
+		t.Errorf("backtick identifier must pass through byte-exact:\n%s", got)
+	}
+	if !strings.Contains(got, "'https://new.example.org/x'") {
+		t.Errorf("the real literal after them must still be rewritten:\n%s", got)
+	}
+	if stats.ValuesChanged != 1 {
+		t.Errorf("ValuesChanged = %d, want 1", stats.ValuesChanged)
+	}
+}
+
+// A doubled backtick inside an identifier does not end it.
+func TestRewriteDumpDoubledBacktick(t *testing.T) {
+	in := "CREATE TABLE `we``ird'` (id int);\nINSERT INTO t VALUES ('old.example.com');\n"
+	var out bytes.Buffer
+	if _, err := RewriteDump(strings.NewReader(in), &out,
+		[]Pair{{From: "old.example.com", To: "new.example.org"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "`we``ird'`") || !strings.Contains(got, "'new.example.org'") {
+		t.Errorf("doubled backtick mishandled:\n%s", got)
+	}
+}
