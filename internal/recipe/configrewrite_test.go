@@ -201,8 +201,14 @@ func TestWordPressRewriteConfigEndToEnd(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 	joined := strings.Join(r.cmds, "\n")
-	if !strings.Contains(joined, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(joined, "'u1_wp'") {
-		t.Errorf("rewritten config should be written back:\n%s", joined)
+	if !strings.Contains(joined, "cat > '/home/d/www/wp-config.php.rehost-tmp'") || !strings.Contains(joined, "'u1_wp'") {
+		t.Errorf("rewritten config should be staged through a temp file:\n%s", joined)
+	}
+	if !strings.Contains(joined, "mv -f '/home/d/www/wp-config.php.rehost-tmp' '/home/d/www/wp-config.php'") {
+		t.Errorf("staged config should be renamed into place:\n%s", joined)
+	}
+	if !strings.Contains(joined, `"$HOME"/.rehost/config-backups/`) || !strings.Contains(joined, "test -f") {
+		t.Errorf("a one-time backup outside the docroot should precede the rewrite:\n%s", joined)
 	}
 }
 
