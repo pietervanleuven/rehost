@@ -39,6 +39,20 @@ transport exists) and gained a `db.dest` warning per DB-backed site missing
 `dest_db`; history growth is bounded by semantic-safe `state.Compact`; the
 docroot/database destination policies share one `destPolicy` verdict.
 
+A full pre-release code review (2026-08-28) was worked through end to end —
+all 5 criticals, all 14 majors and every listed minor are fixed with
+regression tests. Highlights: the mysqldump heredoc now binds to mysqldump
+(it fed the credentials to gzip — every dump failed); distro MySQL banners
+parse correctly (no more false utf8mb4 blockers); remote-controlled DB names
+can no longer traverse local paths; Drupal rewrites are scoped to
+`$databases['default']['default']` and WP defines are comment-masked;
+`HostKeyAlgorithms`/keepalives fixed the SSH posture; manifests carry
+symlinks; migrate takes an advisory destination run lock, gates before
+prompting, and supports `--db-password-file`/`REHOST_DB_PASSWORD`; cutover
+advice is honest about 404s, cached TTLs and SERVFAIL (TTLs are re-confirmed
+at the domain's own nameserver); multisite installs are detected and refused;
+exit code 2 now means "gate refused", 1 "operational failure".
+
 **Field validation against a real Drupal and a real WordPress site on shared
 hosting has still not happened** (docs/TODO.md §1) — this remains the top
 priority and the gate before the marketing launch push, v0.1.0 notwithstanding.
