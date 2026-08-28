@@ -331,13 +331,18 @@ func installsWithCreds(in Input) []detect.Install {
 
 // mysqlToolVersion pulls the server-ish version out of a mysql client
 // version line. MariaDB's client reports its own version first
-// ("Ver 15.1 Distrib 10.6.18-MariaDB"), so the last number wins.
+// ("Ver 15.1 Distrib 10.6.18-MariaDB"), so the number after Distrib wins
+// when present. Otherwise the first number after Ver is the one — never a
+// later match, which on distro-packaged clients is the package revision
+// ("Ver 8.0.36-0ubuntu0.22.04.1" must read as 8.0.36, not 0.22.04).
 func mysqlToolVersion(line string) string {
-	matches := versionPattern.FindAllString(line, -1)
-	if len(matches) == 0 {
-		return ""
+	if i := strings.Index(line, "Distrib"); i >= 0 {
+		return versionPattern.FindString(line[i:])
 	}
-	return matches[len(matches)-1]
+	if i := strings.Index(line, "Ver"); i >= 0 {
+		return versionPattern.FindString(line[i:])
+	}
+	return versionPattern.FindString(line)
 }
 
 var versionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
