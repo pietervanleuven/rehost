@@ -35,16 +35,29 @@ var (
 )
 
 // dbIdentity keys credential prompting and inspection so sites sharing one
-// panel database are asked about and probed once.
+// panel database are asked about and probed once. Host and port are
+// normalized first: "" vs localhost and 0 vs 3306 spell the same database,
+// and a cosmetic migrate.yaml edit must not make a rerun refuse its own
+// prior import.
 func dbIdentity(c *project.SiteDB) string {
-	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+	return identityKey(c.Name, c.User, c.Host, c.Port)
 }
 
 // dbCredIdentity is dbIdentity over resolved credentials. destDBResults gates
 // its overwrite guard on this, and migrateSiteDB records it after a successful
 // import, so the two agree on which database rehost has filled.
 func dbCredIdentity(c *db.Credentials) string {
-	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+	return identityKey(c.Name, c.User, c.Host, c.Port)
+}
+
+func identityKey(name, user, host string, port int) string {
+	if host == "" {
+		host = "localhost"
+	}
+	if port == 0 {
+		port = 3306
+	}
+	return name + "\x00" + user + "\x00" + host + "\x00" + strconv.Itoa(port)
 }
 
 // destDBCredentials resolves each dest_db site to runtime credentials,
@@ -205,7 +218,13 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	}
 
 	// Final dump, inside the window, into the same .rehost/dumps/ layout the
-	// dry run uses.
+	// dry run uses. The inspected charset rides along so the dump connection
+	// matches how the data is actually stored.
+	if insp := p.srcDBs[root]; insp != nil && insp.Charset != "" && srcCreds.Charset == "" {
+		c := *srcCreds
+		c.Charset = insp.Charset
+		srcCreds = &c
+	}
 	u.progress("  dumping %s…", srcCreds.Name)
 	dumpPath, stats, err := dumpForImport(ctx, p, srcCreds)
 	if err != nil {
