@@ -68,6 +68,12 @@ type Options struct {
 // deletion never trips the argument-list-too-long limit on a shared host.
 const defaultMaxRmBytes = 96 << 10
 
+// partialMarker names the in-progress marker Sync keeps in the destination
+// root while a relay runs. It is excluded from manifests and removed after a
+// completed relay; surviving one is how a later paths-only run learns the
+// previous transfer was interrupted.
+const partialMarker = ".rehost-partial-transfer"
+
 // SyncStats is what one Sync did — enough for the cutover report.
 type SyncStats struct {
 	Compressed bool `json:"compressed"`
@@ -110,6 +116,12 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 		opts.MaxRmBytes = defaultMaxRmBytes
 	}
 	stats := &SyncStats{Compressed: opts.Compress}
+	// The in-progress marker outlives an interrupted relay on purpose: a
+	// degraded (paths-only) rerun cannot see a half-written file — presence
+	// diffing classifies it Unchanged forever — so the marker is its only
+	// evidence that a full re-send is needed. Kept out of both manifests.
+	markerPath := path.Join(dst.Root, partialMarker)
+	excludes = append(excludes[:len(excludes):len(excludes)], partialMarker)
 
 	// Ensure the destination docroot exists before anything inspects it.
 	if res, err := dst.Conn.Run(ctx, "mkdir -p "+ssh.ShellQuote(dst.Root)); err != nil {
@@ -135,10 +147,19 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 	// source has that the destination lacks or differs on (what to send);
 	// Removed is destination-only (deletion candidates).
 	d := Diff(dstManifest, srcManifest)
+	resend := false
 	if !srcManifest.Complete || !dstManifest.Complete {
 		stats.Degraded = true
 		note(progress, "warning: no size/mtime available (GNU find missing on %s) — files modified in place will NOT be re-sent, only new files; verify changed content by hand",
 			degradedEnds(srcManifest, dstManifest, src, dst))
+		res, err := dst.Conn.Run(ctx, "test -e "+ssh.ShellQuote(markerPath))
+		if err != nil {
+			return stats, err
+		}
+		if res.ExitCode == 0 {
+			resend = true
+			note(progress, "an earlier transfer was interrupted and sizes are unavailable — re-sending all %d files so a partial file cannot survive as \"unchanged\"", len(srcManifest.Files))
+		}
 	}
 	if opts.Delete && srcManifest.Pruned {
 		// The source listing skipped unreadable entries, so "absent from the
@@ -150,19 +171,34 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 	send := make([]FileEntry, 0, len(d.Added)+len(d.Changed))
 	send = append(send, d.Added...)
 	send = append(send, d.Changed...)
+	if resend {
+		send = srcManifest.Files
+	}
 
-	// Transfer the needed files as one tar pipe.
+	// Transfer the needed files as one tar pipe, marked in progress for its
+	// whole lifetime (see markerPath above). A failed marker write only costs
+	// the degraded-rerun protection, not the transfer.
 	if len(send) > 0 {
 		for _, e := range send {
 			stats.BytesSent += e.Size
 		}
 		note(progress, "sending %d files (%s)", len(send), units.HumanBytes(stats.BytesSent))
+		if res, err := dst.Conn.Run(ctx, ": > "+ssh.ShellQuote(markerPath)); err != nil {
+			return stats, err
+		} else if res.ExitCode != 0 {
+			note(progress, "warning: could not mark the transfer in progress on the destination: %s", ssh.FirstLine(res.Stderr))
+		}
 		wire, err := relay(ctx, src, dst, send, opts)
 		stats.WireBytes = wire
 		stats.FilesSent = len(send)
 		if err != nil {
 			stats.Duration = time.Since(start)
 			return stats, err
+		}
+		// Best-effort: a marker that survives a completed relay only causes
+		// one extra full re-send on a future degraded run — the safe side.
+		if res, err := dst.Conn.Run(ctx, "rm -f "+ssh.ShellQuote(markerPath)); err == nil && res.ExitCode != 0 {
+			note(progress, "warning: could not clear the transfer marker: %s", ssh.FirstLine(res.Stderr))
 		}
 	} else {
 		note(progress, "nothing to send — the destination already matches the source")
