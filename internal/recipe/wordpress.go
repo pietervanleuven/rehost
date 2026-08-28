@@ -25,6 +25,9 @@ func (WordPress) Markers() []string {
 var (
 	wpVersion     = regexp.MustCompile(`\$wp_version\s*=\s*'([^']+)'`)
 	wpTablePrefix = regexp.MustCompile(`\$table_prefix\s*=\s*['"]([^'"]+)['"]`)
+	// MULTISITE=true marks a network install, which rehost refuses to
+	// half-migrate (the check gate blocks on it).
+	wpMultisite = regexp.MustCompile(`define\(\s*['"]MULTISITE['"]\s*,\s*(?i:true)\s*\)`)
 )
 
 func (w WordPress) Detect(ctx context.Context, fs detect.FS, dir string) (*detect.Install, error) {
@@ -50,8 +53,15 @@ func (w WordPress) Detect(ctx context.Context, fs detect.FS, dir string) (*detec
 	if configFile != "" {
 		install.ConfigFile = configFile
 		if content, err := fs.ReadFile(ctx, configFile); err == nil {
-			if prefix := firstSubmatch(wpTablePrefix, maskPHPComments(content)); prefix != "" {
+			masked := maskPHPComments(content)
+			if prefix := firstSubmatch(wpTablePrefix, masked); prefix != "" {
 				install.Extra = map[string]string{"table_prefix": prefix}
+			}
+			if wpMultisite.Match(masked) {
+				if install.Extra == nil {
+					install.Extra = map[string]string{}
+				}
+				install.Extra["multisite"] = "true"
 			}
 		}
 	}

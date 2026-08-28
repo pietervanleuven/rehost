@@ -83,9 +83,12 @@ var findVariants = []struct {
 // filenames survive). Unreadable subdirectories are skipped by find, not
 // fatal — but a find that died mid-listing (resource limits, signals) is an
 // error: a partial listing must never be persisted as an authoritative
-// manifest. Known limitation: empty directories are not listed and so never
-// transfer — a directory name in the tar file list would recurse, and
-// --no-recursion is not portable across the tar ladder.
+// manifest. Known limitations: empty directories are not listed and so never
+// transfer (a directory name in the tar file list would recurse, and
+// --no-recursion is not portable across the tar ladder), and entries carry
+// size+mtime only — a chmod that changes neither never re-sends the file, so
+// permission-only fixes on the source need a touch or a manual chmod on the
+// destination.
 func TakeManifest(ctx context.Context, r runner, root string, excludes []string) (*Manifest, error) {
 	m := &Manifest{Root: root, TakenAt: time.Now().UTC()}
 

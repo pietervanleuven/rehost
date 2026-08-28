@@ -469,18 +469,18 @@ func buildPreflight(checks, destState []check.Result) (tui.MigratePreflightView,
 
 	// A compatibility-gate blocker is the "fix and rerun check" path.
 	if b, _ := check.Summarize(checks); b > 0 {
-		return view, fmt.Errorf("pre-flight found %d compatibility blocker(s) — fix them and rerun 'rehost check'", b)
+		return view, GateError{fmt.Errorf("pre-flight found %d compatibility blocker(s) — fix them and rerun 'rehost check'", b)}
 	}
 	// A destination-state blocker is a refusal to touch a non-empty docroot
 	// rehost did not create.
 	if refused := blockingIDs(destState, destIDPrefix); len(refused) > 0 {
-		return view, fmt.Errorf("refusing to migrate onto non-empty destination docroot(s) rehost did not create: %s — rerun with --onto-existing to converge onto them anyway (there is no rollback yet)",
-			strings.Join(refused, ", "))
+		return view, GateError{fmt.Errorf("refusing to migrate onto non-empty destination docroot(s) rehost did not create: %s — rerun with --onto-existing to converge onto them anyway (there is no rollback yet)",
+			strings.Join(refused, ", "))}
 	}
 	// A database blocker: the declared destination database is unusable or
 	// would be overwritten.
 	if blocked := blockingIDs(destState, destDBIDPrefix); len(blocked) > 0 {
-		return view, fmt.Errorf("destination database not ready for: %s — see the pre-flight rows above", strings.Join(blocked, ", "))
+		return view, GateError{fmt.Errorf("destination database not ready for: %s — see the pre-flight rows above", strings.Join(blocked, ", "))}
 	}
 
 	view.Passed = true
