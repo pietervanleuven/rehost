@@ -157,7 +157,7 @@ func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, 
 	if err := os.MkdirAll(dumpDir, 0o700); err != nil {
 		return err.Error(), false
 	}
-	path := filepath.Join(dumpDir, creds.Name+".sql.gz")
+	path := filepath.Join(dumpDir, dumpFileName(creds.Name))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err.Error(), false

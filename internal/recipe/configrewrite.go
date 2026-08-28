@@ -3,6 +3,7 @@ package recipe
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"path"
@@ -87,9 +88,15 @@ func readRemoteFile(ctx context.Context, r db.Runner, p string) ([]byte, error) 
 	return []byte(res.Stdout), nil
 }
 
-// writeRemoteFileRandom writes content to path like writeRemoteFile, but with
-// a random heredoc marker so arbitrary config content can never collide with
-// the delimiter.
+// writeRemoteFileRandom replaces a remote config file: a random heredoc
+// marker so arbitrary config content can never collide with the delimiter,
+// staged through a sibling temp file and renamed so a dropped connection can
+// never leave a torn or empty config (cp -p seeds the temp file, so the
+// config's mode and ownership survive the rename). Before the first rewrite
+// the original is backed up once — best-effort — under ~/.rehost/ rather
+// than next to the config: a wp-config.php.bak-style sibling in the docroot
+// would be served as plain text, credentials included. A rerun keeps the
+// existing backup, which is the pre-rehost original.
 func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content []byte) error {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -99,7 +106,12 @@ func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content [
 	// The heredoc terminates the last body line itself, so a trailing
 	// newline in content would come back doubled.
 	body := strings.TrimSuffix(string(content), "\n")
-	cmd := "cat > " + ssh.ShellQuote(p) + " <<'" + marker + "'\n" + body + "\n" + marker
+	q := ssh.ShellQuote(p)
+	tmp := ssh.ShellQuote(p + ".rehost-tmp")
+	bak := `"$HOME"/.rehost/config-backups/` + backupName(p)
+	cmd := `{ mkdir -p "$HOME"/.rehost/config-backups && { test -f ` + bak + ` || cp -p ` + q + ` ` + bak + `; }; } 2>/dev/null; ` +
+		"cp -p " + q + " " + tmp + " && cat > " + tmp + " <<'" + marker + "' && mv -f " + tmp + " " + q +
+		"\n" + body + "\n" + marker
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return err
@@ -108,4 +120,20 @@ func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content [
 		return fmt.Errorf("writing %s: %s", p, ssh.FirstLine(res.Stderr))
 	}
 	return nil
+}
+
+// backupName derives a stable, shell-safe backup file name for a config path:
+// a short hash keeps distinct paths distinct, the base name keeps it
+// recognizable. Stability across runs is what makes the backup one-time.
+func backupName(p string) string {
+	sum := sha256.Sum256([]byte(p))
+	base := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '-', r == '_', r == '.':
+			return r
+		}
+		return '_'
+	}, path.Base(p))
+	return hex.EncodeToString(sum[:4]) + "-" + base
 }

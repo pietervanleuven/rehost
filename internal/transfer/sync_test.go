@@ -140,9 +140,10 @@ func TestSyncSendsDelta(t *testing.T) {
 	if stats.WireBytes != int64(len(src.streamOut)) {
 		t.Errorf("WireBytes = %d, want %d", stats.WireBytes, len(src.streamOut))
 	}
-	// Only the added + changed files travel over the source stdin, NUL-joined.
+	// Only the added + changed files travel over the source stdin, NUL-joined,
+	// ./-prefixed so tar can never read a filename as an option.
 	list := string(src.firstStdin())
-	if list != "c.txt\x00b.txt\x00" {
+	if list != "./c.txt\x00./b.txt\x00" {
 		t.Errorf("send list = %q", list)
 	}
 	if len(src.streamCmds) != 1 || !strings.Contains(src.streamCmds[0], "tar -c --null -T - -f -") ||
@@ -209,7 +210,7 @@ func TestSyncNullFilenamesSurvive(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := string(src.firstStdin())
-	if !strings.Contains(list, "weird\nname.txt\x00") || !strings.Contains(list, "a b.jpg\x00") {
+	if !strings.Contains(list, "./weird\nname.txt\x00") || !strings.Contains(list, "./a b.jpg\x00") {
 		t.Errorf("NUL list must keep odd filenames byte-exact: %q", list)
 	}
 	if !strings.Contains(src.streamCmds[0], "--null") {
@@ -224,7 +225,7 @@ func TestSyncNewlineListWhenNotNull(t *testing.T) {
 	if _, err := Sync(context.Background(), s, d, nil, Options{NullList: false}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if list := string(src.firstStdin()); list != "a.txt\nb.txt\n" {
+	if list := string(src.firstStdin()); list != "./a.txt\n./b.txt\n" {
 		t.Errorf("non-NUL list should be newline-delimited: %q", list)
 	}
 	if strings.Contains(src.streamCmds[0], "--null") {

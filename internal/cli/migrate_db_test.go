@@ -152,7 +152,7 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 		t.Errorf("config rewrite result = %+v", d)
 	}
 	destCmds := recordsFor(dest.runs)
-	if !strings.Contains(destCmds, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
+	if !strings.Contains(destCmds, "mv -f '/home/d/www/wp-config.php.rehost-tmp' '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
 		t.Errorf("the rewritten config should be written on the destination:\n%s", destCmds)
 	}
 	// The destination must be taken out of maintenance mode after cutover, or a

@@ -341,7 +341,7 @@ func dumpForImport(ctx context.Context, p migratePlan, creds *db.Credentials) (s
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", nil, err
 	}
-	path := filepath.Join(dir, creds.Name+".sql.gz")
+	path := filepath.Join(dir, dumpFileName(creds.Name))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", nil, err

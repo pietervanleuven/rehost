@@ -140,6 +140,11 @@ func (f *File) Validate() error {
 		if s.DestDB.Name == "" {
 			return fmt.Errorf("sites[%d].dest_db needs a name (the panel-created destination database)", i)
 		}
+		// A database name is an identifier, never a path — a separator here
+		// would let migrate.yaml steer file names and remote commands.
+		if strings.ContainsAny(s.DestDB.Name, "/\\") || s.DestDB.Name == "." || s.DestDB.Name == ".." {
+			return fmt.Errorf("sites[%d].dest_db.name %q is not a valid database name", i, s.DestDB.Name)
+		}
 		if s.DestDB.Port < 0 || s.DestDB.Port > 65535 {
 			return fmt.Errorf("sites[%d].dest_db.port %d is out of range", i, s.DestDB.Port)
 		}
