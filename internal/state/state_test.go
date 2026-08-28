@@ -400,3 +400,35 @@ func TestCompactAboveThresholdRewritesAtomically(t *testing.T) {
 		}
 	}
 }
+
+func TestAcquireLock(t *testing.T) {
+	r := &fakeRunner{}
+	if err := AcquireLock(context.Background(), r, "/home/d"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.cmds) != 1 || !strings.Contains(r.cmds[0], "mkdir '/home/d/.rehost/lock'") {
+		t.Errorf("lock should be an atomic mkdir: %v", r.cmds)
+	}
+
+	held := &fakeRunner{res: ssh.Result{ExitCode: lockHeldExit, Stdout: "started 2026-08-28T10:00:00Z\n"}}
+	err := AcquireLock(context.Background(), held, "/home/d")
+	if err == nil || !strings.Contains(err.Error(), "another rehost run") ||
+		!strings.Contains(err.Error(), "/home/d/.rehost/lock") || !strings.Contains(err.Error(), "2026-08-28T10:00:00Z") {
+		t.Errorf("held lock should explain holder and cleanup, got %v", err)
+	}
+
+	broken := &fakeRunner{res: ssh.Result{ExitCode: 2, Stderr: "mkdir: permission denied"}}
+	if err := AcquireLock(context.Background(), broken, "/home/d"); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Errorf("other mkdir failures should surface stderr, got %v", err)
+	}
+}
+
+func TestReleaseLock(t *testing.T) {
+	r := &fakeRunner{}
+	if err := ReleaseLock(context.Background(), r, "/home/d"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.cmds) != 1 || !strings.Contains(r.cmds[0], "rm -rf '/home/d/.rehost/lock'") {
+		t.Errorf("release should remove the lock dir: %v", r.cmds)
+	}
+}
