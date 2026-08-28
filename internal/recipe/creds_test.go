@@ -324,3 +324,25 @@ $table_prefix = 'wp_';
 		t.Errorf("commented define shadowed the live one: %+v", creds)
 	}
 }
+
+func TestApplyHostIPv6(t *testing.T) {
+	cases := []struct {
+		in   string
+		host string
+		port int
+	}{
+		{"::1", "::1", 0},
+		{"[::1]", "::1", 0},
+		{"[::1]:3307", "::1", 3307},
+		{"2001:db8::5", "2001:db8::5", 0},
+		{"localhost:3307", "localhost", 3307},
+		{"localhost:/tmp/mysql.sock", "localhost:/tmp/mysql.sock", 0},
+	}
+	for _, c := range cases {
+		var creds db.Credentials
+		applyHost(&creds, c.in)
+		if creds.Host != c.host || creds.Port != c.port {
+			t.Errorf("applyHost(%q) = %q:%d, want %q:%d", c.in, creds.Host, creds.Port, c.host, c.port)
+		}
+	}
+}
