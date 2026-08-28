@@ -102,31 +102,34 @@ func wpPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.
 	return parseSentinelCreds(res.Stdout, "php"), nil
 }
 
-// wpDefine matches define('KEY', 'value') with either quote style.
-func wpDefine(content []byte, key string) string {
-	re := regexp.MustCompile(`define\(\s*['"]` + regexp.QuoteMeta(key) + `['"]\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)`)
-	if m := re.FindSubmatch(content); m != nil {
-		if m[1] != nil {
-			return string(m[1])
-		}
-		return string(m[2])
+// wpDefine matches define('KEY', 'value') with either quote style in
+// comment-masked wp-config.php source (string-literal bytes survive masking,
+// so the captured value equals the original). Escape-aware, so a password
+// like 'it\'s' comes back whole and decoded.
+func wpDefine(masked []byte, key string) string {
+	re := regexp.MustCompile(`define\(\s*['"]` + regexp.QuoteMeta(key) + `['"]\s*,\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*\)`)
+	if m := re.FindSubmatch(masked); m != nil {
+		return quotedValue(m, 1)
 	}
 	return ""
 }
 
-// parseWPConfig is the last-resort regex layer over wp-config.php.
+// parseWPConfig is the last-resort regex layer over wp-config.php. Comments
+// are masked first so a commented-out define (common after hand edits) can
+// never shadow the live one.
 func parseWPConfig(content []byte) *db.Credentials {
-	name := wpDefine(content, "DB_NAME")
+	masked := maskPHPComments(content)
+	name := wpDefine(masked, "DB_NAME")
 	if name == "" {
 		return nil
 	}
 	creds := &db.Credentials{
 		Name:        name,
-		User:        wpDefine(content, "DB_USER"),
-		Password:    wpDefine(content, "DB_PASSWORD"),
-		TablePrefix: firstSubmatch(wpTablePrefix, content),
+		User:        wpDefine(masked, "DB_USER"),
+		Password:    wpDefine(masked, "DB_PASSWORD"),
+		TablePrefix: firstSubmatch(wpTablePrefix, masked),
 		Method:      "config-parse",
 	}
-	applyHost(creds, wpDefine(content, "DB_HOST"))
+	applyHost(creds, wpDefine(masked, "DB_HOST"))
 	return creds
 }

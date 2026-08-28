@@ -50,7 +50,7 @@ func (w WordPress) Detect(ctx context.Context, fs detect.FS, dir string) (*detec
 	if configFile != "" {
 		install.ConfigFile = configFile
 		if content, err := fs.ReadFile(ctx, configFile); err == nil {
-			if prefix := firstSubmatch(wpTablePrefix, content); prefix != "" {
+			if prefix := firstSubmatch(wpTablePrefix, maskPHPComments(content)); prefix != "" {
 				install.Extra = map[string]string{"table_prefix": prefix}
 			}
 		}
