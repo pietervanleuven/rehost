@@ -154,6 +154,11 @@ func cutoverSteps(v tui.CutoverView) []string {
 				break
 			}
 		}
+		if ttlNote == "" && !v.DNS.AuthoritativeTTLs {
+			// Low-looking TTLs from a resolver cache are decaying remainders;
+			// the flip plan must not be built on them.
+			ttlNote = " (TTLs could only be read from a resolver cache — confirm the real TTL at the DNS provider before planning the flip)"
+		}
 		steps = append(steps, "point the domain's A/AAAA records at "+v.DestIP+ttlNote)
 	} else {
 		steps = append(steps, "point the domain's A/AAAA records at "+v.DestIP+
