@@ -26,6 +26,10 @@ type Credentials struct {
 	// Method records which extraction layer succeeded ("wp-cli", "drush",
 	// "php", "config-parse") so reports can say how trustworthy the data is.
 	Method string `json:"method,omitempty"`
+	// Charset, when learned from inspection, pins the dump connection's
+	// character set so a legacy site storing UTF-8 in latin1 columns is
+	// dumped as the bytes it holds instead of being transcoded.
+	Charset string `json:"charset,omitempty"`
 }
 
 // Runner executes commands on the source host; *ssh.Client satisfies it.

@@ -36,8 +36,7 @@ SELECT 'utf8mb4', COUNT(*) FROM information_schema.TABLES WHERE table_schema = D
 // failure; mysql-level failures come back as Connected=false.
 func Inspect(ctx context.Context, r Runner, creds *Credentials) (*Inspection, error) {
 	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(inspectSQL) + " " + ssh.ShellQuote(creds.Name) +
-		" <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+		ssh.ShellQuote(inspectSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -48,6 +47,20 @@ func Inspect(ctx context.Context, r Runner, creds *Credentials) (*Inspection, er
 	insp := parseInspection(res.Stdout)
 	insp.Connected = true
 	return insp, nil
+}
+
+// credsHeredoc renders the stdin heredoc that carries clientDefaults, with a
+// marker guaranteed absent from the body: cnfQuote escapes quotes and
+// backslashes but not newlines, so a credential containing a marker line
+// would otherwise terminate the heredoc early (and leak the rest into the
+// shell). suffix goes after the marker on the command line (e.g. " | gzip").
+func credsHeredoc(creds *Credentials, suffix string) string {
+	body := clientDefaults(creds)
+	marker := "REHOST_CNF"
+	for strings.Contains(body, marker) {
+		marker += "Z"
+	}
+	return " <<'" + marker + "'" + suffix + "\n" + body + marker
 }
 
 // clientDefaults renders the [client] section for --defaults-extra-file.
