@@ -29,6 +29,12 @@ type Snapshot struct {
 	// MailHosts maps each MX target to the IPs it resolves to, for the
 	// "mail points at the source" warning.
 	MailHosts map[string][]string `json:"mail_hosts,omitempty"`
+	// AuthoritativeTTLs reports whether the TTLs were confirmed against one
+	// of the domain's own nameservers. False means they came from a
+	// recursive resolver's cache, where TTL is the decaying remainder — an
+	// authoritative 86400 can read as 120 — so "TTL is already low" advice
+	// must hedge. (A HIGH cached TTL is always trustworthy: cached ≤ real.)
+	AuthoritativeTTLs bool `json:"authoritative_ttls,omitempty"`
 }
 
 // exchangeFunc is the seam tests replace; production uses miekg/dns.
@@ -100,8 +106,69 @@ func (c *Client) Snapshot(ctx context.Context, domain string) (*Snapshot, error)
 		return nil, fmt.Errorf("looking up %s: %w", domain, lastErr)
 	}
 	sortRecords(snap.Records)
+	c.refineAuthoritativeTTLs(ctx, snap)
 	c.resolveMailHosts(ctx, snap)
 	return snap, nil
+}
+
+// refineAuthoritativeTTLs re-asks the domain's own nameserver (best-effort,
+// non-recursive) and overwrites the TTL of every record it confirms. Values
+// stay as the recursive snapshot resolved them — following a CNAME is the
+// recursive resolver's job — only TTLs are corrected, because a cached TTL
+// is a decaying remainder and the cutover advice must not call an
+// authoritative 86400 "already low". Any failure leaves the snapshot as it
+// was, with AuthoritativeTTLs false.
+func (c *Client) refineAuthoritativeTTLs(ctx context.Context, snap *Snapshot) {
+	server := c.authoritativeServer(ctx, snap)
+	if server == "" {
+		return
+	}
+	auth := map[string]uint32{}
+	for _, qt := range queryTypes {
+		m := new(mdns.Msg)
+		m.SetQuestion(mdns.Fqdn(snap.Domain), qt)
+		m.RecursionDesired = false
+		r, err := c.exchange(ctx, m, server)
+		if err != nil || (r.Rcode != mdns.RcodeSuccess && r.Rcode != mdns.RcodeNameError) {
+			return // partial authority is no authority
+		}
+		for _, rec := range recordsFrom(r.Answer) {
+			auth[rec.Type+"\x00"+rec.Value] = rec.TTL
+		}
+	}
+	confirmed := false
+	for i, rec := range snap.Records {
+		if ttl, ok := auth[rec.Type+"\x00"+rec.Value]; ok {
+			snap.Records[i].TTL = ttl
+			confirmed = true
+		}
+	}
+	snap.AuthoritativeTTLs = confirmed
+}
+
+// authoritativeServer resolves the domain's first reachable NS to an
+// address, or "" when none can be found.
+func (c *Client) authoritativeServer(ctx context.Context, snap *Snapshot) string {
+	for _, rec := range snap.Records {
+		if rec.Type != "NS" {
+			continue
+		}
+		for _, qt := range []uint16{mdns.TypeA, mdns.TypeAAAA} {
+			rrs, err := c.query(ctx, rec.Value, qt)
+			if err != nil {
+				continue
+			}
+			for _, r := range recordsFrom(rrs) {
+				switch r.Type {
+				case "A":
+					return r.Value + ":53"
+				case "AAAA":
+					return "[" + r.Value + "]:53"
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // resolveMailHosts resolves each MX target to its IPs (best-effort).
@@ -132,7 +199,7 @@ func (c *Client) resolveMailHosts(ctx context.Context, snap *Snapshot) {
 	}
 }
 
-// query asks each configured server until one answers.
+// query asks each configured server until one gives a usable answer.
 func (c *Client) query(ctx context.Context, name string, qtype uint16) ([]mdns.RR, error) {
 	m := new(mdns.Msg)
 	m.SetQuestion(mdns.Fqdn(name), qtype)
@@ -144,8 +211,15 @@ func (c *Client) query(ctx context.Context, name string, qtype uint16) ([]mdns.R
 			lastErr = err
 			continue
 		}
-		// NXDOMAIN and friends are honest absences, not failures.
-		return r.Answer, nil
+		switch r.Rcode {
+		case mdns.RcodeSuccess, mdns.RcodeNameError:
+			// NOERROR-empty and NXDOMAIN are honest absences, not failures.
+			return r.Answer, nil
+		default:
+			// SERVFAIL/REFUSED from one resolver says nothing about the
+			// records — the next resolver gets its turn.
+			lastErr = fmt.Errorf("%s answered %s for %s", server, mdns.RcodeToString[r.Rcode], name)
+		}
 	}
 	return nil, lastErr
 }

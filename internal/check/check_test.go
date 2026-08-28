@@ -469,14 +469,22 @@ func TestDNSTTLRule(t *testing.T) {
 		t.Errorf("warning should suggest the ~300s target TTL, got %q", r.Detail)
 	}
 
-	// Low TTL: no warning (an Ok confirmation is fine).
+	// Low TTL from a resolver cache: never "cutover-ready" — a cached value
+	// is the decaying remainder of a possibly-huge authoritative TTL.
 	base.DNS.Records = []dns.Record{
 		{Type: "A", Value: "192.0.2.10", TTL: 300},
 		{Type: "CNAME", Value: "example.com", TTL: 120},
 	}
-	if r := byID(t, Run(base), "dns.ttl"); r.Severity == Warning {
-		t.Errorf("low TTLs should not warn, got %+v", r)
+	if r := byID(t, Run(base), "dns.ttl"); r.Severity != Info || !strings.Contains(r.Detail, "resolver cache") {
+		t.Errorf("low cached TTLs should hedge as info, got %+v", r)
 	}
+
+	// The same low TTLs confirmed at the domain's nameserver: Ok.
+	base.DNS.AuthoritativeTTLs = true
+	if r := byID(t, Run(base), "dns.ttl"); r.Severity != Ok || !strings.Contains(r.Detail, "ready for a fast cutover") {
+		t.Errorf("authoritative low TTLs should confirm readiness, got %+v", r)
+	}
+	base.DNS.AuthoritativeTTLs = false
 
 	// Snapshot present but no A/AAAA/CNAME records at all: nothing to advise.
 	base.DNS.Records = []dns.Record{{Type: "MX", Value: "mail.example.com", TTL: 86400, Priority: 10}}

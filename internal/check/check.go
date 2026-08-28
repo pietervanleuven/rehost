@@ -541,12 +541,19 @@ func checkDNSTTL(in Input, add addFunc) {
 
 	switch {
 	case len(offending) > 0:
+		// A high TTL is trustworthy from any resolver: a cached value only
+		// ever under-reports the authoritative one.
 		add("dns.ttl", title, Warning,
 			fmt.Sprintf("%s above %ds — lower the TTL to ~%ds now, well before migration day, so the eventual DNS cutover propagates quickly",
 				strings.Join(offending, ", "), ttlWarnAboveSeconds, ttlLowEnoughSeconds))
-	case maxTTL <= ttlLowEnoughSeconds:
+	case maxTTL <= ttlLowEnoughSeconds && in.DNS.AuthoritativeTTLs:
 		add("dns.ttl", title, Ok,
-			fmt.Sprintf("TTLs are already %ds or lower — ready for a fast cutover", ttlLowEnoughSeconds))
+			fmt.Sprintf("TTLs are already %ds or lower (confirmed at the domain's nameserver) — ready for a fast cutover", ttlLowEnoughSeconds))
+	case maxTTL <= ttlLowEnoughSeconds:
+		// A LOW cached TTL proves nothing: it may be the decaying remainder
+		// of an authoritative 86400. Never call that cutover-ready.
+		add("dns.ttl", title, Info,
+			fmt.Sprintf("TTLs read %ds or lower, but only from a resolver cache (the decaying remainder, not the configured value) — confirm the real TTL at the DNS provider before planning a fast cutover", maxTTL))
 	}
 }
 
