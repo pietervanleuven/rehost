@@ -22,16 +22,19 @@ type ui struct {
 	progress    func(format string, a ...any)
 }
 
-// newUI resolves the output mode once and derives the rest: prompts only
-// exist on an interactive terminal, progress goes to stderr so the report on
-// stdout stays clean, and JSON mode stays silent so nothing but the document
-// reaches a consumer.
+// newUI resolves the output mode once and derives the rest: progress goes to
+// stderr so the report on stdout stays clean, and JSON mode stays silent so
+// nothing but the document reaches a consumer. Interactivity is decided from
+// the terminal itself (stdin+stderr are TTYs), NOT from the styling mode:
+// NO_COLOR or a piped stdout change how output looks, not whether the
+// operator is present to answer a password prompt (prompts render on
+// stderr). --json opts out — it declares an automated consumer.
 func newUI(cmd *cobra.Command, opts *options) ui {
 	mode := opts.outputMode(cmd.OutOrStdout())
 	u := ui{
 		mode:        mode,
 		renderer:    tui.New(mode, cmd.OutOrStdout()),
-		interactive: mode == tui.ModeStyled,
+		interactive: mode != tui.ModeJSON && stdinIsTerminal() && stderrIsTerminal(),
 	}
 	if u.interactive {
 		u.prompter = tui.HuhPrompter{}
@@ -45,6 +48,13 @@ func newUI(cmd *cobra.Command, opts *options) ui {
 	}
 	return u
 }
+
+// stdinIsTerminal and stderrIsTerminal are seams for tests; production asks
+// the real file descriptors.
+var (
+	stdinIsTerminal  = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+	stderrIsTerminal = func() bool { return term.IsTerminal(int(os.Stderr.Fd())) }
+)
 
 // fail routes err through the renderer in JSON mode — stdout stays a
 // machine-readable document even on failure — and returns it unchanged, so
