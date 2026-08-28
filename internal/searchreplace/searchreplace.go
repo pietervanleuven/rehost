@@ -163,14 +163,23 @@ func (r *Replacer) walk(n node, from, to string, depth int) bool {
 // content gets a plain substring replacement and its byte length is recomputed
 // by serialize.
 func (r *Replacer) walkStr(s *strVal, from, to string, depth int) bool {
-	if depth < r.maxDepth() {
-		if inner, end, err := parse(s.content, 0, 0); err == nil && end == len(s.content) {
-			if r.walk(inner, from, to, depth+1) {
-				s.content = serialize(inner)
-				return true
+	if inner, end, err := parse(s.content, 0, 0); err == nil && end == len(s.content) {
+		if depth >= r.maxDepth() {
+			// Serialized content nested past the recursion cap: a plain
+			// substring replacement would desync its inner length headers —
+			// the one corruption this package promises never to produce. Per
+			// the corrupt-input contract it stays untouched, counted only
+			// when a replacement was actually due.
+			if bytes.Contains(s.content, []byte(from)) {
+				r.Stats.Unparseable++
 			}
 			return false
 		}
+		if r.walk(inner, from, to, depth+1) {
+			s.content = serialize(inner)
+			return true
+		}
+		return false
 	}
 	nc := bytes.ReplaceAll(s.content, []byte(from), []byte(to))
 	if !bytes.Equal(nc, s.content) {
