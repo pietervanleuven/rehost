@@ -89,8 +89,18 @@ func (c *Client) StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w 
 	select {
 	case <-ctx.Done():
 		_ = sess.Close()
-		<-done
-		return Result{Stderr: stderr.String(), ExitCode: -1}, ctx.Err()
+		// sess.Close does not interrupt a Read blocked in the caller's stdin
+		// reader, so the session goroutine may never finish — bound the wait
+		// instead of hanging the cancellation forever. An abandoned goroutine
+		// exits when its stdin read eventually returns; done is buffered, so
+		// its send never blocks. On timeout the goroutine still owns stderr,
+		// so it is not read.
+		select {
+		case <-done:
+			return Result{Stderr: stderr.String(), ExitCode: -1}, ctx.Err()
+		case <-time.After(5 * time.Second):
+			return Result{ExitCode: -1}, ctx.Err()
+		}
 	case err := <-done:
 		res := Result{Stderr: stderr.String()}
 		var exitErr *cryptossh.ExitError
