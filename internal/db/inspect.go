@@ -35,7 +35,10 @@ SELECT 'utf8mb4', COUNT(*) FROM information_schema.TABLES WHERE table_schema = D
 // appears in the remote argv or environment. An error return is a transport
 // failure; mysql-level failures come back as Connected=false.
 func Inspect(ctx context.Context, r Runner, creds *Credentials) (*Inspection, error) {
-	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
+	if NormalizeDriver(creds.Driver) == DriverPostgres {
+		return inspectPG(ctx, r, creds)
+	}
+	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
 		ssh.ShellQuote(inspectSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {

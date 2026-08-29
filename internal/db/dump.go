@@ -36,20 +36,23 @@ type DumpStats struct {
 // mysqldump, before the pipe — a trailing redirection in a pipeline attaches
 // to the last command, which would feed the defaults file to gzip instead.
 func dumpCmd(creds *Credentials) string {
-	cmd := "mysqldump --defaults-extra-file=/dev/stdin --single-transaction --quick --no-tablespaces --routines --triggers"
+	cmd := creds.dumper() + " --defaults-extra-file=/dev/stdin --single-transaction --quick --no-tablespaces --routines --triggers"
 	if creds.Charset != "" {
 		cmd += " --default-character-set=" + ssh.ShellQuote(creds.Charset)
 	}
 	return cmd + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, " | gzip")
 }
 
-// Dump streams a gzipped mysqldump of the database into w while verifying
-// it on the fly: the stream is gunzipped in memory to count bytes and
-// tables and to confirm mysqldump's completion footer — the guard against
-// a silently truncated dump (the shell reports gzip's exit status, not
-// mysqldump's). A verification failure returns the stats alongside the
-// error so callers can report what did arrive.
+// Dump streams a gzipped dump of the database into w while verifying it on
+// the fly: the stream is gunzipped in memory to count bytes and tables and
+// to confirm the dumper's completion footer — the guard against a silently
+// truncated dump (the shell reports gzip's exit status, not the dumper's).
+// A verification failure returns the stats alongside the error so callers
+// can report what did arrive. PostgreSQL credentials dispatch to DumpPG.
 func Dump(ctx context.Context, s Streamer, creds *Credentials, w io.Writer) (*DumpStats, error) {
+	if NormalizeDriver(creds.Driver) == DriverPostgres {
+		return DumpPG(ctx, s, creds, w)
+	}
 	return streamVerifiedDump(ctx, s, dumpCmd(creds), w, creds, "mysqldump", "mysqldump's")
 }
 
@@ -139,17 +142,19 @@ func analyzeDump(r io.Reader, stats *DumpStats) {
 	stats.FooterOK = footerComplete(tail)
 }
 
-// footerComplete reports whether the dump's last non-blank line is the
-// completion footer. Anchoring to the final line (rather than a substring
-// search anywhere in the tail) stops a truncated dump whose last bytes merely
-// quote "-- Dump completed" inside a row from passing as complete: real dumps
-// always end with the footer, after all data.
+// footerComplete reports whether the dump's last non-blank line is a
+// completion footer — mysqldump's "-- Dump completed on …" or pg_dump's
+// "-- PostgreSQL database dump complete". Anchoring to the final line
+// (rather than a substring search anywhere in the tail) stops a truncated
+// dump whose last bytes merely quote a footer inside a row from passing as
+// complete: real dumps always end with the footer, after all data.
 func footerComplete(tail []byte) bool {
 	trimmed := strings.TrimRight(string(tail), "\r\n \t")
 	if i := strings.LastIndexByte(trimmed, '\n'); i >= 0 {
 		trimmed = trimmed[i+1:]
 	}
-	return strings.HasPrefix(trimmed, "-- Dump completed")
+	return strings.HasPrefix(trimmed, "-- Dump completed") ||
+		strings.HasPrefix(trimmed, "-- PostgreSQL database dump complete")
 }
 
 type countingWriter struct{ n int64 }
