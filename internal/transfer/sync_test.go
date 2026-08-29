@@ -24,6 +24,7 @@ type fakeConn struct {
 	streamRes ssh.Result
 	streamErr error
 	noDrain   bool // return without reading stdin, like an extract dying early
+	marker    bool // an interrupted-transfer marker exists on this end
 
 	mu         sync.Mutex
 	runCmds    []string
@@ -42,7 +43,12 @@ func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
 		return ssh.Result{ExitCode: f.rmExit}, nil
 	case strings.Contains(cmd, "-printf"):
 		return ssh.Result{Stdout: f.printf, ExitCode: f.printfExit}, nil
-	default: // find fallbacks (print0/print) — unused; report empty clean run
+	case strings.HasPrefix(cmd, "test -e"):
+		if f.marker {
+			return ssh.Result{}, nil
+		}
+		return ssh.Result{ExitCode: 1}, nil
+	default: // marker write, find fallbacks (print0/print) — empty clean run
 		return ssh.Result{}, nil
 	}
 }
@@ -140,9 +146,10 @@ func TestSyncSendsDelta(t *testing.T) {
 	if stats.WireBytes != int64(len(src.streamOut)) {
 		t.Errorf("WireBytes = %d, want %d", stats.WireBytes, len(src.streamOut))
 	}
-	// Only the added + changed files travel over the source stdin, NUL-joined.
+	// Only the added + changed files travel over the source stdin, NUL-joined,
+	// ./-prefixed so tar can never read a filename as an option.
 	list := string(src.firstStdin())
-	if list != "c.txt\x00b.txt\x00" {
+	if list != "./c.txt\x00./b.txt\x00" {
 		t.Errorf("send list = %q", list)
 	}
 	if len(src.streamCmds) != 1 || !strings.Contains(src.streamCmds[0], "tar -c --null -T - -f -") ||
@@ -209,7 +216,7 @@ func TestSyncNullFilenamesSurvive(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := string(src.firstStdin())
-	if !strings.Contains(list, "weird\nname.txt\x00") || !strings.Contains(list, "a b.jpg\x00") {
+	if !strings.Contains(list, "./weird\nname.txt\x00") || !strings.Contains(list, "./a b.jpg\x00") {
 		t.Errorf("NUL list must keep odd filenames byte-exact: %q", list)
 	}
 	if !strings.Contains(src.streamCmds[0], "--null") {
@@ -224,7 +231,7 @@ func TestSyncNewlineListWhenNotNull(t *testing.T) {
 	if _, err := Sync(context.Background(), s, d, nil, Options{NullList: false}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if list := string(src.firstStdin()); list != "a.txt\nb.txt\n" {
+	if list := string(src.firstStdin()); list != "./a.txt\n./b.txt\n" {
 		t.Errorf("non-NUL list should be newline-delimited: %q", list)
 	}
 	if strings.Contains(src.streamCmds[0], "--null") {
@@ -475,4 +482,93 @@ func hasPhase(phases []string, sub string) bool {
 		}
 	}
 	return false
+}
+
+// A relay is bracketed by the in-progress marker: written before the tar
+// pipe opens, removed after it converges, excluded from manifests.
+func TestSyncMarksRelayInProgress(t *testing.T) {
+	src := &fakeConn{printf: printfLine(1, 1, "a.txt"), streamOut: []byte("z")}
+	dst := &fakeConn{}
+	s, d := endpoints(src, dst)
+	if _, err := Sync(context.Background(), s, d, nil, Options{NullList: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !dst.ranAny(": > '/var/www/site/.rehost-partial-transfer'") {
+		t.Errorf("marker should be written before the relay:\n%v", dst.runCmds)
+	}
+	if !dst.ranAny("rm -f '/var/www/site/.rehost-partial-transfer'") {
+		t.Errorf("marker should be removed after a completed relay:\n%v", dst.runCmds)
+	}
+	if !dst.ranAny(`.rehost-partial-transfer' \) -prune`) {
+		t.Errorf("marker should be excluded from the destination manifest:\n%v", dst.runCmds)
+	}
+}
+
+// In degraded (paths-only) mode a leftover marker forces a full re-send: a
+// half-written file classifies as Unchanged by presence, so the marker is
+// the only repair signal.
+func TestSyncDegradedResendsAfterInterruptedRelay(t *testing.T) {
+	// printfExit 1 with no output pushes both ends down the paths-only ladder.
+	srcListing := "/home/u/site/a.txt\x00/home/u/site/b.txt\x00"
+	src := &fakeConn{streamOut: []byte("z")}
+	dst := &fakeConn{marker: true}
+	src.printfExit, dst.printfExit = 1, 1
+	// The print0 fallback goes through Run's default branch; script it via printf
+	// fields being empty and answering the fallback with the listing instead.
+	srcConn := &fallbackConn{fakeConn: src, listing: srcListing}
+	dstConn := &fallbackConn{fakeConn: dst, listing: "/var/www/site/a.txt\x00/var/www/site/b.txt\x00"}
+	s := Endpoint{Conn: srcConn, Root: "/home/u/site", Target: "u@source"}
+	d := Endpoint{Conn: dstConn, Root: "/var/www/site", Target: "u@dest"}
+
+	stats, err := Sync(context.Background(), s, d, nil, Options{NullList: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Degraded {
+		t.Fatal("expected a degraded sync")
+	}
+	// Presence-only diff sees nothing to send; the marker must force both files.
+	if stats.FilesSent != 2 {
+		t.Errorf("FilesSent = %d, want 2 (full re-send)", stats.FilesSent)
+	}
+	list := string(src.firstStdin())
+	if !strings.Contains(list, "./a.txt") || !strings.Contains(list, "./b.txt") {
+		t.Errorf("send list should carry every file: %q", list)
+	}
+}
+
+// Without a marker, a degraded sync keeps its presence-only diff.
+func TestSyncDegradedNoMarkerNoResend(t *testing.T) {
+	src := &fakeConn{streamOut: []byte("z")}
+	dst := &fakeConn{}
+	src.printfExit, dst.printfExit = 1, 1
+	srcConn := &fallbackConn{fakeConn: src, listing: "/home/u/site/a.txt\x00"}
+	dstConn := &fallbackConn{fakeConn: dst, listing: "/var/www/site/a.txt\x00"}
+	s := Endpoint{Conn: srcConn, Root: "/home/u/site", Target: "u@source"}
+	d := Endpoint{Conn: dstConn, Root: "/var/www/site", Target: "u@dest"}
+
+	stats, err := Sync(context.Background(), s, d, nil, Options{NullList: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stats.Degraded || stats.FilesSent != 0 {
+		t.Errorf("degraded no-marker sync should send nothing: %+v", stats)
+	}
+}
+
+// fallbackConn answers the -print0 manifest fallback with a canned listing,
+// delegating everything else to the embedded fakeConn.
+type fallbackConn struct {
+	*fakeConn
+	listing string
+}
+
+func (f *fallbackConn) Run(ctx context.Context, cmd string) (ssh.Result, error) {
+	if strings.Contains(cmd, "-print0") {
+		f.mu.Lock()
+		f.runCmds = append(f.runCmds, cmd)
+		f.mu.Unlock()
+		return ssh.Result{Stdout: f.listing}, nil
+	}
+	return f.fakeConn.Run(ctx, cmd)
 }

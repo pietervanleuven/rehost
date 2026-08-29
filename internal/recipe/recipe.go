@@ -18,6 +18,9 @@ func All() []detect.Recipe {
 	return []detect.Recipe{
 		Drupal{},
 		WordPress{},
+		Joomla{},
+		PrestaShop{},
+		Craft{},
 		Static{},
 	}
 }

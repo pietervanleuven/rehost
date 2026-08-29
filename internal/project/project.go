@@ -67,6 +67,10 @@ type SiteDB struct {
 	User string `yaml:"user,omitempty"`
 	Host string `yaml:"host,omitempty"` // empty = localhost on the destination
 	Port int    `yaml:"port,omitempty"`
+	// Driver overrides the engine family (mysql/mariadb/pgsql). Empty means
+	// "same as the source site's database" — the right answer in practice,
+	// since rehost never converts between engines.
+	Driver string `yaml:"driver,omitempty"`
 }
 
 // Host describes how to reach one host. Zero values defer to ~/.ssh/config
@@ -80,6 +84,13 @@ type Host struct {
 }
 
 var validAuth = map[string]bool{"": true, "agent": true, "key": true, "password": true}
+
+// validDBDriver bounds dest_db.driver to the engine families rehost handles;
+// a typo here must fail loudly, not silently normalize to mysql.
+var validDBDriver = map[string]bool{
+	"": true, "mysql": true, "mariadb": true,
+	"pgsql": true, "postgres": true, "postgresql": true,
+}
 
 // secretFieldNames trigger a targeted error when found as unknown YAML keys.
 var secretFieldNames = []string{"password", "pass", "passwd", "secret", "token", "api_key"}
@@ -140,8 +151,16 @@ func (f *File) Validate() error {
 		if s.DestDB.Name == "" {
 			return fmt.Errorf("sites[%d].dest_db needs a name (the panel-created destination database)", i)
 		}
+		// A database name is an identifier, never a path — a separator here
+		// would let migrate.yaml steer file names and remote commands.
+		if strings.ContainsAny(s.DestDB.Name, "/\\") || s.DestDB.Name == "." || s.DestDB.Name == ".." {
+			return fmt.Errorf("sites[%d].dest_db.name %q is not a valid database name", i, s.DestDB.Name)
+		}
 		if s.DestDB.Port < 0 || s.DestDB.Port > 65535 {
 			return fmt.Errorf("sites[%d].dest_db.port %d is out of range", i, s.DestDB.Port)
+		}
+		if !validDBDriver[strings.ToLower(s.DestDB.Driver)] {
+			return fmt.Errorf("sites[%d].dest_db.driver must be one of mysql, mariadb, pgsql (or omitted to follow the source), got %q", i, s.DestDB.Driver)
 		}
 	}
 	return nil

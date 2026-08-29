@@ -7,6 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -146,5 +150,81 @@ func TestDumpTransportFailure(t *testing.T) {
 	s := &fakeStreamer{err: errors.New("connection lost")}
 	if _, err := Dump(context.Background(), s, &Credentials{Name: "d"}, io.Discard); err == nil {
 		t.Error("transport failure must propagate")
+	}
+}
+
+// TestDumpCommandThroughShell runs the exact pipeline dumpCmd builds through
+// a real shell with a stub mysqldump, proving the heredoc binds to mysqldump
+// (which must find the password on stdin) and gzip compresses mysqldump's
+// output — not the defaults file. A misplaced redirection would feed the
+// credentials to gzip and leave mysqldump passwordless, which is exactly the
+// failure this asserts against.
+func TestDumpCommandThroughShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the command runs on a remote POSIX shell")
+	}
+	bin := t.TempDir()
+	stub := `#!/bin/sh
+creds=$(cat)
+case "$creds" in
+*'password="sekret"'*) ;;
+*) echo "stub mysqldump: no password on stdin" >&2; exit 1 ;;
+esac
+for a in "$@"; do last="$a"; done
+printf -- '-- MySQL dump stub of %s\n-- Dump completed on test\n' "$last"
+`
+	if err := os.WriteFile(filepath.Join(bin, "mysqldump"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	creds := &Credentials{Name: "wpdb", User: "u", Password: "sekret"}
+	cmd := exec.Command("sh", "-c", dumpCmd(creds))
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("pipeline failed: %v stderr=%s", err, stderr.String())
+	}
+
+	gz, err := gzip.NewReader(&stdout)
+	if err != nil {
+		t.Fatalf("stdout is not gzip: %v", err)
+	}
+	sql, err := io.ReadAll(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sql), "-- Dump completed") {
+		t.Errorf("gzip did not carry mysqldump's output:\n%s", sql)
+	}
+	if strings.Contains(string(sql), "sekret") {
+		t.Error("the defaults file (with the password) was compressed into the dump")
+	}
+	if !strings.Contains(string(sql), "wpdb") {
+		t.Errorf("database name missing from stub argv:\n%s", sql)
+	}
+}
+
+// A credential that embeds the heredoc marker as its own line must not
+// terminate the defaults-file heredoc early.
+func TestCredsHeredocMarkerCollision(t *testing.T) {
+	creds := &Credentials{Name: "d", User: "u", Password: "x\nREHOST_CNF\ny"}
+	cmd := dumpCmd(creds)
+	marker := "REHOST_CNFZ"
+	if !strings.Contains(cmd, "<<'"+marker+"'") || !strings.HasSuffix(cmd, marker) {
+		t.Errorf("marker should grow past the colliding credential:\n%s", cmd)
+	}
+}
+
+// The inspected charset pins the dump connection.
+func TestDumpCmdCharset(t *testing.T) {
+	with := dumpCmd(&Credentials{Name: "d", Charset: "latin1"})
+	if !strings.Contains(with, "--default-character-set='latin1'") {
+		t.Errorf("charset flag missing: %s", with)
+	}
+	without := dumpCmd(&Credentials{Name: "d"})
+	if strings.Contains(without, "--default-character-set") {
+		t.Errorf("no inspected charset → no flag: %s", without)
 	}
 }

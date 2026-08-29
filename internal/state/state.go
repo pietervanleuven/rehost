@@ -332,3 +332,58 @@ func MigratedDatabases(entries []Entry) map[string]bool {
 	}
 	return dbs
 }
+
+// runLockDir is the advisory cross-run lock inside Dir. mkdir is atomic, so
+// exactly one run can create it; a second concurrent migrate would otherwise
+// interleave tar pipes into the same docroots and race the history file's
+// read-modify-rewrite compaction.
+const runLockDir = "lock"
+
+// lockHeldExit distinguishes "the lock directory already exists" from other
+// mkdir failures without parsing stderr.
+const lockHeldExit = 47
+
+// LockPath returns the advisory lock directory for a home, for messages.
+func LockPath(home string) string {
+	return path.Join(Dir(home), runLockDir)
+}
+
+// AcquireLock takes the advisory per-host run lock. A held lock is an error
+// telling the user who to check and how to clear a stale one — rehost cannot
+// tell a live concurrent run from a crashed one, so it never steals the lock.
+func AcquireLock(ctx context.Context, r runner, home string) error {
+	dir := ssh.ShellQuote(Dir(home))
+	lock := ssh.ShellQuote(LockPath(home))
+	info := ssh.ShellQuote(path.Join(LockPath(home), "info"))
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	cmd := "mkdir -p " + dir + " && { mkdir " + lock + " 2>/dev/null || { cat " + info + " 2>/dev/null; exit " + fmt.Sprint(lockHeldExit) + "; }; }" +
+		" && echo " + ssh.ShellQuote("started "+stamp) + " > " + info
+	res, err := r.Run(ctx, cmd)
+	if err != nil {
+		return err
+	}
+	switch {
+	case res.ExitCode == lockHeldExit:
+		holder := strings.TrimSpace(res.Stdout)
+		if holder == "" {
+			holder = "unknown start time"
+		}
+		return fmt.Errorf("another rehost run appears to be active on this host (%s) — wait for it to finish; if it crashed, remove %s there and rerun", holder, LockPath(home))
+	case res.ExitCode != 0:
+		return fmt.Errorf("taking the run lock: %s", ssh.FirstLine(res.Stderr))
+	}
+	return nil
+}
+
+// ReleaseLock clears the advisory run lock. Best-effort by nature: a failure
+// only means the next run sees a stale lock and its error explains the fix.
+func ReleaseLock(ctx context.Context, r runner, home string) error {
+	res, err := r.Run(ctx, "rm -rf "+ssh.ShellQuote(LockPath(home)))
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("releasing the run lock: %s", ssh.FirstLine(res.Stderr))
+	}
+	return nil
+}

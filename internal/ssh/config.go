@@ -5,6 +5,7 @@ package ssh
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -121,7 +122,9 @@ func (c Config) Addr() string {
 	if host == "" {
 		host = c.Host
 	}
-	return fmt.Sprintf("%s:%d", host, c.Port)
+	// JoinHostPort brackets IPv6 literals; "%s:%d" would render ::1 as the
+	// undialable "::1:22".
+	return net.JoinHostPort(host, strconv.Itoa(c.Port))
 }
 
 func expandTilde(path string) string {
