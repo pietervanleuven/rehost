@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // Streamer executes a remote command with streaming stdout; *ssh.Client

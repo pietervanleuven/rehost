@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // fakeStreamer writes canned payload bytes to the stream writer.

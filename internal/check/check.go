@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pietervanleuven/go-dns"
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/dns"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Severity classifies one result.

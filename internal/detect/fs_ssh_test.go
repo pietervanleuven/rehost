@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // scriptRunner answers remote commands from a function, for exercising sshFS.

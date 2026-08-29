@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // fakeStreamer emits chunks until the writer aborts, mimicking a session

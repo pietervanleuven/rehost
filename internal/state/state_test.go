@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // fakeRunner captures every command and replies with one canned result.

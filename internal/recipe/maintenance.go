@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // ErrMaintenanceTool marks a maintenance failure that is local to one site —
