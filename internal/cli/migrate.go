@@ -93,10 +93,10 @@ type migratePlan struct {
 	delete       bool
 	ontoExisting bool
 
-	srcStream    db.Streamer // dump exec on the source; nil = database step disabled
-	destConn     db.Conn     // import sessions on the destination
-	srcHost      db.Host     // maintenance toggles on the source
-	destHost     db.Host     // config rewrite + post-steps on the destination
+	srcStream db.Streamer // dump exec on the source; nil = database step disabled
+	destConn  db.Conn     // import sessions on the destination
+	srcHost   db.Host     // maintenance toggles on the source
+	destHost  db.Host     // config rewrite + post-steps on the destination
 	srcCreds  map[string]*db.Credentials
 	srcDBs    map[string]*db.Inspection
 	destCreds map[string]*db.Credentials
@@ -222,10 +222,10 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		destConn:     h.dest.client,
 		srcHost:      db.Host{Run: h.source.client, FS: detect.NewSSHFS(h.source.client), Caps: h.source.caps},
 		destHost:     db.Host{Run: h.dest.client, FS: detect.NewSSHFS(h.dest.client), Caps: h.dest.caps},
-		srcCreds:  h.source.creds,
-		srcDBs:    h.source.dbs,
-		destCreds: destCreds,
-		destGzip:  h.dest.caps.Has("gzip"),
+		srcCreds:     h.source.creds,
+		srcDBs:       h.source.dbs,
+		destCreds:    destCreds,
+		destGzip:     h.dest.caps.Has("gzip"),
 		sites:        sites,
 		delete:       del,
 		ontoExisting: ontoExisting,
