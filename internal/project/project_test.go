@@ -245,3 +245,15 @@ func TestSaveFreshFileHasHeader(t *testing.T) {
 		t.Errorf("fresh Save missing header:\n%s", got)
 	}
 }
+
+func TestValidateDestDBDriver(t *testing.T) {
+	f := &File{Version: SchemaVersion, Source: Host{Host: "src.example.com"},
+		Sites: []Site{{Framework: "wordpress", Root: "/w", DestDB: &SiteDB{Name: "d", Driver: "pgsql"}}}}
+	if err := f.Validate(); err != nil {
+		t.Fatalf("pgsql driver should validate: %v", err)
+	}
+	f.Sites[0].DestDB.Driver = "sqlite"
+	if err := f.Validate(); err == nil || !strings.Contains(err.Error(), "driver") {
+		t.Errorf("unknown driver must fail loudly, got %v", err)
+	}
+}
