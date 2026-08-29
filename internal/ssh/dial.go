@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/skeema/knownhosts"
 	cryptossh "golang.org/x/crypto/ssh"
@@ -28,6 +30,31 @@ type Client struct {
 	conn *cryptossh.Client
 	// Config is the resolved configuration the connection was made with.
 	Config Config
+
+	stopKeepalive chan struct{}
+	closeOnce     sync.Once
+}
+
+// keepaliveInterval paces the OpenSSH-style keepalive requests. NAT and
+// stateful firewalls on shared hosting drop quiet control connections, and a
+// multi-hour tar pipe or dump sends nothing on the control channel — without
+// these, a long migration dies mid-transfer with no clear error.
+const keepaliveInterval = 30 * time.Second
+
+// keepalive nudges the connection until Close. Errors are ignored: a dead
+// connection surfaces on the next command, which is the failure the nudging
+// exists to prevent on live ones.
+func (c *Client) keepalive() {
+	t := time.NewTicker(keepaliveInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.stopKeepalive:
+			return
+		case <-t.C:
+			_, _, _ = c.conn.SendRequest("keepalive@openssh.com", true, nil)
+		}
+	}
 }
 
 // Dial resolves cfg against ~/.ssh/config and connects. Host keys are
@@ -43,7 +70,7 @@ func Dial(ctx context.Context, cfg Config, p Prompter) (*Client, error) {
 		return nil, err
 	}
 	defer closeAuth()
-	hostKeyCB, err := hostKeyCallback(p)
+	hostKeyCB, hostKeyAlgos, err := hostKeyCallback(p)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +79,13 @@ func Dial(ctx context.Context, cfg Config, p Prompter) (*Client, error) {
 		User:            cfg.User,
 		Auth:            auths,
 		HostKeyCallback: hostKeyCB,
-		Timeout:         cfg.Timeout,
+		// Prefer the algorithms known_hosts already holds for this host.
+		// Without this, a host known only by an RSA key but also offering
+		// ed25519 presents the ed25519 key (x/crypto's default preference),
+		// and a perfectly healthy host fails hard as "CHANGED / possible
+		// man-in-the-middle". Empty for unknown hosts = library defaults.
+		HostKeyAlgorithms: hostKeyAlgos(cfg.Addr()),
+		Timeout:           cfg.Timeout,
 	}
 
 	dialer := net.Dialer{Timeout: cfg.Timeout}
@@ -65,11 +98,18 @@ func Dial(ctx context.Context, cfg Config, p Prompter) (*Client, error) {
 		_ = netConn.Close()
 		return nil, fmt.Errorf("ssh handshake with %s: %w", cfg.Addr(), err)
 	}
-	return &Client{conn: cryptossh.NewClient(conn, chans, reqs), Config: cfg}, nil
+	client := &Client{
+		conn:          cryptossh.NewClient(conn, chans, reqs),
+		Config:        cfg,
+		stopKeepalive: make(chan struct{}),
+	}
+	go client.keepalive()
+	return client, nil
 }
 
 // Close terminates the connection.
 func (c *Client) Close() error {
+	c.closeOnce.Do(func() { close(c.stopKeepalive) })
 	return c.conn.Close()
 }
 
@@ -207,16 +247,18 @@ func loadSigners(paths []string, p Prompter) ([]cryptossh.Signer, error) {
 
 // hostKeyCallback verifies against ~/.ssh/known_hosts (and known_hosts2 when
 // present). Unknown host: TOFU confirmation, appended on accept. Changed
-// key: hard failure, deliberately not overridable.
-func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, error) {
+// key: hard failure, deliberately not overridable. The second return value
+// reports the key algorithms known_hosts holds for an address, for
+// ClientConfig.HostKeyAlgorithms.
+func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, func(addr string) []string, error) {
 	sshDir := filepath.Join(homeDir(), ".ssh")
 	khPath := filepath.Join(sshDir, "known_hosts")
 	if err := os.MkdirAll(sshDir, 0o700); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if _, err := os.Stat(khPath); os.IsNotExist(err) {
 		if err := os.WriteFile(khPath, nil, 0o600); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	files := []string{khPath}
@@ -228,12 +270,12 @@ func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, error) {
 	// cruft in known_hosts can't block an otherwise valid connection.
 	staged, cleanup, err := stageKnownHosts(files)
 	if err != nil {
-		return nil, fmt.Errorf("reading known_hosts: %w", err)
+		return nil, nil, fmt.Errorf("reading known_hosts: %w", err)
 	}
 	defer cleanup()
 	db, err := knownhosts.NewDB(staged)
 	if err != nil {
-		return nil, fmt.Errorf("parsing known_hosts: %w", err)
+		return nil, nil, fmt.Errorf("parsing known_hosts: %w", err)
 	}
 	verify := db.HostKeyCallback()
 
@@ -256,7 +298,7 @@ func hostKeyCallback(p Prompter) (cryptossh.HostKeyCallback, error) {
 		default:
 			return err
 		}
-	}, nil
+	}, db.HostKeyAlgorithms, nil
 }
 
 func appendKnownHost(path, hostname string, remote net.Addr, key cryptossh.PublicKey) (err error) {

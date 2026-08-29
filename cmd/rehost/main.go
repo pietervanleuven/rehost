@@ -23,7 +23,10 @@ func main() {
 	// process being cut down mid-write. A second signal kills hard.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Exit codes: 0 green/converged, 1 operational failure, 2 a gate
+	// refusal (blockers, destination-state policy) — distinguishable by
+	// scripts, which "exit 1 for everything" was not.
 	if err := cli.Execute(ctx, cli.BuildInfo{Version: version, Commit: commit, Date: date}); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }

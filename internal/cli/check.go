@@ -56,7 +56,7 @@ func runCheck(cmd *cobra.Command, opts *options, docroots []string) error {
 		return err
 	}
 	if blockers, _ := check.Summarize(results); blockers > 0 {
-		return fmt.Errorf("check found %d blocker(s) — fix them and rerun 'rehost check'", blockers)
+		return GateError{fmt.Errorf("check found %d blocker(s) — fix them and rerun 'rehost check'", blockers)}
 	}
 	u.progress("check is green — next: rehost plan --dry-run to rehearse, or rehost migrate to execute")
 	return nil

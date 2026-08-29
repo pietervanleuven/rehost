@@ -28,7 +28,7 @@ func TestDestDBCredentialsPromptsOncePerIdentity(t *testing.T) {
 		{install: wpInstall("/home/u/c")}, // no dest_db
 	}
 	var prompts []string
-	creds, err := destDBCredentials(sites, func(p string) (string, error) {
+	creds, err := destDBCredentials(sites, nil, func(string) bool { return true }, func(p string) (string, error) {
 		prompts = append(prompts, p)
 		return "hunter2", nil
 	})
@@ -48,7 +48,7 @@ func TestDestDBCredentialsPromptsOncePerIdentity(t *testing.T) {
 
 func TestDestDBCredentialsPromptFailureGuides(t *testing.T) {
 	sites := []siteDest{{install: wpInstall("/home/u/a"), destDB: &project.SiteDB{Name: "d"}}}
-	_, err := destDBCredentials(sites, func(string) (string, error) {
+	_, err := destDBCredentials(sites, nil, func(string) bool { return true }, func(string) (string, error) {
 		return "", errors.New("no terminal")
 	})
 	if err == nil || !strings.Contains(err.Error(), "interactively") {
@@ -152,7 +152,7 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 		t.Errorf("config rewrite result = %+v", d)
 	}
 	destCmds := recordsFor(dest.runs)
-	if !strings.Contains(destCmds, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
+	if !strings.Contains(destCmds, "mv -f '/home/d/www/wp-config.php.rehost-tmp' '/home/d/www/wp-config.php'") || !strings.Contains(destCmds, "'u1_wp'") {
 		t.Errorf("the rewritten config should be written on the destination:\n%s", destCmds)
 	}
 	// The destination must be taken out of maintenance mode after cutover, or a
@@ -233,19 +233,21 @@ func dbPlan(source, dest *fakeConn, stateDir string) migratePlan {
 		dest:      dest,
 		srcStream: nopStreamer{},
 		destConn:  dest,
-		srcHost:   db.Host{Run: source},
+		srcHost: db.Host{Run: source, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{
+			"mysqldump": {Name: "mysqldump", Found: true},
+			"mysql":     {Name: "mysql", Found: true},
+		}}},
 		destHost:  db.Host{Run: dest},
 		srcCreds:  map[string]*db.Credentials{root: {Name: "wp_src", User: "u", Password: "pw"}},
 		destCreds: map[string]*db.Credentials{root: {Name: "u1_wp", User: "u1", Password: "pw2"}},
 		sites: []siteDest{
 			{install: wpInstall(root), destRoot: "/home/d/www", destDB: &project.SiteDB{Name: "u1_wp"}},
 		},
-		srcMysqldump: true,
-		srcTarget:    "u@src",
-		destTarget:   "d@dst",
-		srcHome:      "/home/u",
-		destHome:     "/home/d",
-		stateDir:     stateDir,
+		srcTarget:  "u@src",
+		destTarget: "d@dst",
+		srcHome:    "/home/u",
+		destHome:   "/home/d",
+		stateDir:   stateDir,
 	}
 }
 
@@ -315,4 +317,34 @@ func gunzipFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(out)
+}
+
+// The destination database's driver follows the source site's engine —
+// rehost never converts — unless migrate.yaml overrides it explicitly.
+func TestDestDBCredentialsInheritDriver(t *testing.T) {
+	sites := []siteDest{
+		{install: wpInstall("/home/u/craft"), destDB: &project.SiteDB{Name: "pg_db"}},
+		{install: wpInstall("/home/u/blog"), destDB: &project.SiteDB{Name: "my_db"}},
+		{install: wpInstall("/home/u/forced"), destDB: &project.SiteDB{Name: "f_db", Driver: "pgsql"}},
+	}
+	srcCreds := map[string]*db.Credentials{
+		"/home/u/craft": {Name: "src_pg", Driver: "pgsql"},
+		"/home/u/blog":  {Name: "src_my"},
+	}
+	has := func(name string) bool {
+		return name == "psql" || name == "pg_dump" || name == "mariadb" || name == "mariadb-dump"
+	}
+	creds, err := destDBCredentials(sites, srcCreds, has, func(string) (string, error) { return "pw", nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := creds["/home/u/craft"]; db.NormalizeDriver(got.Driver) != db.DriverPostgres || got.Tools.Client != "psql" {
+		t.Errorf("pg site should inherit pgsql + psql tools: %+v", got)
+	}
+	if got := creds["/home/u/blog"]; db.NormalizeDriver(got.Driver) != db.DriverMySQL || got.Tools.Client != "mariadb" {
+		t.Errorf("mysql site should resolve the mariadb-named client here: %+v", got)
+	}
+	if got := creds["/home/u/forced"]; db.NormalizeDriver(got.Driver) != db.DriverPostgres {
+		t.Errorf("explicit dest_db.driver must win: %+v", got)
+	}
 }

@@ -128,11 +128,23 @@ func Import(ctx context.Context, conn Conn, creds *Credentials, dumpPath string,
 		payload = gz
 	}
 
-	if err := importCreds(ctx, conn, creds, charset, opts.RemoteGunzip, payload); err != nil {
+	// The remote leg and the verification count are driver-specific; the
+	// local validation, progress accounting, and convergence contract above
+	// are shared.
+	if NormalizeDriver(creds.Driver) == DriverPostgres {
+		err = importPGRun(ctx, conn, creds, opts.RemoteGunzip, payload)
+	} else {
+		err = importCreds(ctx, conn, creds, charset, opts.RemoteGunzip, payload)
+	}
+	if err != nil {
 		return nil, err
 	}
 
-	n, err := countTables(ctx, conn, creds)
+	count := countTables
+	if NormalizeDriver(creds.Driver) == DriverPostgres {
+		count = countTablesPG
+	}
+	n, err := count(ctx, conn, creds)
 	if err != nil {
 		return nil, fmt.Errorf("import of %s completed but verification failed: %w", creds.Name, err)
 	}
@@ -189,7 +201,7 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	importSQL := "mysql --defaults-extra-file=" + fifoRef +
+	importSQL := creds.client() + " --defaults-extra-file=" + fifoRef +
 		" --default-character-set=" + ssh.ShellQuote(charset) + " " + ssh.ShellQuote(creds.Name)
 	if remoteGunzip {
 		// The pipeline's exit status is mysql's (the last stage) under POSIX
@@ -238,17 +250,18 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 	return nil
 }
 
-// countTablesSQL counts the destination's tables the same way Inspect does,
-// via DATABASE() so the count is scoped to the imported schema.
-const countTablesSQL = `SELECT COUNT(*) FROM information_schema.TABLES WHERE table_schema = DATABASE();`
+// countTablesSQL counts the destination's BASE tables, scoped to the
+// imported schema via DATABASE(). Views are excluded on purpose: the dump
+// side counts CREATE TABLE statements, which cover base tables only, and a
+// database with views would otherwise always report a false mismatch.
+const countTablesSQL = `SELECT COUNT(*) FROM information_schema.TABLES WHERE table_schema = DATABASE() AND TABLE_TYPE = 'BASE TABLE';`
 
 // countTables reads the destination table count for verification. mysql's
 // stdin is free again here, so the password rides the Inspect-style defaults
 // file on stdin (heredoc) rather than a FIFO.
 func countTables(ctx context.Context, r Runner, creds *Credentials) (int, error) {
-	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(countTablesSQL) + " " + ssh.ShellQuote(creds.Name) +
-		" <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
+		ssh.ShellQuote(countTablesSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return 0, err

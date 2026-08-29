@@ -10,19 +10,26 @@ import (
 
 // probedTools are the remote binaries every migration strategy cares about.
 // Recipes can extend this list in later phases.
-var probedTools = []string{"rsync", "mysqldump", "mysql", "tar", "gzip", "php", "wp", "drush", "find"}
+var probedTools = []string{
+	"rsync", "mysqldump", "mysql", "mariadb", "mariadb-dump",
+	"psql", "pg_dump", "tar", "gzip", "php", "wp", "drush", "find",
+}
 
 // versionCmds print a single identifying line per tool; all best-effort.
 var versionCmds = map[string]string{
-	"rsync":     "rsync --version",
-	"mysqldump": "mysqldump --version",
-	"mysql":     "mysql --version",
-	"tar":       "tar --version",
-	"gzip":      "gzip --version",
-	"php":       "php -v",
-	"wp":        "wp cli version",
-	"drush":     "drush --version",
-	"find":      "find --version",
+	"rsync":        "rsync --version",
+	"mysqldump":    "mysqldump --version",
+	"mysql":        "mysql --version",
+	"mariadb":      "mariadb --version",
+	"mariadb-dump": "mariadb-dump --version",
+	"psql":         "psql --version",
+	"pg_dump":      "pg_dump --version",
+	"tar":          "tar --version",
+	"gzip":         "gzip --version",
+	"php":          "php -v",
+	"wp":           "wp cli version",
+	"drush":        "drush --version",
+	"find":         "find --version",
 }
 
 // Tool is one probed remote binary.
@@ -103,10 +110,14 @@ func Probe(ctx context.Context, client *Client) (*Capabilities, error) {
 
 func probeWith(ctx context.Context, r runner, host string) (*Capabilities, error) {
 	res, err := r.Run(ctx, probeScript())
-	if err == nil {
-		if caps, perr := parseProbeOutput(host, res.Stdout); perr == nil {
-			return caps, nil
-		}
+	if err != nil {
+		// A transport error is the connection failing, not the shell being
+		// restricted — a sequential re-probe over the same dead connection
+		// would just fail 20 more times.
+		return nil, err
+	}
+	if caps, perr := parseProbeOutput(host, res.Stdout); perr == nil {
+		return caps, nil
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -158,8 +169,10 @@ func parseProbeOutput(host, out string) (*Capabilities, error) {
 			if !ok {
 				continue
 			}
+			// Only an absolute path counts as found: csh-family which prints
+			// "t: Command not found." on stdout, sometimes with exit 0.
 			path = strings.TrimSpace(path)
-			tool := Tool{Name: name, Found: path != "" && path != "MISSING"}
+			tool := Tool{Name: name, Found: strings.HasPrefix(path, "/")}
 			if tool.Found {
 				tool.Path = path
 			}
@@ -206,6 +219,17 @@ func probeSequential(ctx context.Context, r runner, host string) (*Capabilities,
 		path := ""
 		if res, err := r.Run(ctx, "command -v "+t); err == nil && res.ExitCode == 0 {
 			path = strings.TrimSpace(firstLine(res.Stdout))
+		}
+		if !strings.HasPrefix(path, "/") {
+			// csh-family shells have no `command -v`; try `which` like the
+			// compound script does before declaring the tool missing.
+			path = ""
+			if res, err := r.Run(ctx, "which "+t); err == nil && res.ExitCode == 0 {
+				path = strings.TrimSpace(firstLine(res.Stdout))
+			}
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "" // "t: Command not found." on stdout is not a path
 		}
 		tool := Tool{Name: t, Found: path != ""}
 		if tool.Found {

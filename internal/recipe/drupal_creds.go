@@ -110,8 +110,15 @@ func drupalPHPCredentials(ctx context.Context, r db.Runner, configFile string) (
 	return parseSentinelCreds(res.Stdout, "php"), nil
 }
 
-// parseDrupalSettings is the last-resort regex layer over settings.php.
+// parseDrupalSettings is the last-resort regex layer over settings.php,
+// scoped to the default connection's array so a memcache/redis/'migrate'
+// block earlier in the file can never supply the credentials. A file with no
+// recognizable $databases assignment falls back to a whole-file match —
+// best-effort beats returning nothing.
 func parseDrupalSettings(content []byte) *db.Credentials {
+	if s, e, ok := drupalDefaultConnRange(maskPHPComments(content)); ok {
+		content = content[s:e]
+	}
 	name := firstConfigValue(content, "database")
 	if name == "" {
 		return nil

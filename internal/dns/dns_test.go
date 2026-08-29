@@ -116,3 +116,75 @@ func TestSnapshotPartialFailureTolerated(t *testing.T) {
 		t.Fatalf("partial failure should still snapshot: %v, %+v", err, snap)
 	}
 }
+
+// A SERVFAIL from one resolver must not read as an honest empty answer —
+// the next configured server gets its turn.
+func TestQueryTriesNextServerOnServfail(t *testing.T) {
+	c := &Client{servers: []string{"broken:53", "good:53"}, exchange: func(_ context.Context, m *mdns.Msg, server string) (*mdns.Msg, error) {
+		r := new(mdns.Msg)
+		r.SetReply(m)
+		if server == "broken:53" {
+			r.Rcode = mdns.RcodeServerFailure
+			return r, nil
+		}
+		if m.Question[0].Qtype == mdns.TypeA {
+			r.Answer = []mdns.RR{rrA("example.com.", "192.0.2.10", 60)}
+		}
+		return r, nil
+	}}
+	snap, err := c.Snapshot(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Addresses()) != 1 {
+		t.Errorf("the second resolver's answer should be used: %+v", snap.Records)
+	}
+}
+
+// When the domain's own nameserver is reachable, TTLs come from it — a
+// recursive resolver's TTL is a decaying cache remainder.
+func TestSnapshotAuthoritativeTTLs(t *testing.T) {
+	c := &Client{servers: []string{"resolver:53"}, exchange: func(_ context.Context, m *mdns.Msg, server string) (*mdns.Msg, error) {
+		q := m.Question[0]
+		r := new(mdns.Msg)
+		r.SetReply(m)
+		switch {
+		case server == "resolver:53" && q.Name == "example.com." && q.Qtype == mdns.TypeA:
+			r.Answer = []mdns.RR{rrA("example.com.", "192.0.2.10", 42)} // cache remainder
+		case server == "resolver:53" && q.Name == "example.com." && q.Qtype == mdns.TypeNS:
+			r.Answer = []mdns.RR{&mdns.NS{Hdr: mdns.RR_Header{Name: "example.com.", Rrtype: mdns.TypeNS, Ttl: 3600}, Ns: "ns1.example.net."}}
+		case server == "resolver:53" && q.Name == "ns1.example.net." && q.Qtype == mdns.TypeA:
+			r.Answer = []mdns.RR{rrA("ns1.example.net.", "198.51.100.53", 3600)}
+		case server == "198.51.100.53:53" && q.Name == "example.com." && q.Qtype == mdns.TypeA:
+			r.Answer = []mdns.RR{rrA("example.com.", "192.0.2.10", 86400)} // the real TTL
+		}
+		return r, nil
+	}}
+	snap, err := c.Snapshot(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.AuthoritativeTTLs {
+		t.Fatal("AuthoritativeTTLs should be true when the domain's NS answered")
+	}
+	for _, r := range snap.Records {
+		if r.Type == "A" && r.TTL != 86400 {
+			t.Errorf("A record should carry the authoritative TTL, got %d", r.TTL)
+		}
+	}
+}
+
+// When no nameserver can be reached, the snapshot keeps the cached TTLs and
+// says so.
+func TestSnapshotCachedTTLsNotAuthoritative(t *testing.T) {
+	c := &Client{servers: []string{"resolver:53"}, exchange: fakeExchange(map[string][]mdns.RR{
+		"example.com./A": {rrA("example.com.", "192.0.2.10", 42)},
+	})}
+	snap, err := c.Snapshot(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.AuthoritativeTTLs {
+		t.Error("no NS reachable → TTLs must not claim authority")
+	}
+}

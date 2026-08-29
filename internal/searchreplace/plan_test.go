@@ -11,10 +11,13 @@ func TestPairs_URLVariantsAndOrder(t *testing.T) {
 		DestURL:   "https://new.example.org",
 	})
 	want := []Pair{
-		{`https:\/\/old.example.com`, `https:\/\/new.example.org`}, // escaped full (longest)
-		{`https://old.example.com`, `https://new.example.org`},     // full
-		{`\/\/old.example.com`, `\/\/new.example.org`},             // escaped protocol-relative
-		{`//old.example.com`, `//new.example.org`},                 // protocol-relative
+		{`https%3A%2F%2Fold.example.com`, `https%3A%2F%2Fnew.example.org`}, // urlencoded (longest)
+		{`https:\\/\\/old.example.com`, `https:\\/\\/new.example.org`},     // double-escaped full
+		{`https:\/\/old.example.com`, `https:\/\/new.example.org`},         // escaped full
+		{`https://old.example.com`, `https://new.example.org`},             // full
+		{`\\/\\/old.example.com`, `\\/\\/new.example.org`},                 // double-escaped protocol-relative
+		{`\/\/old.example.com`, `\/\/new.example.org`},                     // escaped protocol-relative
+		{`//old.example.com`, `//new.example.org`},                         // protocol-relative
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d pairs, want %d: %+v", len(got), len(want), got)

@@ -46,8 +46,11 @@ func Pairs(in PlanInput) []Pair {
 
 		add(src, dst)                                     // https://old.example.com
 		add(escapeSlashes(src), escapeSlashes(dst))       // https:\/\/old.example.com
+		add(doubleEscape(src), doubleEscape(dst))         // https:\\\/\\\/… (Elementor's JSON-in-serialized)
+		add(urlEncode(src), urlEncode(dst))               // https%3A%2F%2F… (urlencoded params)
 		add(srcRel, dstRel)                               // //old.example.com
 		add(escapeSlashes(srcRel), escapeSlashes(dstRel)) // \/\/old.example.com
+		add(doubleEscape(srcRel), doubleEscape(dstRel))   // \\\/\\\/old.example.com
 	}
 
 	srcRoot := strings.TrimRight(in.SourceDocroot, "/")
@@ -55,6 +58,7 @@ func Pairs(in PlanInput) []Pair {
 	if srcRoot != "" && dstRoot != "" {
 		add(srcRoot, dstRoot)                               // /home/old/public_html
 		add(escapeSlashes(srcRoot), escapeSlashes(dstRoot)) // \/home\/old\/public_html
+		add(doubleEscape(srcRoot), doubleEscape(dstRoot))   // \\\/home\\\/old\\\/public_html
 	}
 
 	pairs = dedupePairs(pairs)
@@ -81,6 +85,20 @@ func schemeRelative(u string) string {
 // URL is embedded in a JSON string inside serialized or plain content.
 func escapeSlashes(s string) string {
 	return strings.ReplaceAll(s, "/", `\/`)
+}
+
+// doubleEscape is escapeSlashes applied twice — the form JSON-inside-JSON
+// content (Elementor page data is the notorious case) actually stores.
+func doubleEscape(s string) string {
+	return escapeSlashes(escapeSlashes(s))
+}
+
+// urlEncode percent-encodes the URL's scheme separator and slashes, the form
+// a URL takes inside a query-string parameter (share links, redirect params).
+var urlEncoder = strings.NewReplacer(":", "%3A", "/", "%2F")
+
+func urlEncode(s string) string {
+	return urlEncoder.Replace(s)
 }
 
 func dedupePairs(in []Pair) []Pair {

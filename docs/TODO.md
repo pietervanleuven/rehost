@@ -45,6 +45,15 @@ hosting and verify:
       source, dump→rewrite→import lands a working DB, config rewrite boots
       the site, second run is fast and ~zero (the idempotency proof), and
       `rehost cutover`'s smoke test passes pre-DNS
+- [ ] **New recipes (2026-08-29, unit-tested only)**: a real Joomla site
+      (detection, JConfig extraction, `$offline` maintenance splice), a
+      real PrestaShop (both config generations), a real Craft project
+      (project-root sync incl. vendor/, `.env` rewrite, `craft off/on`)
+- [ ] **Engines (2026-08-29, unit-tested only)**: a MariaDB-only host
+      (`mariadb`/`mariadb-dump` names, no mysql symlinks) end to end; a
+      PostgreSQL site (psql/pg_dump paths, pgpass staging, import with
+      ON_ERROR_STOP) — note the pg dump rewrite is intentionally skipped
+      (COPY data) and warned about
 - [ ] Dest-root rebasing (no `dest_root` → home-relative path on the
       destination) lands files where the destination account actually
       serves them; `--delete` stand-down on a pruned (find exit 1) source

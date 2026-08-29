@@ -27,9 +27,8 @@ type SQLResult struct {
 // transport failure; a MySQL-level failure comes back as OK=false with a
 // sanitized Reason, never an error.
 func RunSQL(ctx context.Context, r Runner, creds *Credentials, sql string) (*SQLResult, error) {
-	cmd := "mysql --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(sql) + " " + ssh.ShellQuote(creds.Name) +
-		" <<'REHOST_CNF'\n" + clientDefaults(creds) + "REHOST_CNF"
+	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
+		ssh.ShellQuote(sql) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

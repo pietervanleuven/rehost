@@ -42,9 +42,17 @@ type SmokeResult struct {
 	Err    string `json:"error,omitempty"`
 }
 
-// OK reports whether the destination served a plausible response: anything
-// below 500 proves the vhost answers (redirects and auth walls included).
-func (s SmokeResult) OK() bool { return s.Err == "" && s.Status > 0 && s.Status < 500 }
+// OK reports whether the destination served a plausible response: success
+// and redirects (2xx/3xx) and auth walls (401/403) prove the vhost answers.
+// A 404 is exactly what an unconfigured vhost's default page returns, so it
+// must not read as "serving correctly" — this feeds the one irreversible
+// manual step (the DNS flip).
+func (s SmokeResult) OK() bool {
+	if s.Err != "" || s.Status <= 0 {
+		return false
+	}
+	return s.Status < 400 || s.Status == 401 || s.Status == 403
+}
 
 // CutoverSite is one migrated site in the go-live picture.
 type CutoverSite struct {

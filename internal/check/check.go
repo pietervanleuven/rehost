@@ -81,8 +81,10 @@ func Run(in Input) []Result {
 	}
 
 	checkSites(in, add)
+	checkMultisite(in, add)
 	checkTransfer(in, add)
 	checkDatabase(in, add)
+	checkEngine(in, add)
 	checkDestDB(in, add)
 	checkCredentials(in, add)
 	checkDBConnect(in, add)
@@ -167,25 +169,130 @@ func hostsMissing(in Input, tool string) string {
 	return strings.Join(missing, " and ")
 }
 
-func checkDatabase(in Input, add addFunc) {
-	if !anyNeedsDB(in.Installs) {
-		return
+// installDriver returns the normalized driver of an install, read from its
+// extracted credentials; a site whose extraction failed defaults to mysql,
+// the shared-hosting overwhelming default.
+func installDriver(in Input, inst detect.Install) string {
+	if c := in.SourceCreds[inst.Root]; c != nil {
+		return db.NormalizeDriver(c.Driver)
 	}
-	switch {
-	case in.Source.Has("mysqldump"):
-		add("db.dump", "Database dump (source)", Ok, "mysqldump available")
-	case in.Source.Has("php"):
-		add("db.dump", "Database dump (source)", Warning,
-			"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
-	default:
-		add("db.dump", "Database dump (source)", Blocker,
-			"the source has neither mysqldump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
+	return db.DriverMySQL
+}
+
+// neededDrivers partitions the DB-backed installs by driver family.
+func neededDrivers(in Input) (mysqlSites, pgSites []string) {
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB {
+			continue
+		}
+		if installDriver(in, inst) == db.DriverPostgres {
+			pgSites = append(pgSites, inst.Root)
+		} else {
+			mysqlSites = append(mysqlSites, inst.Root)
+		}
 	}
+	return mysqlSites, pgSites
+}
+
+// destMySQLTool returns the destination's mysql-family client: hosts with
+// modern MariaDB packages ship `mariadb` without the mysql-named symlink.
+func destMySQLTool(in Input) (ssh.Tool, bool) {
 	if in.Destination.Has("mysql") {
-		add("db.import", "Database import (destination)", Ok, "mysql client available")
-	} else {
-		add("db.import", "Database import (destination)", Blocker,
-			"the mysql client is missing on the destination — the database cannot be imported")
+		return in.Destination.Tools["mysql"], true
+	}
+	if in.Destination.Has("mariadb") {
+		return in.Destination.Tools["mariadb"], true
+	}
+	return ssh.Tool{}, false
+}
+
+func checkDatabase(in Input, add addFunc) {
+	mysqlSites, pgSites := neededDrivers(in)
+	if len(mysqlSites) > 0 {
+		switch {
+		case in.Source.Has("mysqldump"):
+			add("db.dump", "Database dump (source)", Ok, "mysqldump available")
+		case in.Source.Has("mariadb-dump"):
+			add("db.dump", "Database dump (source)", Ok, "mariadb-dump available")
+		case in.Source.Has("php"):
+			add("db.dump", "Database dump (source)", Warning,
+				"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
+		default:
+			add("db.dump", "Database dump (source)", Blocker,
+				"the source has neither mysqldump/mariadb-dump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
+		}
+		if _, ok := destMySQLTool(in); ok {
+			add("db.import", "Database import (destination)", Ok, "mysql client available")
+		} else {
+			add("db.import", "Database import (destination)", Blocker,
+				"no mysql/mariadb client on the destination — the database cannot be imported")
+		}
+	}
+	if len(pgSites) > 0 {
+		if in.Source.Has("pg_dump") {
+			add("db.dump.pgsql", "Database dump (source, PostgreSQL)", Ok, "pg_dump available")
+		} else {
+			add("db.dump.pgsql", "Database dump (source, PostgreSQL)", Blocker,
+				"pg_dump is missing on the source — there is no PHP fallback for PostgreSQL, so "+
+					strings.Join(pgSites, ", ")+" cannot be dumped")
+		}
+		if in.Destination.Has("psql") {
+			add("db.import.pgsql", "Database import (destination, PostgreSQL)", Ok, "psql available")
+		} else {
+			add("db.import.pgsql", "Database import (destination, PostgreSQL)", Blocker,
+				"psql is missing on the destination — "+strings.Join(pgSites, ", ")+
+					" store content in PostgreSQL, and rehost never converts between database engines; pick a destination that offers PostgreSQL")
+		}
+	}
+}
+
+// checkEngine advises on the MySQL↔MariaDB pairing. The two are one
+// toolchain but not one engine: a cross-migration generally works for
+// typical sites, yet features do not fully overlap (and MariaDB→MySQL is
+// the riskier direction), so a mismatch is worth a warning, never silence —
+// and never a conversion attempt. PostgreSQL needs no row here: the import
+// rule already blocks when the destination lacks it.
+func checkEngine(in Input, add addFunc) {
+	const title = "Database engine"
+	tool, ok := destMySQLTool(in)
+	if !ok {
+		return // no mysql-family destination — nothing to compare against
+	}
+	destVersion := mysqlToolVersion(tool.Version)
+	destEngine := "MySQL"
+	if strings.Contains(tool.Version, "MariaDB") || tool.Name == "mariadb" {
+		destEngine = "MariaDB"
+	}
+
+	seen := map[string]bool{}
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == db.DriverPostgres {
+			continue
+		}
+		insp := in.SourceDBs[inst.Root]
+		if insp == nil || !insp.Connected || insp.ServerVersion == "" {
+			continue // cannot tell MySQL from MariaDB without an inspection
+		}
+		srcEngine := "MySQL"
+		if strings.Contains(insp.ServerVersion, "MariaDB") {
+			srcEngine = "MariaDB"
+		}
+		key := srcEngine + "→" + destEngine
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		switch {
+		case srcEngine == destEngine:
+			add("db.engine", title, Ok,
+				fmt.Sprintf("source and destination both run %s (%s → %s)", srcEngine, insp.ServerVersion, destVersion))
+		case srcEngine == "MariaDB" && destEngine == "MySQL":
+			add("db.engine", title, Warning,
+				fmt.Sprintf("source runs MariaDB %s but the destination runs MySQL %s — rehost imports the data as-is (no conversion); this usually works for typical sites, but MariaDB-only features (its JSON/sequence handling, some collations) do not exist on MySQL — test the site thoroughly after migration", insp.ServerVersion, destVersion))
+		default:
+			add("db.engine", title, Warning,
+				fmt.Sprintf("source runs MySQL %s but the destination runs MariaDB %s — rehost imports the data as-is (no conversion); MariaDB accepts MySQL dumps for typical sites, but the engines have diverged (JSON is stored differently, some collations differ) — test the site after migration", insp.ServerVersion, destVersion))
+		}
 	}
 }
 
@@ -272,7 +379,8 @@ func checkDBConnect(in Input, add addFunc) {
 		case !insp.Connected:
 			failed = append(failed, inst.Root+": "+insp.Reason)
 		default:
-			detail := fmt.Sprintf("%s: MySQL %s · %d tables · %s", inst.Root, insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
+			detail := fmt.Sprintf("%s: %s %s · %d tables · %s", inst.Root,
+				db.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
 			if insp.Charset != "" {
 				detail += " · " + insp.Charset
 			}
@@ -297,10 +405,11 @@ func checkCharset(in Input, add addFunc) {
 			mb4 += insp.UTF8MB4Tables
 		}
 	}
-	if mb4 == 0 || !in.Destination.Has("mysql") {
+	tool, ok := destMySQLTool(in)
+	if mb4 == 0 || !ok {
 		return // nothing to compare, or db.import already blocked
 	}
-	version := mysqlToolVersion(in.Destination.Tools["mysql"].Version)
+	version := mysqlToolVersion(tool.Version)
 	switch {
 	case version == "":
 		add("db.charset", title, Info,
@@ -331,13 +440,18 @@ func installsWithCreds(in Input) []detect.Install {
 
 // mysqlToolVersion pulls the server-ish version out of a mysql client
 // version line. MariaDB's client reports its own version first
-// ("Ver 15.1 Distrib 10.6.18-MariaDB"), so the last number wins.
+// ("Ver 15.1 Distrib 10.6.18-MariaDB"), so the number after Distrib wins
+// when present. Otherwise the first number after Ver is the one — never a
+// later match, which on distro-packaged clients is the package revision
+// ("Ver 8.0.36-0ubuntu0.22.04.1" must read as 8.0.36, not 0.22.04).
 func mysqlToolVersion(line string) string {
-	matches := versionPattern.FindAllString(line, -1)
-	if len(matches) == 0 {
-		return ""
+	if i := strings.Index(line, "Distrib"); i >= 0 {
+		return versionPattern.FindString(line[i:])
 	}
-	return matches[len(matches)-1]
+	if i := strings.Index(line, "Ver"); i >= 0 {
+		return versionPattern.FindString(line[i:])
+	}
+	return versionPattern.FindString(line)
 }
 
 var versionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)?`)
@@ -415,17 +529,12 @@ func checkExtensions(in Input, add addFunc) {
 
 func checkDisk(in Input, add addFunc) {
 	const title = "Disk space on the destination"
-	var dbKB int64
-	for _, insp := range in.SourceDBs {
-		if insp != nil {
-			dbKB += insp.SizeKB
-		}
-	}
-	needed := in.SourceSitesKB + dbKB
+	// Only the site files land under the destination home; the imported
+	// database lives on the MySQL server's storage, which df of the home
+	// does not measure — counting it here produced false blockers (and
+	// false confidence) against the wrong quota. It gets its own row below.
+	needed := in.SourceSitesKB
 	what := fmt.Sprintf("%s of site data", humanKB(in.SourceSitesKB))
-	if dbKB > 0 {
-		what = fmt.Sprintf("%s of site data + %s of database", humanKB(in.SourceSitesKB), humanKB(dbKB))
-	}
 	switch {
 	case in.SourceSitesKB == 0 || in.DestFreeKB == 0:
 		add("disk.space", title, Info, "could not measure site size or free space")
@@ -434,10 +543,21 @@ func checkDisk(in Input, add addFunc) {
 			fmt.Sprintf("%s needed but only %s is free", what, humanKB(in.DestFreeKB)))
 	case in.DestFreeKB < needed*3/2:
 		add("disk.space", title, Warning,
-			fmt.Sprintf("tight: %s needed, %s free — dumps and temp files need headroom", what, humanKB(in.DestFreeKB)))
+			fmt.Sprintf("tight: %s needed, %s free — temp files need headroom", what, humanKB(in.DestFreeKB)))
 	default:
 		add("disk.space", title, Ok,
 			fmt.Sprintf("%s free for %s", humanKB(in.DestFreeKB), what))
+	}
+
+	var dbKB int64
+	for _, insp := range in.SourceDBs {
+		if insp != nil {
+			dbKB += insp.SizeKB
+		}
+	}
+	if dbKB > 0 {
+		add("disk.db", "Database size", Info,
+			fmt.Sprintf("%s of database data will be imported — it lands on the destination's MySQL storage (not the home quota), and the dump is staged on THIS machine first: keep at least that much free locally", humanKB(dbKB)))
 	}
 }
 
@@ -536,12 +656,36 @@ func checkDNSTTL(in Input, add addFunc) {
 
 	switch {
 	case len(offending) > 0:
+		// A high TTL is trustworthy from any resolver: a cached value only
+		// ever under-reports the authoritative one.
 		add("dns.ttl", title, Warning,
 			fmt.Sprintf("%s above %ds — lower the TTL to ~%ds now, well before migration day, so the eventual DNS cutover propagates quickly",
 				strings.Join(offending, ", "), ttlWarnAboveSeconds, ttlLowEnoughSeconds))
-	case maxTTL <= ttlLowEnoughSeconds:
+	case maxTTL <= ttlLowEnoughSeconds && in.DNS.AuthoritativeTTLs:
 		add("dns.ttl", title, Ok,
-			fmt.Sprintf("TTLs are already %ds or lower — ready for a fast cutover", ttlLowEnoughSeconds))
+			fmt.Sprintf("TTLs are already %ds or lower (confirmed at the domain's nameserver) — ready for a fast cutover", ttlLowEnoughSeconds))
+	case maxTTL <= ttlLowEnoughSeconds:
+		// A LOW cached TTL proves nothing: it may be the decaying remainder
+		// of an authoritative 86400. Never call that cutover-ready.
+		add("dns.ttl", title, Info,
+			fmt.Sprintf("TTLs read %ds or lower, but only from a resolver cache (the decaying remainder, not the configured value) — confirm the real TTL at the DNS provider before planning a fast cutover", maxTTL))
+	}
+}
+
+// checkMultisite refuses multisite installs outright: rehost's rewrite and
+// exclude machinery is single-site, and a half-migrated multisite (only the
+// default site's database and config rewritten) is worse than an honest no.
+func checkMultisite(in Input, add addFunc) {
+	const title = "Multisite"
+	for _, inst := range in.Installs {
+		switch {
+		case inst.Extra["multisite"] == "true":
+			add("site.multisite", title, Blocker,
+				fmt.Sprintf("%s is a WordPress multisite (MULTISITE is true) — rehost migrates single-site installs and a partial rewrite would break the network; migrate it with a multisite-aware tool for now", inst.Root))
+		case inst.Framework == "drupal" && len(inst.Sites) > 1:
+			add("site.multisite", title, Blocker,
+				fmt.Sprintf("%s is a Drupal multisite (%s) — rehost migrates single-site installs and would only rewrite sites/default; migrate it by hand for now", inst.Root, strings.Join(inst.Sites, ", ")))
+		}
 	}
 }
 

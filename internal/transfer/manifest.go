@@ -77,12 +77,18 @@ var findVariants = []struct {
 	{findPrint, false, func(out, root string) []FileEntry { return parsePathListing(out, root, "\n") }},
 }
 
-// TakeManifest lists every file under root (honoring excludes) with size and
-// mtime via GNU find's -printf; hosts without it degrade to a paths-only
-// listing (NUL-terminated where find knows -print0, so odd filenames
-// survive). Unreadable subdirectories are skipped by find, not fatal — but a
-// find that died mid-listing (resource limits, signals) is an error: a
-// partial listing must never be persisted as an authoritative manifest.
+// TakeManifest lists every file and symlink under root (honoring excludes)
+// with size and mtime via GNU find's -printf; hosts without it degrade to a
+// paths-only listing (NUL-terminated where find knows -print0, so odd
+// filenames survive). Unreadable subdirectories are skipped by find, not
+// fatal — but a find that died mid-listing (resource limits, signals) is an
+// error: a partial listing must never be persisted as an authoritative
+// manifest. Known limitations: empty directories are not listed and so never
+// transfer (a directory name in the tar file list would recurse, and
+// --no-recursion is not portable across the tar ladder), and entries carry
+// size+mtime only — a chmod that changes neither never re-sends the file, so
+// permission-only fixes on the source need a touch or a manual chmod on the
+// destination.
 func TakeManifest(ctx context.Context, r runner, root string, excludes []string) (*Manifest, error) {
 	m := &Manifest{Root: root, TakenAt: time.Now().UTC()}
 
@@ -129,13 +135,16 @@ func findCmd(root string, excludes []string, style findStyle) string {
 		}
 		b.WriteString(` \) -prune -o`)
 	}
+	// Symlinks ride along with regular files: tar archives the link itself
+	// (no dereference), so a current→releases layout or symlinked uploads dir
+	// survives the migration instead of silently vanishing.
 	switch style {
 	case findPrintf:
-		b.WriteString(` -type f -printf '%s %T@ %P\0'`)
+		b.WriteString(` \( -type f -o -type l \) -printf '%s %T@ %P\0'`)
 	case findPrint0:
-		b.WriteString(" -type f -print0")
+		b.WriteString(` \( -type f -o -type l \) -print0`)
 	default:
-		b.WriteString(" -type f -print")
+		b.WriteString(` \( -type f -o -type l \) -print`)
 	}
 	return b.String()
 }

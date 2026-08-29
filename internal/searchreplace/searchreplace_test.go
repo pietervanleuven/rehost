@@ -160,23 +160,24 @@ func TestReplace_DoublySerialized(t *testing.T) {
 	}
 }
 
-func TestReplace_DepthCapFallsBackToPlain(t *testing.T) {
+func TestReplace_DepthCapLeavesNestedSerializedUntouched(t *testing.T) {
 	// With MaxDepth=1 the outer string is unwrapped once; a further nested
-	// serialized string is treated as plain text at the cap.
+	// serialized payload sits at the cap. A plain replacement there would
+	// desync its inner length headers (the one corruption this package
+	// promises never to produce), so it stays untouched and is counted.
 	deepInner := phpSerialize("https://old.example.com") // depth 2 payload
 	midInner := phpSerialize(string(deepInner))          // depth 1 payload
 	in := phpSerialize(string(midInner))                 // depth 0 payload
 	r := &Replacer{MaxDepth: 1}
-	out, changed := r.Replace(in, "old.example.com", "new.example.org")
-	if !changed {
-		t.Fatal("expected change")
+	out, changed := r.Replace(in, "old.example.com", "much-longer-new.example.org")
+	if changed {
+		t.Fatal("content past the depth cap must not be touched")
 	}
-	// Still valid serialized and host rewritten somewhere.
-	if !parsesFully(out) {
-		t.Fatalf("not re-parseable: %q", out)
+	if !bytes.Equal(out, in) {
+		t.Fatalf("input must survive byte-exact:\n got %q\nwant %q", out, in)
 	}
-	if bytes.Contains(out, []byte("old.example.com")) {
-		t.Errorf("host not replaced under depth cap: %q", out)
+	if r.Stats.Unparseable != 1 {
+		t.Errorf("Unparseable=%d want 1 (the skipped value must be reported)", r.Stats.Unparseable)
 	}
 }
 
