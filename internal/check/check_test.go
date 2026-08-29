@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/pietervanleuven/go-dns"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -170,7 +170,7 @@ func TestCredentialRules(t *testing.T) {
 		t.Errorf("ungathered credentials should be info, got %+v", r)
 	}
 
-	in.SourceCreds = map[string]*db.Credentials{
+	in.SourceCreds = map[string]*hostdb.Credentials{
 		wpInstall.Root: {Name: "wpdb", Host: "localhost", Password: "topsecret", Method: "wp-cli"},
 	}
 	r := byID(t, Run(in), "db.credentials")
@@ -181,7 +181,7 @@ func TestCredentialRules(t *testing.T) {
 		t.Fatalf("detail must never contain the password: %q", r.Detail)
 	}
 
-	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	in.SourceCreds = map[string]*hostdb.Credentials{wpInstall.Root: nil}
 	if r := byID(t, Run(in), "db.credentials"); r.Severity != Warning || !strings.Contains(r.Detail, wpInstall.Root) {
 		t.Errorf("missing credentials should warn naming the root, got %+v", r)
 	}
@@ -202,14 +202,14 @@ func TestDBConnectRules(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb", Method: "wp-cli"}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb", Method: "wp-cli"}},
 	}
 
 	if r := byID(t, Run(in), "db.connect"); r.Severity != Info {
 		t.Errorf("uninspected databases should be info, got %+v", r)
 	}
 
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: true, ServerVersion: "8.0.36", Tables: 12, SizeKB: 2048, Charset: "utf8mb4"},
 	}
 	r := byID(t, Run(in), "db.connect")
@@ -217,7 +217,7 @@ func TestDBConnectRules(t *testing.T) {
 		t.Errorf("connected inspection should be ok with stats, got %+v", r)
 	}
 
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: false, Reason: "Access denied for user"},
 	}
 	r = byID(t, Run(in), "db.connect")
@@ -227,7 +227,7 @@ func TestDBConnectRules(t *testing.T) {
 
 	// Without extracted credentials there is no connect rule (the
 	// credentials rule already covers the failure).
-	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	in.SourceCreds = map[string]*hostdb.Credentials{wpInstall.Root: nil}
 	if hasID(Run(in), "db.connect") {
 		t.Error("no credentials → no connect result")
 	}
@@ -238,8 +238,8 @@ func TestCharsetRules(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
-		SourceDBs:   map[string]*db.Inspection{wpInstall.Root: {Connected: true, UTF8MB4Tables: 0}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb"}},
+		SourceDBs:   map[string]*hostdb.Inspection{wpInstall.Root: {Connected: true, UTF8MB4Tables: 0}},
 	}
 
 	// No utf8mb4 in use: no charset result.
@@ -291,7 +291,7 @@ func TestDiskSplitsDatabaseFromHomeQuota(t *testing.T) {
 		Destination:   capsWith("", "rsync"),
 		SourceSitesKB: 1000,
 		DestFreeKB:    1100,
-		SourceDBs:     map[string]*db.Inspection{"/a": {Connected: true, SizeKB: 500}},
+		SourceDBs:     map[string]*hostdb.Inspection{"/a": {Connected: true, SizeKB: 500}},
 	}
 	// The database lands on MySQL storage, not the home quota: 1000 KiB of
 	// files against 1100 KiB free is tight, not blocked by the DB's 500.
@@ -560,7 +560,7 @@ func TestDatabaseRulesPostgres(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "php"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{{Framework: "wordpress", Root: "/home/u/craft"}},
-		SourceCreds: map[string]*db.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
+		SourceCreds: map[string]*hostdb.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
 	}
 	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "no PHP fallback") {
 		t.Errorf("missing pg_dump must block without a PHP-fallback promise, got %+v", r)
@@ -590,7 +590,7 @@ func TestEngineRule(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb"}},
 	}
 
 	// No inspection: engines unknown, rule silent.
@@ -599,7 +599,7 @@ func TestEngineRule(t *testing.T) {
 	}
 
 	// MariaDB source → MySQL destination: warn, as-is import named.
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: true, ServerVersion: "10.11.6-MariaDB"},
 	}
 	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,

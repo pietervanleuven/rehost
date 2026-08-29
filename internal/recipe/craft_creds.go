@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -14,9 +14,9 @@ import (
 // project's own source of truth (config/db.php conventionally reads these
 // very variables). Both env layouts are handled: CRAFT_DB_* (Craft 4/5) and
 // DB_* (Craft 3), plus the single-URL forms (CRAFT_DB_URL / DB_DSN).
-func (c Craft) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
+func (c Craft) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
-		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
 			if err != nil {
 				return nil, err
@@ -69,7 +69,7 @@ func craftEnv(env map[string]string, suffix string) string {
 
 // parseCraftEnv assembles credentials from a parsed .env; nil when no
 // database name (or URL) is configured.
-func parseCraftEnv(content []byte) *db.Credentials {
+func parseCraftEnv(content []byte) *hostdb.Credentials {
 	env := parseEnvFile(content)
 
 	if raw := firstNonEmpty(env["CRAFT_DB_URL"], env["DB_DSN"], env["DB_URL"]); raw != "" {
@@ -82,7 +82,7 @@ func parseCraftEnv(content []byte) *db.Credentials {
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver:      craftEnv(env, "DRIVER"),
 		Name:        name,
 		User:        craftEnv(env, "USER"),
@@ -102,7 +102,7 @@ func parseCraftEnv(content []byte) *db.Credentials {
 }
 
 // parseCraftDBURL decodes the single-URL form: mysql://user:pass@host:port/db.
-func parseCraftDBURL(raw string) *db.Credentials {
+func parseCraftDBURL(raw string) *hostdb.Credentials {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil
@@ -111,7 +111,7 @@ func parseCraftDBURL(raw string) *db.Credentials {
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver: u.Scheme,
 		Name:   name,
 		Host:   u.Hostname(),

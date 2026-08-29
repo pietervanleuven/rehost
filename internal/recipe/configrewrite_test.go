@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 )
 
 func TestRewriteWPConfig(t *testing.T) {
@@ -18,7 +18,7 @@ define( 'DB_HOST', 'localhost' );
 define( 'AUTH_KEY', 'keep-me-byte-exact!' );
 $table_prefix = 'wp_';
 `)
-	out, err := rewriteWPConfig(in, db.Credentials{
+	out, err := rewriteWPConfig(in, hostdb.Credentials{
 		Name: "u1_wp", User: "u1", Password: "p'w\\d", Host: "db.internal", Port: 3307,
 	})
 	if err != nil {
@@ -40,7 +40,7 @@ $table_prefix = 'wp_';
 }
 
 func TestRewriteWPConfigMissingDefineFails(t *testing.T) {
-	if _, err := rewriteWPConfig([]byte("<?php // no defines"), db.Credentials{Name: "x"}); err == nil ||
+	if _, err := rewriteWPConfig([]byte("<?php // no defines"), hostdb.Credentials{Name: "x"}); err == nil ||
 		!strings.Contains(err.Error(), "DB_NAME") {
 		t.Errorf("missing define should name the key, got %v", err)
 	}
@@ -60,7 +60,7 @@ $databases['default']['default'] = array (
   'driver' => 'mysql',
 );
 `)
-	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
+	out, missing, err := rewriteDrupalSettings(in, hostdb.Credentials{
 		Name: "u1_dru", User: "u1", Password: "s3cr3t", Host: "127.0.0.1", Port: 3307,
 	})
 	if err != nil {
@@ -87,7 +87,7 @@ $databases['default']['default'] = array (
 }
 
 func TestRewriteDrupalSettingsNoDatabasesFails(t *testing.T) {
-	if _, _, err := rewriteDrupalSettings([]byte("<?php"), db.Credentials{Name: "x"}); err == nil {
+	if _, _, err := rewriteDrupalSettings([]byte("<?php"), hostdb.Credentials{Name: "x"}); err == nil {
 		t.Error("settings.php without $databases should fail")
 	}
 }
@@ -115,7 +115,7 @@ $databases['default']['default'] = array (
   'host' => 'localhost',
 );
 `)
-	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
+	out, missing, err := rewriteDrupalSettings(in, hostdb.Credentials{
 		Name: "new_db", User: "new_user", Password: "new_pass",
 	})
 	if err != nil {
@@ -153,7 +153,7 @@ $databases['default']['default'] = array (
   'host' => 'localhost',
 );
 `)
-	_, missing, err := rewriteDrupalSettings(in, db.Credentials{
+	_, missing, err := rewriteDrupalSettings(in, hostdb.Credentials{
 		Name: "new_db", User: "new_user", Password: "new_pass",
 	})
 	if err != nil {
@@ -192,7 +192,7 @@ func TestWordPressRewriteConfigEndToEnd(t *testing.T) {
 		SourceConfig: "/home/u/site/wp-config.php",
 		SourceRoot:   "/home/u/site",
 		DestRoot:     "/home/d/www",
-		DB:           db.Credentials{Name: "u1_wp", User: "u1", Password: "pw"},
+		DB:           hostdb.Credentials{Name: "u1_wp", User: "u1", Password: "pw"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestWordPressConfigAboveDocrootUnsupported(t *testing.T) {
 		SourceConfig: "/home/u/wp-config.php", // one level above the docroot
 		SourceRoot:   "/home/u/site",
 		DestRoot:     "/home/d/www",
-		DB:           db.Credentials{Name: "u1_wp"},
+		DB:           hostdb.Credentials{Name: "u1_wp"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +234,7 @@ func TestDrupalRewriteConfigRunsCacheRebuild(t *testing.T) {
 		SourceConfig: "/home/u/site/sites/default/settings.php",
 		SourceRoot:   "/home/u/site",
 		DestRoot:     "/home/d/www",
-		DB:           db.Credentials{Name: "u1_dru"},
+		DB:           hostdb.Credentials{Name: "u1_dru"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestDrupalRewriteConfigNoDrushGuides(t *testing.T) {
 		SourceConfig: "/home/u/site/sites/default/settings.php",
 		SourceRoot:   "/home/u/site",
 		DestRoot:     "/home/d/www",
-		DB:           db.Credentials{Name: "u1_dru"},
+		DB:           hostdb.Credentials{Name: "u1_dru"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -283,7 +283,7 @@ $databases['default']['default'] = [
   'host' => 'localhost',
 ];
 `)
-	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
+	out, missing, err := rewriteDrupalSettings(in, hostdb.Credentials{
 		Name: "new_db", User: "new_user", Password: "new_pass", Host: "localhost",
 	})
 	if err != nil {
@@ -310,7 +310,7 @@ func TestRewriteDrupalSettingsNoDatabasesErrs(t *testing.T) {
 	in := []byte(`<?php
 $settings['redis.connection'] = ['host' => 'r', 'password' => 'p', 'database' => 'x'];
 `)
-	if _, _, err := rewriteDrupalSettings(in, db.Credentials{Name: "n"}); err == nil {
+	if _, _, err := rewriteDrupalSettings(in, hostdb.Credentials{Name: "n"}); err == nil {
 		t.Error("no $databases assignment should be an error")
 	}
 }
@@ -324,7 +324,7 @@ define('DB_USER', 'u');
 define('DB_PASSWORD', 'p');
 define('DB_HOST', 'localhost');
 `)
-	out, err := rewriteWPConfig(in, db.Credentials{Name: "u1_wp", User: "u1", Password: "pw"})
+	out, err := rewriteWPConfig(in, hostdb.Credentials{Name: "u1_wp", User: "u1", Password: "pw"})
 	if err != nil {
 		t.Fatal(err)
 	}

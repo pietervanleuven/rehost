@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -70,7 +70,7 @@ func (d Drupal) dbSetMaintenance(ctx context.Context, h Host, in detect.Install,
 	legacy := drupalMajor(in.Version) == "7"
 	write, cache := drupalMaintSQL(creds.TablePrefix, on, legacy)
 
-	res, err := db.RunSQL(ctx, h.Run, creds, write)
+	res, err := hostdb.RunSQL(ctx, h.Run, creds, write)
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
@@ -79,7 +79,7 @@ func (d Drupal) dbSetMaintenance(ctx context.Context, h Host, in detect.Install,
 	}
 
 	note := ""
-	cres, err := db.RunSQL(ctx, h.Run, creds, cache)
+	cres, err := hostdb.RunSQL(ctx, h.Run, creds, cache)
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
@@ -129,7 +129,7 @@ func (d Drupal) dbMaintenanceStatus(ctx context.Context, h Host, in detect.Insta
 	if creds == nil {
 		return MaintenanceUnknown, nil
 	}
-	res, err := db.RunSQL(ctx, h.Run, creds, drupalStatusSQL(creds.TablePrefix, drupalMajor(in.Version) == "7"))
+	res, err := hostdb.RunSQL(ctx, h.Run, creds, drupalStatusSQL(creds.TablePrefix, drupalMajor(in.Version) == "7"))
 	if err != nil {
 		return MaintenanceUnknown, err
 	}

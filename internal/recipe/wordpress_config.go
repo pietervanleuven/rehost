@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 // RewriteConfig points the synced wp-config.php at the destination database:
@@ -35,7 +35,7 @@ func (w WordPress) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) 
 
 // rewriteWPConfig is the pure transform: each DB define gets the destination
 // value as a single-quoted literal, preserving the file byte-exact otherwise.
-func rewriteWPConfig(content []byte, creds db.Credentials) ([]byte, error) {
+func rewriteWPConfig(content []byte, creds hostdb.Credentials) ([]byte, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"

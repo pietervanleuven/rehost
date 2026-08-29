@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -339,7 +339,7 @@ func TestApplyHostIPv6(t *testing.T) {
 		{"localhost:/tmp/mysql.sock", "localhost:/tmp/mysql.sock", 0},
 	}
 	for _, c := range cases {
-		var creds db.Credentials
+		var creds hostdb.Credentials
 		applyHost(&creds, c.in)
 		if creds.Host != c.host || creds.Port != c.port {
 			t.Errorf("applyHost(%q) = %q:%d, want %q:%d", c.in, creds.Host, creds.Port, c.host, c.port)

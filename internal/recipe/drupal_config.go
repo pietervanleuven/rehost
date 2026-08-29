@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 )
 
 // RewriteConfig points the synced settings.php at the destination database:
@@ -71,7 +71,7 @@ func (d Drupal) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (Co
 // so the destination would still authenticate the source's way. port is
 // rewritten only when the config declares one; database is the only key whose
 // absence is an error (no $databases entry at all).
-func rewriteDrupalSettings(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewriteDrupalSettings(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"

@@ -9,8 +9,8 @@ import (
 	"path"
 	"strings"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 )
 
 // ConfigRewrite describes one site's config move: where the config file sat
@@ -21,7 +21,7 @@ type ConfigRewrite struct {
 	SourceConfig string // config path on the source, from detection
 	SourceRoot   string // source docroot
 	DestRoot     string // destination docroot (the config was synced under it)
-	DB           db.Credentials
+	DB           hostdb.Credentials
 }
 
 // ConfigRewriteResult reports what a rewrite did. Supported false means the

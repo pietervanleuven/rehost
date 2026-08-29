@@ -14,8 +14,8 @@ import (
 	"strings"
 
 	"github.com/pietervanleuven/go-dns"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
@@ -52,12 +52,12 @@ type Input struct {
 
 	// SourceCreds maps install root → credentials extracted on the source
 	// (nil value = extraction failed for that site). nil map = not gathered.
-	SourceCreds map[string]*db.Credentials
+	SourceCreds map[string]*hostdb.Credentials
 
 	// SourceDBs maps install root → inspection made with that site's
 	// credentials. nil map = not gathered (no credentials or no mysql
 	// client on the source).
-	SourceDBs map[string]*db.Inspection
+	SourceDBs map[string]*hostdb.Inspection
 
 	// DestDBs maps install root → true when migrate.yaml names a dest_db
 	// for that site. nil map = not gathered (the rule stays silent); an
@@ -174,9 +174,9 @@ func hostsMissing(in Input, tool string) string {
 // the shared-hosting overwhelming default.
 func installDriver(in Input, inst detect.Install) string {
 	if c := in.SourceCreds[inst.Root]; c != nil {
-		return db.NormalizeDriver(c.Driver)
+		return hostdb.NormalizeDriver(c.Driver)
 	}
-	return db.DriverMySQL
+	return hostdb.DriverMySQL
 }
 
 // neededDrivers partitions the DB-backed installs by driver family.
@@ -185,7 +185,7 @@ func neededDrivers(in Input) (mysqlSites, pgSites []string) {
 		if !recipe.RequirementsFor(inst).NeedsDB {
 			continue
 		}
-		if installDriver(in, inst) == db.DriverPostgres {
+		if installDriver(in, inst) == hostdb.DriverPostgres {
 			pgSites = append(pgSites, inst.Root)
 		} else {
 			mysqlSites = append(mysqlSites, inst.Root)
@@ -266,7 +266,7 @@ func checkEngine(in Input, add addFunc) {
 
 	seen := map[string]bool{}
 	for _, inst := range in.Installs {
-		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == db.DriverPostgres {
+		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == hostdb.DriverPostgres {
 			continue
 		}
 		insp := in.SourceDBs[inst.Root]
@@ -380,7 +380,7 @@ func checkDBConnect(in Input, add addFunc) {
 			failed = append(failed, inst.Root+": "+insp.Reason)
 		default:
 			detail := fmt.Sprintf("%s: %s %s · %d tables · %s", inst.Root,
-				db.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
+				hostdb.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
 			if insp.Charset != "" {
 				detail += " · " + insp.Charset
 			}

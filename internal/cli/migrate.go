@@ -12,14 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/state"
-	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -93,13 +93,13 @@ type migratePlan struct {
 	delete       bool
 	ontoExisting bool
 
-	srcStream db.Streamer // dump exec on the source; nil = database step disabled
-	destConn  db.Conn     // import sessions on the destination
-	srcHost   recipe.Host // maintenance toggles on the source
-	destHost  recipe.Host // config rewrite + post-steps on the destination
-	srcCreds  map[string]*db.Credentials
-	srcDBs    map[string]*db.Inspection
-	destCreds map[string]*db.Credentials
+	srcStream hostdb.Streamer // dump exec on the source; nil = database step disabled
+	destConn  hostdb.Conn     // import sessions on the destination
+	srcHost   recipe.Host     // maintenance toggles on the source
+	destHost  recipe.Host     // config rewrite + post-steps on the destination
+	srcCreds  map[string]*hostdb.Credentials
+	srcDBs    map[string]*hostdb.Inspection
+	destCreds map[string]*hostdb.Credentials
 	destGzip  bool // destination gunzips the relayed dump itself
 
 	compress   bool   // gzip on both hosts — pipe the relay through it
