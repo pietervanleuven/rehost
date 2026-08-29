@@ -7,12 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // runner is the slice of ssh.Client the gatherers need; tests use a fake.
 type runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
+	Run(ctx context.Context, cmd string) (remote.Result, error)
 }
 
 // PHPExtensions lists the loaded PHP modules on a host via `php -m`, or nil
@@ -37,7 +37,7 @@ func PHPExtensions(ctx context.Context, r runner) []string {
 // FreeKB measures the free space of the filesystem holding path via POSIX
 // `df -P -k`, or 0 when unknown.
 func FreeKB(ctx context.Context, r runner, path string) int64 {
-	res, err := r.Run(ctx, "df -P -k "+ssh.ShellQuote(path))
+	res, err := r.Run(ctx, "df -P -k "+remote.ShellQuote(path))
 	if err != nil || res.ExitCode != 0 {
 		return 0
 	}
@@ -66,7 +66,7 @@ func FreeKB(ctx context.Context, r runner, path string) int64 {
 func DirsSizeKB(ctx context.Context, r runner, dirs []string) int64 {
 	var total int64
 	for _, dir := range topLevelDirs(dirs) {
-		res, err := r.Run(ctx, "du -sk "+ssh.ShellQuote(dir)+" 2>/dev/null")
+		res, err := r.Run(ctx, "du -sk "+remote.ShellQuote(dir)+" 2>/dev/null")
 		if err != nil {
 			continue
 		}

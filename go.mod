@@ -7,7 +7,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/pietervanleuven/go-dns v0.1.0
 	github.com/pietervanleuven/go-searchreplace v0.1.0
-	github.com/pietervanleuven/go-ssh v0.1.0
+	github.com/pietervanleuven/go-ssh v0.2.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.19.0
 	golang.org/x/term v0.45.0

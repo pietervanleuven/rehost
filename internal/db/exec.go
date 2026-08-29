@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // SQLResult reports the outcome of one RunSQL call. OK is whether MySQL
@@ -26,9 +26,9 @@ type SQLResult struct {
 // so it never appears in the remote argv or environment. An error return is a
 // transport failure; a MySQL-level failure comes back as OK=false with a
 // sanitized Reason, never an error.
-func RunSQL(ctx context.Context, r Runner, creds *Credentials, sql string) (*SQLResult, error) {
+func RunSQL(ctx context.Context, r remote.Runner, creds *Credentials, sql string) (*SQLResult, error) {
 	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(sql) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
+		remote.ShellQuote(sql) + " " + remote.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

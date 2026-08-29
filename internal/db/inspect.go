@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // Inspection is what could be learned about one site's database from the
@@ -34,12 +34,12 @@ SELECT 'utf8mb4', COUNT(*) FROM information_schema.TABLES WHERE table_schema = D
 // the mysql client via a defaults file on stdin (heredoc), so it never
 // appears in the remote argv or environment. An error return is a transport
 // failure; mysql-level failures come back as Connected=false.
-func Inspect(ctx context.Context, r Runner, creds *Credentials) (*Inspection, error) {
+func Inspect(ctx context.Context, r remote.Runner, creds *Credentials) (*Inspection, error) {
 	if NormalizeDriver(creds.Driver) == DriverPostgres {
 		return inspectPG(ctx, r, creds)
 	}
 	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(inspectSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
+		remote.ShellQuote(inspectSQL) + " " + remote.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func parseInspection(stdout string) *Inspection {
 // sanitizeReason keeps the first useful stderr line and hard-strips the
 // password should a future mysql build ever echo it.
 func sanitizeReason(stderr, password string) string {
-	reason := ssh.FirstLine(stderr)
+	reason := remote.FirstLine(stderr)
 	if password != "" {
 		reason = strings.ReplaceAll(reason, password, "********")
 	}
