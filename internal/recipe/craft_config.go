@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // RewriteConfig points the synced .env at the destination database. The

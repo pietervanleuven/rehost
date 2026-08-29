@@ -109,10 +109,19 @@ runtime.
 
 ## Architecture
 
+Three generic packages were extracted (2026-08-29) into standalone public
+modules that rehost imports like any dependency: `go-ssh`, `go-dns` and
+`go-searchreplace` (repos under github.com/pietervanleuven/, working copies
+under ~/Projects/). Package names are unchanged (`ssh`, `dns`,
+`searchreplace`), only import paths moved. A change these packages need now
+lands in its own repo, gets a version tag, and is pulled into rehost via
+`go get` — remember to tag and push the library before bumping rehost.
+
 - `cmd/rehost` — thin main; version via goreleaser ldflags.
 - `internal/cli` — cobra commands; output mode (styled/plain/JSON) resolved from
   `--json`/`--no-color`/`NO_COLOR`/TTY in one place (`options.outputMode`).
-- `internal/ssh` — `Config.Resolve()` honors `~/.ssh/config` (ProxyJump = honest
+- `ssh` (**external module: github.com/pietervanleuven/go-ssh**, at
+  ~/Projects/go-ssh) — `Config.Resolve()` honors `~/.ssh/config` (ProxyJump = honest
   error); `Dial` auth chain agent → keys → password prompts via the `Prompter`
   interface; known_hosts strict + TOFU (key mismatch always hard-fails); `Run`
   (non-zero exit ≠ Go error); `Probe` = one sentinel-delimited POSIX script with
@@ -133,7 +142,8 @@ runtime.
   failures fall through), and the `Maintainer` seam (same layering;
   per-site tool failures are typed `ErrMaintenanceTool` so callers keep
   going).
-- `internal/searchreplace` — pure serialized-safe replacement core
+- `searchreplace` (**external module: github.com/pietervanleuven/go-searchreplace**,
+  at ~/Projects/go-searchreplace) — pure serialized-safe replacement core
   (wp search-replace --precise semantics, fuzzed round-trip invariant) +
   the URL/docroot replacement-pair planner + `RewriteDump`, which applies
   pairs inside a SQL dump's string literals (the local application point
@@ -151,7 +161,8 @@ runtime.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
-- `internal/dns` — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
+- `dns` (**external module: github.com/pietervanleuven/go-dns**, at
+  ~/Projects/go-dns) — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
   MX targets resolved to IPs) over miekg/dns using the system resolvers;
   rehost never changes DNS.
 - `internal/inventory` — per-site size picture over `du` (total, largest

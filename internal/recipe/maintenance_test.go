@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // wpInstall is a WordPress site rooted where wpMaintFile expects .maintenance.
