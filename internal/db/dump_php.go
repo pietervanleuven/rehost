@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // phpDumpScript dumps a MySQL database as gzipped SQL on stdout without
@@ -294,7 +294,7 @@ func dumpPHPCmd(creds *Credentials) string {
 		Password string `json:"password"`
 		Charset  string `json:"charset,omitempty"`
 	}{creds.Host, creds.Port, creds.Name, creds.User, creds.Password, creds.Charset})
-	return "php -d display_errors=stderr -d error_reporting=0 -r " + ssh.ShellQuote(phpDumpScript) +
+	return "php -d display_errors=stderr -d error_reporting=0 -r " + remote.ShellQuote(phpDumpScript) +
 		" <<'REHOST_CREDS'\n" + string(cfg) + "\nREHOST_CREDS"
 }
 

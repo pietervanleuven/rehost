@@ -14,7 +14,7 @@ import (
 // (app/config/parameters.php, 1.7/8) or the legacy _DB_*_ defines
 // (config/settings.inc.php, 1.6). Cookie keys, salts and everything else
 // stay byte-exact.
-func (p PrestaShop) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (p PrestaShop) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,

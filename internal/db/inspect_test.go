@@ -6,22 +6,22 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 type fakeRunner struct {
-	res     ssh.Result
+	res     remote.Result
 	err     error
 	lastCmd string
 }
 
-func (f *fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.lastCmd = cmd
 	return f.res, f.err
 }
 
 func TestInspectParsesBatchOutput(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{Stdout: "version\t10.6.18-MariaDB\ncharset\tutf8mb4\ntables\t57\t123456\nutf8mb4\t57\n"}}
+	r := &fakeRunner{res: remote.Result{Stdout: "version\t10.6.18-MariaDB\ncharset\tutf8mb4\ntables\t57\t123456\nutf8mb4\t57\n"}}
 	insp, err := Inspect(context.Background(), r, &Credentials{Name: "wpdb", User: "u", Password: "p"})
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestInspectParsesBatchOutput(t *testing.T) {
 }
 
 func TestInspectPasswordNeverInArgv(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{}}
+	r := &fakeRunner{res: remote.Result{}}
 	creds := &Credentials{Name: "d", User: "u", Password: `sup"er\sec'ret`, Host: "localhost"}
 	if _, err := Inspect(context.Background(), r, creds); err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestInspectPasswordNeverInArgv(t *testing.T) {
 }
 
 func TestInspectFailureIsHonest(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{ExitCode: 1, Stderr: "ERROR 1045 (28000): Access denied for user 'u'@'localhost' (using password: YES)\n"}}
+	r := &fakeRunner{res: remote.Result{ExitCode: 1, Stderr: "ERROR 1045 (28000): Access denied for user 'u'@'localhost' (using password: YES)\n"}}
 	insp, err := Inspect(context.Background(), r, &Credentials{Name: "d", Password: "hunter2"})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestInspectFailureIsHonest(t *testing.T) {
 }
 
 func TestInspectReasonStripsPassword(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{ExitCode: 1, Stderr: "something echoed hunter2 back\n"}}
+	r := &fakeRunner{res: remote.Result{ExitCode: 1, Stderr: "something echoed hunter2 back\n"}}
 	insp, err := Inspect(context.Background(), r, &Credentials{Name: "d", Password: "hunter2"})
 	if err != nil {
 		t.Fatal(err)

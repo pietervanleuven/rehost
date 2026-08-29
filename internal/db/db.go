@@ -7,11 +7,7 @@
 package db
 
 import (
-	"context"
 	"strings"
-
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // Normalized driver families. MySQL and MariaDB share one wire protocol and
@@ -116,33 +112,4 @@ func (c *Credentials) dumper() string {
 		return "pg_dump"
 	}
 	return "mysqldump"
-}
-
-// Runner executes commands on the source host; *ssh.Client satisfies it.
-type Runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
-}
-
-// Host bundles what extraction may use on the source. Caps may be nil, in
-// which case layers try their tool and let the failure speak.
-type Host struct {
-	Run  Runner
-	FS   detect.FS
-	Caps *ssh.Capabilities
-}
-
-// HasTool reports whether a tool is known to exist on the host; with no
-// capability info it optimistically returns true so the layer still tries.
-func (h Host) HasTool(name string) bool {
-	if h.Caps == nil {
-		return true
-	}
-	return h.Caps.Has(name)
-}
-
-// Extractor is the credential-extraction capability a recipe may implement
-// alongside detection. (nil, nil) means "not found" — an honest absence;
-// an error is a transport failure, never absence.
-type Extractor interface {
-	ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*Credentials, error)
 }

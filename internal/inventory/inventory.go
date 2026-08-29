@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // Entry is one measured path.
@@ -33,7 +33,7 @@ type Inventory struct {
 
 // runner is the slice of ssh.Client this package needs; tests use a fake.
 type runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
+	Run(ctx context.Context, cmd string) (remote.Result, error)
 }
 
 // topLimit bounds the breakdown so a vhost with hundreds of directories
@@ -46,7 +46,7 @@ const topLimit = 10
 func Take(ctx context.Context, r runner, root string, suggestions []string) (*Inventory, error) {
 	inv := &Inventory{}
 
-	res, err := r.Run(ctx, "du -sk "+ssh.ShellQuote(root)+" 2>/dev/null")
+	res, err := r.Run(ctx, "du -sk "+remote.ShellQuote(root)+" 2>/dev/null")
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func Take(ctx context.Context, r runner, root string, suggestions []string) (*In
 	// dwarf the site). NUL-terminated GNU du first so odd directory names
 	// survive — few enough entries that no remote sort/head is needed;
 	// plain newline output with a remote pre-sort as the fallback.
-	globs := ssh.ShellQuote(root) + "/*/ " + ssh.ShellQuote(root) + "/.[!.]*/"
+	globs := remote.ShellQuote(root) + "/*/ " + remote.ShellQuote(root) + "/.[!.]*/"
 	res, err = r.Run(ctx, "du -sk -0 "+globs+" 2>/dev/null")
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func Take(ctx context.Context, r runner, root string, suggestions []string) (*In
 	if len(suggestions) > 0 {
 		var quoted []string
 		for _, s := range suggestions {
-			quoted = append(quoted, ssh.ShellQuote(root+"/"+s))
+			quoted = append(quoted, remote.ShellQuote(root+"/"+s))
 		}
 		res, err = r.Run(ctx, "du -sk "+strings.Join(quoted, " ")+" 2>/dev/null")
 		if err != nil {
@@ -95,7 +95,7 @@ func Take(ctx context.Context, r runner, root string, suggestions []string) (*In
 // mid-run (exit above 1, or the session dying) yields nothing: sizes from a
 // truncated run must not be reported as measurements. Exit 1 with output is
 // du's unreadable-subdir noise and stays usable.
-func parseDu(res ssh.Result, root, sep string) []Entry {
+func parseDu(res remote.Result, root, sep string) []Entry {
 	if res.ExitCode != 0 && (res.ExitCode != 1 || res.Stdout == "") {
 		return nil
 	}

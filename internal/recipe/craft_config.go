@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -17,7 +17,7 @@ import (
 // everything else in .env — the security key above all — stays byte-exact.
 // A project configured through a single DB URL/DSN degrades to guidance:
 // splicing credentials into a URL is a hand edit worth reviewing anyway.
-func (c Craft) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (c Craft) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,
@@ -117,16 +117,16 @@ func replaceEnvValue(content []byte, key, value string) ([]byte, bool) {
 // lifts it. The console script needs the host's PHP CLI; there is no file
 // fallback because Craft has none.
 
-func (c Craft) EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (c Craft) EnableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return c.craftToggle(ctx, h, in, true)
 }
 
 // DisableMaintenance is idempotent: `craft on` when already on converges.
-func (c Craft) DisableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (c Craft) DisableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return c.craftToggle(ctx, h, in, false)
 }
 
-func (c Craft) craftToggle(ctx context.Context, h db.Host, in detect.Install, on bool) (MaintenanceResult, error) {
+func (c Craft) craftToggle(ctx context.Context, h Host, in detect.Install, on bool) (MaintenanceResult, error) {
 	if h.Run == nil || !h.HasTool("php") {
 		return MaintenanceResult{Supported: false,
 			Note: "no PHP CLI to run the craft console — writes during the window may be lost"}, nil
@@ -135,20 +135,20 @@ func (c Craft) craftToggle(ctx context.Context, h db.Host, in detect.Install, on
 	if on {
 		sub = "off"
 	}
-	cmd := "cd " + ssh.ShellQuote(in.Root) + " && php craft " + sub + " --interactive=0 2>&1"
+	cmd := "cd " + remote.ShellQuote(in.Root) + " && php craft " + sub + " --interactive=0 2>&1"
 	res, err := h.Run.Run(ctx, cmd)
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
 	if res.ExitCode != 0 {
 		return MaintenanceResult{Supported: false,
-			Note: "'craft " + sub + "' failed (" + ssh.FirstLine(res.Stdout) + ") — writes during the window may be lost"}, nil
+			Note: "'craft " + sub + "' failed (" + remote.FirstLine(res.Stdout) + ") — writes during the window may be lost"}, nil
 	}
 	return MaintenanceResult{State: maintenanceState(on), Method: "craft-cli", Supported: true}, nil
 }
 
 // MaintenanceStatus: the console has no status query, so only history can
 // answer — Unknown lets the caller fall back to it.
-func (c Craft) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error) {
+func (c Craft) MaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error) {
 	return MaintenanceUnknown, nil
 }

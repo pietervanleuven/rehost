@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
@@ -42,8 +42,8 @@ type Result struct {
 // Input is everything the rules look at. Zero/nil measurement fields mean
 // "unknown" and downgrade the affected rule to Info, never to a false pass.
 type Input struct {
-	Source      *ssh.Capabilities
-	Destination *ssh.Capabilities
+	Source      *remote.Capabilities
+	Destination *remote.Capabilities
 	Installs    []detect.Install // detected on the source
 
 	DestPHPExtensions []string // php -m on the destination; nil = unknown
@@ -196,14 +196,14 @@ func neededDrivers(in Input) (mysqlSites, pgSites []string) {
 
 // destMySQLTool returns the destination's mysql-family client: hosts with
 // modern MariaDB packages ship `mariadb` without the mysql-named symlink.
-func destMySQLTool(in Input) (ssh.Tool, bool) {
+func destMySQLTool(in Input) (remote.Tool, bool) {
 	if in.Destination.Has("mysql") {
 		return in.Destination.Tools["mysql"], true
 	}
 	if in.Destination.Has("mariadb") {
 		return in.Destination.Tools["mariadb"], true
 	}
-	return ssh.Tool{}, false
+	return remote.Tool{}, false
 }
 
 func checkDatabase(in Input, add addFunc) {

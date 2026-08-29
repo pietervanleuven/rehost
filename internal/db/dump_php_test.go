@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 func TestDumpPHPVerified(t *testing.T) {
@@ -68,7 +68,7 @@ func TestDumpPHPMissingFooterFails(t *testing.T) {
 }
 
 func TestDumpPHPRemoteFailure(t *testing.T) {
-	s := &fakeStreamer{res: ssh.Result{ExitCode: 1, Stderr: "rehost: dump failed: connect failed for hunter2\n"}}
+	s := &fakeStreamer{res: remote.Result{ExitCode: 1, Stderr: "rehost: dump failed: connect failed for hunter2\n"}}
 	_, err := DumpPHP(context.Background(), s, &Credentials{Name: "d", Password: "hunter2"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "connect failed") {
 		t.Fatalf("remote failure should surface stderr, got %v", err)

@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/units"
 )
 
 // Streamer executes a remote command with streaming stdout; *ssh.Client
 // satisfies it.
 type Streamer interface {
-	Stream(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error)
+	Stream(ctx context.Context, cmd string, w io.Writer) (remote.Result, error)
 }
 
 // DumpStats describes a completed (and verified) dump.
@@ -38,9 +38,9 @@ type DumpStats struct {
 func dumpCmd(creds *Credentials) string {
 	cmd := creds.dumper() + " --defaults-extra-file=/dev/stdin --single-transaction --quick --no-tablespaces --routines --triggers"
 	if creds.Charset != "" {
-		cmd += " --default-character-set=" + ssh.ShellQuote(creds.Charset)
+		cmd += " --default-character-set=" + remote.ShellQuote(creds.Charset)
 	}
-	return cmd + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, " | gzip")
+	return cmd + " " + remote.ShellQuote(creds.Name) + credsHeredoc(creds, " | gzip")
 }
 
 // Dump streams a gzipped dump of the database into w while verifying it on

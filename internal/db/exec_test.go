@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 func TestRunSQLSuccessReturnsStdout(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{Stdout: "i:1;\n"}}
+	r := &fakeRunner{res: remote.Result{Stdout: "i:1;\n"}}
 	res, err := RunSQL(context.Background(), r, &Credentials{Name: "d", User: "u", Password: "p"}, "SELECT value FROM `t`;")
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestRunSQLSuccessReturnsStdout(t *testing.T) {
 }
 
 func TestRunSQLPasswordNeverInArgv(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{}}
+	r := &fakeRunner{res: remote.Result{}}
 	creds := &Credentials{Name: "d", User: "u", Password: `sup"er\sec'ret`, Host: "localhost"}
 	if _, err := RunSQL(context.Background(), r, creds, "DELETE FROM `t`;"); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestRunSQLPasswordNeverInArgv(t *testing.T) {
 func TestRunSQLMySQLFailureIsHonest(t *testing.T) {
 	// A MySQL-level failure is OK=false with a sanitized reason, never an error —
 	// this is what lets a caller degrade a best-effort statement to a warning.
-	r := &fakeRunner{res: ssh.Result{ExitCode: 1, Stderr: "ERROR 1146 (42S02): Table 'db.t' doesn't exist echoing hunter2\n"}}
+	r := &fakeRunner{res: remote.Result{ExitCode: 1, Stderr: "ERROR 1146 (42S02): Table 'db.t' doesn't exist echoing hunter2\n"}}
 	res, err := RunSQL(context.Background(), r, &Credentials{Name: "d", Password: "hunter2"}, "DELETE FROM `t`;")
 	if err != nil {
 		t.Fatal(err)

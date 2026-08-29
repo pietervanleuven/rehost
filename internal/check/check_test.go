@@ -5,18 +5,18 @@ import (
 	"testing"
 
 	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // capsWith builds Capabilities with the named tools present.
-func capsWith(phpVersion string, tools ...string) *ssh.Capabilities {
-	m := map[string]ssh.Tool{}
+func capsWith(phpVersion string, tools ...string) *remote.Capabilities {
+	m := map[string]remote.Tool{}
 	for _, t := range tools {
-		m[t] = ssh.Tool{Name: t, Found: true}
+		m[t] = remote.Tool{Name: t, Found: true}
 	}
-	return &ssh.Capabilities{Host: "h", PHPVersion: phpVersion, Tools: m}
+	return &remote.Capabilities{Host: "h", PHPVersion: phpVersion, Tools: m}
 }
 
 func byID(t *testing.T, results []Result, id string) Result {
@@ -250,7 +250,7 @@ func TestCharsetRules(t *testing.T) {
 	in.SourceDBs[wpInstall.Root].UTF8MB4Tables = 9
 
 	// Modern MariaDB client on the destination: ok, using the Distrib number.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 15.1 Distrib 10.6.18-MariaDB, for Linux"}
 	r := byID(t, Run(in), "db.charset")
 	if r.Severity != Ok || !strings.Contains(r.Detail, "10.6.18") {
@@ -258,28 +258,28 @@ func TestCharsetRules(t *testing.T) {
 	}
 
 	// Ancient destination client: blocker.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Blocker {
 		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
 	}
 
 	// Debian/Ubuntu-packaged MySQL 8: the package revision after the dash
 	// ("0ubuntu0.22.04.1") must not be read as the version.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64 ((Ubuntu))"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "8.0.36") {
 		t.Errorf("distro-packaged MySQL 8 should be ok as 8.0.36, got %+v", r)
 	}
 
 	// Debian-packaged MariaDB: Distrib still wins over the client version.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 15.1 Distrib 10.11.6-MariaDB, for debian-linux-gnu (x86_64) using  EditLine wrapper"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "10.11.6") {
 		t.Errorf("debian MariaDB should be ok as 10.11.6, got %+v", r)
 	}
 
 	// Unparseable version: info, not a false pass.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: ""}
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true, Version: ""}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Info {
 		t.Errorf("unknown destination version should be info, got %+v", r)
 	}
@@ -602,7 +602,7 @@ func TestEngineRule(t *testing.T) {
 	in.SourceDBs = map[string]*db.Inspection{
 		wpInstall.Root: {Connected: true, ServerVersion: "10.11.6-MariaDB"},
 	}
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64"}
 	r := byID(t, Run(in), "db.engine")
 	if r.Severity != Warning || !strings.Contains(r.Detail, "MariaDB") || !strings.Contains(r.Detail, "no conversion") {
@@ -611,7 +611,7 @@ func TestEngineRule(t *testing.T) {
 
 	// MariaDB → MariaDB (via the mariadb-named client): ok.
 	in.Destination = capsWith("8.2", "rsync", "mariadb")
-	in.Destination.Tools["mariadb"] = ssh.Tool{Name: "mariadb", Found: true,
+	in.Destination.Tools["mariadb"] = remote.Tool{Name: "mariadb", Found: true,
 		Version: "mariadb  Ver 15.1 Distrib 10.11.6-MariaDB"}
 	if r := byID(t, Run(in), "db.engine"); r.Severity != Ok || !strings.Contains(r.Detail, "MariaDB") {
 		t.Errorf("matching engines should confirm, got %+v", r)

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeConn is a scripted endpoint: it answers mkdir/find/rm on Run and records
@@ -21,7 +21,7 @@ type fakeConn struct {
 	rmExit     int
 
 	streamOut []byte // bytes this end writes to the relay (the "archive")
-	streamRes ssh.Result
+	streamRes remote.Result
 	streamErr error
 	noDrain   bool // return without reading stdin, like an extract dying early
 	marker    bool // an interrupted-transfer marker exists on this end
@@ -32,28 +32,28 @@ type fakeConn struct {
 	stdin      [][]byte
 }
 
-func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeConn) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.mu.Lock()
 	f.runCmds = append(f.runCmds, cmd)
 	f.mu.Unlock()
 	switch {
 	case strings.HasPrefix(cmd, "mkdir -p"):
-		return ssh.Result{ExitCode: f.mkdirExit}, nil
+		return remote.Result{ExitCode: f.mkdirExit}, nil
 	case strings.HasPrefix(cmd, "rm -f"):
-		return ssh.Result{ExitCode: f.rmExit}, nil
+		return remote.Result{ExitCode: f.rmExit}, nil
 	case strings.Contains(cmd, "-printf"):
-		return ssh.Result{Stdout: f.printf, ExitCode: f.printfExit}, nil
+		return remote.Result{Stdout: f.printf, ExitCode: f.printfExit}, nil
 	case strings.HasPrefix(cmd, "test -e"):
 		if f.marker {
-			return ssh.Result{}, nil
+			return remote.Result{}, nil
 		}
-		return ssh.Result{ExitCode: 1}, nil
+		return remote.Result{ExitCode: 1}, nil
 	default: // marker write, find fallbacks (print0/print) — empty clean run
-		return ssh.Result{}, nil
+		return remote.Result{}, nil
 	}
 }
 
-func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, w io.Writer) (ssh.Result, error) {
+func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, w io.Writer) (remote.Result, error) {
 	f.mu.Lock()
 	f.streamCmds = append(f.streamCmds, cmd)
 	f.mu.Unlock()
@@ -286,7 +286,7 @@ func TestSyncAdditiveKeepsDestOnly(t *testing.T) {
 
 func TestSyncDestExtractFailureSurfaces(t *testing.T) {
 	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("data")}
-	dst := &fakeConn{streamRes: ssh.Result{ExitCode: 2, Stderr: "tar: Unexpected EOF in archive\n"}}
+	dst := &fakeConn{streamRes: remote.Result{ExitCode: 2, Stderr: "tar: Unexpected EOF in archive\n"}}
 	s, d := endpoints(src, dst)
 	_, err := Sync(context.Background(), s, d, nil, Options{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "destination extract failed (exit 2)") {
@@ -308,7 +308,7 @@ func TestSyncToleratesTarExit1(t *testing.T) {
 	// GNU tar exit 1 on the source (a file changed while reading) is noise on a
 	// live site, not a failure.
 	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("d"),
-		streamRes: ssh.Result{ExitCode: 1, Stderr: "tar: ./x: file changed as we read it\n"}}
+		streamRes: remote.Result{ExitCode: 1, Stderr: "tar: ./x: file changed as we read it\n"}}
 	dst := &fakeConn{}
 	s, d := endpoints(src, dst)
 	if _, err := Sync(context.Background(), s, d, nil, Options{}, nil); err != nil {
@@ -320,7 +320,7 @@ func TestSyncDestExtractExit1IsFatal(t *testing.T) {
 	// bsdtar reports fatal errors — a truncated archive included — with exit
 	// 1, so the extract side gets no warning tolerance.
 	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("data")}
-	dst := &fakeConn{streamRes: ssh.Result{ExitCode: 1, Stderr: "tar: Truncated input file\n"}}
+	dst := &fakeConn{streamRes: remote.Result{ExitCode: 1, Stderr: "tar: Truncated input file\n"}}
 	s, d := endpoints(src, dst)
 	_, err := Sync(context.Background(), s, d, nil, Options{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "destination extract failed (exit 1)") {
@@ -333,7 +333,7 @@ func TestSyncDestFailureNotMaskedByPipeError(t *testing.T) {
 	// a closed-pipe transport error; the destination's stderr must still be
 	// the headline diagnosis.
 	src := &fakeConn{printf: printfLine(1, 1, "a"), streamOut: []byte("data")}
-	dst := &fakeConn{noDrain: true, streamRes: ssh.Result{ExitCode: 2, Stderr: "tar: No space left on device\n"}}
+	dst := &fakeConn{noDrain: true, streamRes: remote.Result{ExitCode: 2, Stderr: "tar: No space left on device\n"}}
 	s, d := endpoints(src, dst)
 	_, err := Sync(context.Background(), s, d, nil, Options{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "No space left on device") {
@@ -563,12 +563,12 @@ type fallbackConn struct {
 	listing string
 }
 
-func (f *fallbackConn) Run(ctx context.Context, cmd string) (ssh.Result, error) {
+func (f *fallbackConn) Run(ctx context.Context, cmd string) (remote.Result, error) {
 	if strings.Contains(cmd, "-print0") {
 		f.mu.Lock()
 		f.runCmds = append(f.runCmds, cmd)
 		f.mu.Unlock()
-		return ssh.Result{Stdout: f.listing}, nil
+		return remote.Result{Stdout: f.listing}, nil
 	}
 	return f.fakeConn.Run(ctx, cmd)
 }

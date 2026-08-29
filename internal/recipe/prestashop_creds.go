@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -13,7 +13,7 @@ import (
 // PHP echo-helper that evaluates the config the way the shop does, then a
 // regex over the file. Both generations are covered; there is no ubiquitous
 // shop CLI on shared hosts.
-func (p PrestaShop) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (p PrestaShop) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
 		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
 			return prestashopPHPCredentials(ctx, h.Run, in.ConfigFile)
@@ -57,8 +57,8 @@ if (substr($f, -14) === 'parameters.php') {
 }
 `
 
-func prestashopPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(prestashopPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func prestashopPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(prestashopPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

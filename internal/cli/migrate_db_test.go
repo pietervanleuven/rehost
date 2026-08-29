@@ -13,10 +13,12 @@ import (
 	"testing"
 
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -233,11 +235,11 @@ func dbPlan(source, dest *fakeConn, stateDir string) migratePlan {
 		dest:      dest,
 		srcStream: nopStreamer{},
 		destConn:  dest,
-		srcHost: db.Host{Run: source, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{
+		srcHost: recipe.Host{Run: source, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{
 			"mysqldump": {Name: "mysqldump", Found: true},
 			"mysql":     {Name: "mysql", Found: true},
 		}}},
-		destHost:  db.Host{Run: dest},
+		destHost:  recipe.Host{Run: dest},
 		srcCreds:  map[string]*db.Credentials{root: {Name: "wp_src", User: "u", Password: "pw"}},
 		destCreds: map[string]*db.Credentials{root: {Name: "u1_wp", User: "u1", Password: "pw2"}},
 		sites: []siteDest{
@@ -293,7 +295,7 @@ func stubInspect(t *testing.T, byName map[string]*db.Inspection) {
 	t.Helper()
 	prev := inspectFn
 	t.Cleanup(func() { inspectFn = prev })
-	inspectFn = func(_ context.Context, _ db.Runner, c *db.Credentials) (*db.Inspection, error) {
+	inspectFn = func(_ context.Context, _ remote.Runner, c *db.Credentials) (*db.Inspection, error) {
 		if insp, ok := byName[c.Name]; ok {
 			return insp, nil
 		}

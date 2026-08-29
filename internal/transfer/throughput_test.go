@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeStreamer emits chunks until the writer aborts, mimicking a session
@@ -17,11 +17,11 @@ import (
 type fakeStreamer struct {
 	chunk   []byte
 	chunks  int
-	res     ssh.Result
+	res     remote.Result
 	lastCmd string
 }
 
-func (f *fakeStreamer) Stream(_ context.Context, cmd string, w io.Writer) (ssh.Result, error) {
+func (f *fakeStreamer) Stream(_ context.Context, cmd string, w io.Writer) (remote.Result, error) {
 	f.lastCmd = cmd
 	// A real stream takes time; without this, Windows' coarse clock can
 	// measure the whole transfer as zero duration and the rate collapses.
@@ -66,7 +66,7 @@ func TestThroughputSmallSiteCompletes(t *testing.T) {
 }
 
 func TestThroughputTarFailure(t *testing.T) {
-	s := &fakeStreamer{chunks: 0, res: ssh.Result{ExitCode: 127, Stderr: "sh: tar: not found\n"}}
+	s := &fakeStreamer{chunks: 0, res: remote.Result{ExitCode: 127, Stderr: "sh: tar: not found\n"}}
 	_, err := Throughput(context.Background(), s, "/site", nil, 0, 0)
 	if err == nil || !strings.Contains(err.Error(), "tar") {
 		t.Errorf("tar failure should surface, got %v", err)
@@ -77,7 +77,7 @@ func TestThroughputDiedMidStreamFails(t *testing.T) {
 	// Bytes flowed, then the pipeline was killed before the cap: however
 	// much arrived, the sample cannot be trusted.
 	s := &fakeStreamer{chunk: bytes.Repeat([]byte("x"), 1<<20), chunks: 2,
-		res: ssh.Result{ExitCode: 137, Stderr: "Killed\n"}}
+		res: remote.Result{ExitCode: 137, Stderr: "Killed\n"}}
 	_, err := Throughput(context.Background(), s, "/site", nil, DefaultByteCap, time.Minute)
 	if err == nil || !strings.Contains(err.Error(), "exit 137") {
 		t.Errorf("killed pipeline must fail with the exit code, got %v", err)
@@ -88,7 +88,7 @@ func TestThroughputUnreadableFileNoiseTolerated(t *testing.T) {
 	// GNU tar exit 1: some files changed/unreadable while reading — the
 	// archive stream is still a valid throughput sample.
 	s := &fakeStreamer{chunk: bytes.Repeat([]byte("y"), 200<<10), chunks: 1,
-		res: ssh.Result{ExitCode: 1, Stderr: "tar: ./tmp/lock: file changed as we read it\n"}}
+		res: remote.Result{ExitCode: 1, Stderr: "tar: ./tmp/lock: file changed as we read it\n"}}
 	stats, err := Throughput(context.Background(), s, "/site", nil, DefaultByteCap, time.Minute)
 	if err != nil || stats.Bytes != 200<<10 {
 		t.Errorf("tar exit 1 should be tolerated: %v, %+v", err, stats)
@@ -96,16 +96,16 @@ func TestThroughputUnreadableFileNoiseTolerated(t *testing.T) {
 }
 
 func TestThroughputTransportFailure(t *testing.T) {
-	failing := streamerFunc(func(context.Context, string, io.Writer) (ssh.Result, error) {
-		return ssh.Result{}, errors.New("connection lost")
+	failing := streamerFunc(func(context.Context, string, io.Writer) (remote.Result, error) {
+		return remote.Result{}, errors.New("connection lost")
 	})
 	if _, err := Throughput(context.Background(), failing, "/site", nil, 0, 0); err == nil {
 		t.Error("transport failure must propagate")
 	}
 }
 
-type streamerFunc func(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error)
+type streamerFunc func(ctx context.Context, cmd string, w io.Writer) (remote.Result, error)
 
-func (f streamerFunc) Stream(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error) {
+func (f streamerFunc) Stream(ctx context.Context, cmd string, w io.Writer) (remote.Result, error) {
 	return f(ctx, cmd, w)
 }
