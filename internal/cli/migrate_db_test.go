@@ -331,7 +331,9 @@ func TestDestDBCredentialsInheritDriver(t *testing.T) {
 		"/home/u/craft": {Name: "src_pg", Driver: "pgsql"},
 		"/home/u/blog":  {Name: "src_my"},
 	}
-	has := func(name string) bool { return name == "psql" || name == "pg_dump" || name == "mariadb" || name == "mariadb-dump" }
+	has := func(name string) bool {
+		return name == "psql" || name == "pg_dump" || name == "mariadb" || name == "mariadb-dump"
+	}
 	creds, err := destDBCredentials(sites, srcCreds, has, func(string) (string, error) { return "pw", nil })
 	if err != nil {
 		t.Fatal(err)
