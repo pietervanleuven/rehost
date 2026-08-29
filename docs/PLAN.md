@@ -133,15 +133,24 @@ credential extraction, DB dump/import strategy, serialized-safe search-replace r
 rewrite, and maintenance-mode integration. The recipe architecture (§2.2) means adding a
 framework is adding a recipe, not touching the engine.
 
+**Database engines (decided 2026-08-29):** rehost migrates MySQL-family (MySQL and
+MariaDB — one toolchain; hosts shipping only the `mariadb`/`mariadb-dump` binary names
+are handled) and PostgreSQL (`psql`/`pg_dump`, no PHP fallback). **rehost never converts
+between engines**: a PostgreSQL site needs a PostgreSQL destination (blocker otherwise),
+and MySQL↔MariaDB cross-migrations import as-is with a `db.engine` warning naming the
+divergences to test for. Engine conversion is a different product, not a roadmap item.
+
 | Tier | Framework | Detection markers | Maintenance mode | Notes |
 |---|---|---|---|---|
 | **1 — MVP** | **Drupal** (7, 8+, multisite) | `sites/default/settings.php`; `core/lib/Drupal.php` (8+); `misc/drupal.js` (7) | `drush state:set system.maintenance_mode 1` (D8+) / `drush vset` (D7); direct DB fallback | **Priority — maintainer's main CMS.** Prefer Drush when present (`sql:dump`, `cr`, `sset`); else parse the `$databases` array. Multisite: enumerate `sites/*/settings.php`. Post-import: `drush cr`, rewrite `trusted_host_patterns`, preserve `hash_salt`, handle private files path + config-sync dir |
 | **1 — MVP** | **WordPress** (incl. multisite) | `wp-config.php`, `wp-includes/` | `.maintenance` file / `wp maintenance-mode activate` | Largest audience. `wp-config.php` may sit above docroot; serialized search-replace essential; `$table_prefix` |
 | **1 — MVP** | Static sites | none of the others match | n/a | Files only — trivial, but validates the whole pipeline |
+| **2 — shipped 2026-08** | **Joomla** (3.x–5.x) | `libraries/src/Version.php` (3.8+); `libraries/cms/version/version.php` (3.0–3.7) | `$offline` property spliced in `configuration.php` (atomic write) | Credentials as JConfig class properties; `dbtype` recorded — Joomla runs on MySQL/MariaDB **or PostgreSQL**, requirements follow the driver |
+| **2 — shipped 2026-08** | **PrestaShop** (1.6, 1.7/8) | `config/defines.inc.php`; version from `AppKernel.php` / `_PS_VERSION_` | none (a DB setting — back-office step, generic live-dump warning) | Both credential shapes: `_DB_*_` defines (1.6) and the `parameters.php` array (1.7/8); MySQL-only |
+| **2 — shipped 2026-08** | **Craft CMS** (3–5) | `craft` console script confirmed against `composer.json`; version from `composer.lock` | `php craft off` / `on` (3.5+) | **Project root is the migration unit** (vendor/, config/, storage/ travel with web/); creds in `.env` (`CRAFT_DB_*`/`DB_*`/URL form); MySQL/MariaDB **or PostgreSQL** |
 | 2 — v1.x | Laravel | `artisan`, `composer.json` requires `laravel/framework` | `php artisan down` | `.env` lives outside docroot; `storage/` symlink + permissions |
-| 2 — v1.x | Joomla | `configuration.php`, `administrator/` | `$offline` flag in `configuration.php` | Credentials as class properties |
 | 2 — v1.x | Generic PHP + MySQL | fallback when nothing matches but a DB config is found | none | User confirms/supplies DB credentials; no framework-specific steps |
-| 3 — later | Magento, PrestaShop, Craft CMS, Symfony/generic Composer | `app/etc/env.php`; `config/settings.inc.php`; `craft`; `composer.json` require inspection | varies | Driven by user demand post-1.0 |
+| 3 — later | Magento, Symfony/generic Composer | `app/etc/env.php`; `composer.json` require inspection | varies | Driven by user demand post-1.0 |
 
 ---
 
@@ -233,7 +242,7 @@ through, not a state machine you can wedge.
 - Panel-optimized profiles: Plesk, cPanel, one.com, Combell, Forge, CloudPanel, RunCloud (paths, DB naming, API hooks where available)
 - Auto DNS adjustment via registrar/DNS APIs (Cloudflare first), TTL lowering ahead of cutover
 - Email account inventory & migration guidance (imapsync integration?)
-- PostgreSQL/SQLite support (Laravel/Craft sites)
+- ~~PostgreSQL support~~ shipped 2026-08 (psql/pg_dump engine; pgpass-file credential discipline; no PHP dump fallback; stored-URL rewrite inside pg dumps still open — COPY-format data). SQLite still future
 - Rollback command; scheduled/cron-driven re-sync; CI mode (JSON output)
 - Jump-host / bastion support (mostly free via ssh_config respect)
 
