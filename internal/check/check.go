@@ -379,7 +379,8 @@ func checkDBConnect(in Input, add addFunc) {
 		case !insp.Connected:
 			failed = append(failed, inst.Root+": "+insp.Reason)
 		default:
-			detail := fmt.Sprintf("%s: MySQL %s · %d tables · %s", inst.Root, insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
+			detail := fmt.Sprintf("%s: %s %s · %d tables · %s", inst.Root,
+				db.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
 			if insp.Charset != "" {
 				detail += " · " + insp.Charset
 			}

@@ -168,10 +168,11 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 				Detail: fmt.Sprintf("%s holds %d tables — overwriting because --onto-existing was set; there is no rollback yet", c.Name, insp.Tables)})
 		case verdict == destRerun:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
-				Detail: fmt.Sprintf("%s reachable (MySQL %s) — %d tables from a previous rehost run, import re-converges them", c.Name, insp.ServerVersion, insp.Tables)})
+				Detail: fmt.Sprintf("%s reachable (%s %s) — %d tables from a previous rehost run, import re-converges them",
+					c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion, insp.Tables)})
 		default: // destFresh
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
-				Detail: fmt.Sprintf("%s reachable (MySQL %s)", c.Name, insp.ServerVersion)})
+				Detail: fmt.Sprintf("%s reachable (%s %s)", c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion)})
 		}
 	}
 	return rows, nil
