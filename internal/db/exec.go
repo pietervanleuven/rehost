@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // SQLResult reports the outcome of one RunSQL call. OK is whether MySQL

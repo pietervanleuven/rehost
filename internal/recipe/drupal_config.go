@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // RewriteConfig points the synced settings.php at the destination database:
