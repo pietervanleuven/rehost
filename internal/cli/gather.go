@@ -187,6 +187,11 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 		if err != nil {
 			return nil, fmt.Errorf("source: extracting credentials for %s: %w", inst.Root, err)
 		}
+		if c != nil {
+			// Resolve the client binaries once per credentials — hosts with
+			// MariaDB-only naming or a PostgreSQL site both hinge on this.
+			c.Tools = db.ResolveClientTools(c.Driver, caps.Has)
+		}
 		creds[inst.Root] = c
 	}
 	if len(creds) > 0 {
@@ -194,14 +199,20 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 	}
 
 	// Inspect each database with its credentials; sites sharing one database
-	// (same name/host/user) are inspected once.
-	if len(creds) > 0 && caps.Has("mysql") {
-		u.progress("source: inspecting databases…")
+	// (same name/host/user) are inspected once. A site whose driver has no
+	// client on the source is skipped, not failed — the check gate reports
+	// the tooling gap.
+	if len(creds) > 0 {
+		announced := false
 		dbs := map[string]*db.Inspection{}
 		byIdentity := map[string]*db.Inspection{}
 		for root, c := range creds {
-			if c == nil || c.Name == "" {
+			if c == nil || c.Name == "" || !caps.Has(c.Tools.Client) {
 				continue
+			}
+			if !announced {
+				u.progress("source: inspecting databases…")
+				announced = true
 			}
 			key := c.Name + "\x00" + c.Host + "\x00" + c.User
 			insp, seen := byIdentity[key]
@@ -214,7 +225,9 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 			}
 			dbs[root] = insp
 		}
-		g.dbs = dbs
+		if len(dbs) > 0 {
+			g.dbs = dbs
+		}
 	}
 
 	ok = true
