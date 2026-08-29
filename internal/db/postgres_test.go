@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 func pgCreds() *Credentials {

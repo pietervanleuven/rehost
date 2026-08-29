@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // ExtractCredentials reads the Drupal database credentials in layers: drush

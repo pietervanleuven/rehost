@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // manifestRunner answers each find variant with a canned result. The zero
