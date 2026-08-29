@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
-	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // Drupal maintenance mode is driven through drush when it is present. Without a

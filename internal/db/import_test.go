@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // fakeConn implements Conn. It drains every stdin it is handed (so the dump
