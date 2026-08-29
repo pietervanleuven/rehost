@@ -286,7 +286,7 @@ func checkEngine(in Input, add addFunc) {
 		case srcEngine == destEngine:
 			add("db.engine", title, Ok,
 				fmt.Sprintf("source and destination both run %s (%s → %s)", srcEngine, insp.ServerVersion, destVersion))
-		case srcEngine == "MariaDB":
+		case srcEngine == "MariaDB" && destEngine == "MySQL":
 			add("db.engine", title, Warning,
 				fmt.Sprintf("source runs MariaDB %s but the destination runs MySQL %s — rehost imports the data as-is (no conversion); this usually works for typical sites, but MariaDB-only features (its JSON/sequence handling, some collations) do not exist on MySQL — test the site thoroughly after migration", insp.ServerVersion, destVersion))
 		default:
