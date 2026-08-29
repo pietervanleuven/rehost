@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/units"
 )
 
@@ -22,11 +22,11 @@ import (
 // client (see the package doc note in sync.go).
 type Conn interface {
 	// Run executes cmd and buffers its stdout (mkdir, find, rm).
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
+	Run(ctx context.Context, cmd string) (remote.Result, error)
 	// StreamPipe executes cmd, copying stdin into the remote process and its
 	// stdout into w as bytes arrive — neither side is buffered whole. A nil
 	// stdin means the command reads no input.
-	StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w io.Writer) (ssh.Result, error)
+	StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w io.Writer) (remote.Result, error)
 }
 
 // Endpoint is one side of a sync: a connection, the docroot on that host, and
@@ -124,10 +124,10 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 	excludes = append(excludes[:len(excludes):len(excludes)], partialMarker)
 
 	// Ensure the destination docroot exists before anything inspects it.
-	if res, err := dst.Conn.Run(ctx, "mkdir -p "+ssh.ShellQuote(dst.Root)); err != nil {
+	if res, err := dst.Conn.Run(ctx, "mkdir -p "+remote.ShellQuote(dst.Root)); err != nil {
 		return stats, err
 	} else if res.ExitCode != 0 {
-		return stats, fmt.Errorf("creating destination root %s (exit %d): %s", dst.Root, res.ExitCode, ssh.FirstLine(res.Stderr))
+		return stats, fmt.Errorf("creating destination root %s (exit %d): %s", dst.Root, res.ExitCode, remote.FirstLine(res.Stderr))
 	}
 
 	// Manifest each end. Excludes are applied identically so the diff compares
@@ -152,7 +152,7 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 		stats.Degraded = true
 		note(progress, "warning: no size/mtime available (GNU find missing on %s) — files modified in place will NOT be re-sent, only new files; verify changed content by hand",
 			degradedEnds(srcManifest, dstManifest, src, dst))
-		res, err := dst.Conn.Run(ctx, "test -e "+ssh.ShellQuote(markerPath))
+		res, err := dst.Conn.Run(ctx, "test -e "+remote.ShellQuote(markerPath))
 		if err != nil {
 			return stats, err
 		}
@@ -183,10 +183,10 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 			stats.BytesSent += e.Size
 		}
 		note(progress, "sending %d files (%s)", len(send), units.HumanBytes(stats.BytesSent))
-		if res, err := dst.Conn.Run(ctx, ": > "+ssh.ShellQuote(markerPath)); err != nil {
+		if res, err := dst.Conn.Run(ctx, ": > "+remote.ShellQuote(markerPath)); err != nil {
 			return stats, err
 		} else if res.ExitCode != 0 {
-			note(progress, "warning: could not mark the transfer in progress on the destination: %s", ssh.FirstLine(res.Stderr))
+			note(progress, "warning: could not mark the transfer in progress on the destination: %s", remote.FirstLine(res.Stderr))
 		}
 		wire, err := relay(ctx, src, dst, send, opts)
 		stats.WireBytes = wire
@@ -197,8 +197,8 @@ func Sync(ctx context.Context, src, dst Endpoint, excludes []string, opts Option
 		}
 		// Best-effort: a marker that survives a completed relay only causes
 		// one extra full re-send on a future degraded run — the safe side.
-		if res, err := dst.Conn.Run(ctx, "rm -f "+ssh.ShellQuote(markerPath)); err == nil && res.ExitCode != 0 {
-			note(progress, "warning: could not clear the transfer marker: %s", ssh.FirstLine(res.Stderr))
+		if res, err := dst.Conn.Run(ctx, "rm -f "+remote.ShellQuote(markerPath)); err == nil && res.ExitCode != 0 {
+			note(progress, "warning: could not clear the transfer marker: %s", remote.FirstLine(res.Stderr))
 		}
 	} else {
 		note(progress, "nothing to send — the destination already matches the source")
@@ -241,7 +241,7 @@ func relay(ctx context.Context, src, dst Endpoint, send []FileEntry, opts Option
 	wire := &countingWriter{}
 
 	type outcome struct {
-		res ssh.Result
+		res remote.Result
 		err error
 	}
 	srcDone := make(chan outcome, 1)
@@ -318,7 +318,7 @@ func reconcileDeletions(ctx context.Context, dst Endpoint, destOnly []string, op
 				return err
 			}
 			if res.ExitCode != 0 {
-				return fmt.Errorf("deleting destination-only files (exit %d): %s", res.ExitCode, ssh.FirstLine(res.Stderr))
+				return fmt.Errorf("deleting destination-only files (exit %d): %s", res.ExitCode, remote.FirstLine(res.Stderr))
 			}
 		}
 		stats.FilesDeleted = len(safe)
@@ -336,7 +336,7 @@ func reconcileDeletions(ctx context.Context, dst Endpoint, destOnly []string, op
 // as long as it does not extract with --touch.
 func srcTarCmd(root string, null, compress bool) string {
 	var b strings.Builder
-	b.WriteString("cd " + ssh.ShellQuote(root) + " && tar -c")
+	b.WriteString("cd " + remote.ShellQuote(root) + " && tar -c")
 	if null {
 		b.WriteString(" --null")
 	}
@@ -356,7 +356,7 @@ func destTarCmd(root string, compress bool) string {
 	if compress {
 		b.WriteString("gzip -dc | ")
 	}
-	b.WriteString("tar -x -p -f - -C " + ssh.ShellQuote(root))
+	b.WriteString("tar -x -p -f - -C " + remote.ShellQuote(root))
 	return b.String()
 }
 
@@ -405,7 +405,7 @@ func rmCommands(root string, paths []string, maxLen int) []string {
 	var b strings.Builder
 	b.WriteString(prefix)
 	for _, p := range paths {
-		arg := " " + ssh.ShellQuote(path.Join(root, p))
+		arg := " " + remote.ShellQuote(path.Join(root, p))
 		if b.Len() > len(prefix) && b.Len()+len(arg) > maxLen {
 			cmds = append(cmds, b.String())
 			b.Reset()
@@ -425,14 +425,14 @@ func rmCommands(root string, paths []string, maxLen int) []string {
 // does; extraction must stay strict because bsdtar reports fatal errors,
 // truncated archives included, with exit 1. A transport error is always
 // honest failure.
-func tarOK(res ssh.Result, err error, what string, tolerateWarnings bool) error {
+func tarOK(res remote.Result, err error, what string, tolerateWarnings bool) error {
 	if err != nil {
 		return err
 	}
 	if res.ExitCode == 0 || (tolerateWarnings && res.ExitCode == 1) {
 		return nil
 	}
-	return fmt.Errorf("%s failed (exit %d): %s", what, res.ExitCode, ssh.FirstLine(res.Stderr))
+	return fmt.Errorf("%s failed (exit %d): %s", what, res.ExitCode, remote.FirstLine(res.Stderr))
 }
 
 // degradedEnds names the endpoint(s) whose manifest lacks size/mtime, for the

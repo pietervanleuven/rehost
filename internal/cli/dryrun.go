@@ -29,7 +29,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 	add := func(id, title string, sev check.Severity, detail string) {
 		results = append(results, check.Result{ID: id, Title: title, Severity: sev, Detail: detail})
 	}
-	fsys := detect.NewSSHFS(client)
+	fsys := detect.NewShellFS(client)
 	stateDir := filepath.Join(filepath.Dir(projectFile), ".rehost")
 	dumpDir := filepath.Join(stateDir, "dumps")
 
@@ -68,7 +68,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		if ex == nil {
 			continue // static site: no database to dump
 		}
-		creds, err := ex.ExtractCredentials(ctx, db.Host{Run: client, FS: fsys, Caps: caps}, inst)
+		creds, err := ex.ExtractCredentials(ctx, recipe.Host{Run: client, FS: fsys, Caps: caps}, inst)
 		if err != nil {
 			return nil, err
 		}

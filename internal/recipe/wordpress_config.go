@@ -12,7 +12,7 @@ import (
 // RewriteConfig points the synced wp-config.php at the destination database:
 // DB_NAME, DB_USER, DB_PASSWORD and DB_HOST are replaced in place, everything
 // else — salts, keys, table prefix, custom code — stays byte-exact.
-func (w WordPress) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (w WordPress) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,

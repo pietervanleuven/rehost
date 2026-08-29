@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -15,10 +15,10 @@ func sampleReports() []HostReport {
 	return []HostReport{
 		{
 			Role: "source",
-			Caps: &ssh.Capabilities{
+			Caps: &remote.Capabilities{
 				Host: "source.example.com", User: "deploy", Shell: "bash", Uname: "Linux x86_64",
 				Home: "/home/u1", PHPVersion: "8.3.11",
-				Tools: map[string]ssh.Tool{
+				Tools: map[string]remote.Tool{
 					"rsync": {Name: "rsync", Found: true, Path: "/usr/bin/rsync", Version: "rsync 3.2.7"},
 					"php":   {Name: "php", Found: true, Path: "/usr/bin/php", Version: "PHP 8.3.11 (cli)"},
 					"drush": {Name: "drush", Found: false},

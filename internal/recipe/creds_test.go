@@ -6,29 +6,29 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // fakeRunner returns canned results for commands matched by substring.
 type fakeRunner struct {
-	byContains map[string]ssh.Result
+	byContains map[string]remote.Result
 	err        error
 	calls      []string
 }
 
-func (f *fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.calls = append(f.calls, cmd)
 	if f.err != nil {
-		return ssh.Result{}, f.err
+		return remote.Result{}, f.err
 	}
 	for substr, res := range f.byContains {
 		if strings.Contains(cmd, substr) {
 			return res, nil
 		}
 	}
-	return ssh.Result{ExitCode: 127}, nil
+	return remote.Result{ExitCode: 127}, nil
 }
 
 const wpConfigSimple = `<?php
@@ -154,10 +154,10 @@ func TestWordPressLayering(t *testing.T) {
 	install := detect.Install{Framework: "wordpress", Root: "site", ConfigFile: "site/wp-config.php"}
 
 	// wp-cli present and working: first layer wins, nothing else runs.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"wp config list": {Stdout: `[{"name":"DB_NAME","value":"cli_db"},{"name":"DB_USER","value":"u"},{"name":"DB_PASSWORD","value":"p"},{"name":"DB_HOST","value":"localhost"},{"name":"table_prefix","value":"wp_"}]`},
 	}}
-	creds, err := WordPress{}.ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs}, install)
+	creds, err := WordPress{}.ExtractCredentials(context.Background(), Host{Run: r, FS: fs}, install)
 	if err != nil || creds == nil || creds.Name != "cli_db" || creds.Method != "wp-cli" {
 		t.Fatalf("wp-cli layer: creds=%+v err=%v", creds, err)
 	}
@@ -167,15 +167,15 @@ func TestWordPressLayering(t *testing.T) {
 
 	// wp-cli and php both absent (exit 127): regex layer reads the file.
 	r = &fakeRunner{}
-	creds, err = WordPress{}.ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs}, install)
+	creds, err = WordPress{}.ExtractCredentials(context.Background(), Host{Run: r, FS: fs}, install)
 	if err != nil || creds == nil || creds.Name != "blogdb" || creds.Method != "config-parse" {
 		t.Fatalf("regex fallback: creds=%+v err=%v", creds, err)
 	}
 
 	// Capabilities that say the tools are missing skip those layers entirely.
-	caps := &ssh.Capabilities{Tools: map[string]ssh.Tool{}}
+	caps := &remote.Capabilities{Tools: map[string]remote.Tool{}}
 	r = &fakeRunner{}
-	if _, err := (WordPress{}).ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs, Caps: caps}, install); err != nil {
+	if _, err := (WordPress{}).ExtractCredentials(context.Background(), Host{Run: r, FS: fs, Caps: caps}, install); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.calls) != 0 {
@@ -184,7 +184,7 @@ func TestWordPressLayering(t *testing.T) {
 
 	// A transport failure aborts instead of masquerading as "not found".
 	r = &fakeRunner{err: errors.New("connection lost")}
-	if _, err := (WordPress{}).ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs}, install); err == nil {
+	if _, err := (WordPress{}).ExtractCredentials(context.Background(), Host{Run: r, FS: fs}, install); err == nil {
 		t.Error("transport failure must propagate")
 	}
 }
@@ -194,17 +194,17 @@ func TestDrupalLayering(t *testing.T) {
 	install := detect.Install{Framework: "drupal", Root: "site", ConfigFile: "site/sites/default/settings.php"}
 
 	// drush works: first layer wins.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"drush sql-conf": {Stdout: `{"database":"drush_db","username":"u","password":"p","host":"localhost","driver":"mysql","prefix":""}`},
 	}}
-	creds, err := Drupal{}.ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs}, install)
+	creds, err := Drupal{}.ExtractCredentials(context.Background(), Host{Run: r, FS: fs}, install)
 	if err != nil || creds == nil || creds.Name != "drush_db" || creds.Method != "drush" {
 		t.Fatalf("drush layer: creds=%+v err=%v", creds, err)
 	}
 
 	// No drush, no php: regex layer.
 	r = &fakeRunner{}
-	creds, err = Drupal{}.ExtractCredentials(context.Background(), db.Host{Run: r, FS: fs}, install)
+	creds, err = Drupal{}.ExtractCredentials(context.Background(), Host{Run: r, FS: fs}, install)
 	if err != nil || creds == nil || creds.Name != "drupal_prod" || creds.Method != "config-parse" {
 		t.Fatalf("regex fallback: creds=%+v err=%v", creds, err)
 	}

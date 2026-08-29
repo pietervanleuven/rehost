@@ -3,7 +3,7 @@ package recipe
 import (
 	"context"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -12,7 +12,7 @@ import (
 // echo-helper that instantiates JConfig (dynamic configs work), then a regex
 // over configuration.php. Joomla has no ubiquitous site CLI on shared hosts,
 // so there is no CLI layer.
-func (j Joomla) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (j Joomla) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
 		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
 			return joomlaPHPCredentials(ctx, h.Run, in.ConfigFile)
@@ -46,8 +46,8 @@ echo '::REHOST-DB::' . json_encode(array(
 ));
 `
 
-func joomlaPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(joomlaPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func joomlaPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(joomlaPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

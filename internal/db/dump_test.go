@@ -14,21 +14,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeStreamer writes canned payload bytes to the stream writer.
 type fakeStreamer struct {
 	payload []byte
-	res     ssh.Result
+	res     remote.Result
 	err     error
 	lastCmd string
 }
 
-func (f *fakeStreamer) Stream(_ context.Context, cmd string, w io.Writer) (ssh.Result, error) {
+func (f *fakeStreamer) Stream(_ context.Context, cmd string, w io.Writer) (remote.Result, error) {
 	f.lastCmd = cmd
 	if f.err != nil {
-		return ssh.Result{}, f.err
+		return remote.Result{}, f.err
 	}
 	if _, err := w.Write(f.payload); err != nil {
 		return f.res, err
@@ -136,7 +136,7 @@ func TestDumpTableCountAcrossChunks(t *testing.T) {
 }
 
 func TestDumpRemoteFailure(t *testing.T) {
-	s := &fakeStreamer{payload: nil, res: ssh.Result{ExitCode: 2, Stderr: "mysqldump: Got error: 1044 access denied with hunter2\n"}}
+	s := &fakeStreamer{payload: nil, res: remote.Result{ExitCode: 2, Stderr: "mysqldump: Got error: 1044 access denied with hunter2\n"}}
 	_, err := Dump(context.Background(), s, &Credentials{Name: "d", Password: "hunter2"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "1044") {
 		t.Fatalf("remote failure should surface stderr, got %v", err)

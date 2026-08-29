@@ -4,7 +4,7 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -14,7 +14,7 @@ import (
 // echo-helper that evaluates wp-config.php, then a plain regex over the file.
 // Each layer hands over to the next on any failure; only transport errors
 // abort.
-func (w WordPress) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (w WordPress) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
 		{h.Run != nil && h.HasTool("wp"), func(ctx context.Context) (*db.Credentials, error) {
 			return wpCLICredentials(ctx, h.Run, in.Root)
@@ -34,8 +34,8 @@ func (w WordPress) ExtractCredentials(ctx context.Context, h db.Host, in detect.
 
 // wpCLICredentials asks wp-cli for the config. --skip-plugins/--skip-themes
 // keeps site code out of the way; stderr is dropped (PHP notices).
-func wpCLICredentials(ctx context.Context, r db.Runner, root string) (*db.Credentials, error) {
-	cmd := "cd " + ssh.ShellQuote(root) + " && wp config list --format=json --skip-plugins --skip-themes 2>/dev/null"
+func wpCLICredentials(ctx context.Context, r remote.Runner, root string) (*db.Credentials, error) {
+	cmd := "cd " + remote.ShellQuote(root) + " && wp config list --format=json --skip-plugins --skip-themes 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -93,8 +93,8 @@ echo '::REHOST-DB::' . json_encode(array(
 ));
 `
 
-func wpPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(wpPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func wpPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(wpPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

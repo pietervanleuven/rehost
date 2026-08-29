@@ -6,35 +6,31 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // maxReadBytes bounds ReadFile so a stray huge file cannot exhaust memory.
 // Framework config and version files are a few KB at most.
 const maxReadBytes = 1 << 20 // 1 MiB
 
-// runner is the slice of *ssh.Client the SSH filesystem needs.
-type runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
-}
+// shellFS reads a remote host over shell commands.
+type shellFS struct{ r remote.Runner }
 
-// sshFS reads a remote host over shell commands.
-type sshFS struct{ r runner }
+// NewShellFS returns an FS that reads the host through POSIX shell commands
+// over any command runner — in rehost, an SSH client.
+func NewShellFS(r remote.Runner) FS { return shellFS{r: r} }
 
-// NewSSHFS returns an FS backed by an SSH client.
-func NewSSHFS(client *ssh.Client) FS { return sshFS{r: client} }
-
-func (f sshFS) Exists(ctx context.Context, p string) (bool, error) {
+func (f shellFS) Exists(ctx context.Context, p string) (bool, error) {
 	return f.test(ctx, "-e", p)
 }
 
-func (f sshFS) IsDir(ctx context.Context, p string) (bool, error) {
+func (f shellFS) IsDir(ctx context.Context, p string) (bool, error) {
 	return f.test(ctx, "-d", p)
 }
 
 // test runs `test <flag> <path>`: exit 0 means true, exit 1 means false, and
 // anything else (or a transport error) is a real failure.
-func (f sshFS) test(ctx context.Context, flag, p string) (bool, error) {
+func (f shellFS) test(ctx context.Context, flag, p string) (bool, error) {
 	res, err := f.r.Run(ctx, fmt.Sprintf("test %s %s", flag, shellQuote(p)))
 	if err != nil {
 		return false, err
@@ -49,7 +45,7 @@ func (f sshFS) test(ctx context.Context, flag, p string) (bool, error) {
 	}
 }
 
-func (f sshFS) ReadFile(ctx context.Context, p string) ([]byte, error) {
+func (f shellFS) ReadFile(ctx context.Context, p string) ([]byte, error) {
 	// head -c bounds the transfer; a missing file yields a non-zero exit.
 	res, err := f.r.Run(ctx, fmt.Sprintf("head -c %d %s", maxReadBytes, shellQuote(p)))
 	if err != nil {
@@ -61,7 +57,7 @@ func (f sshFS) ReadFile(ctx context.Context, p string) ([]byte, error) {
 	return []byte(res.Stdout), nil
 }
 
-func (f sshFS) List(ctx context.Context, dir string) ([]string, error) {
+func (f shellFS) List(ctx context.Context, dir string) ([]string, error) {
 	// NUL separation first: ls output splits a newline-bearing filename
 	// (creatable by any co-tenant) into two bogus entries, and ls cannot
 	// NUL-separate portably. The `dir/. ! -name . -prune` idiom lists the
@@ -87,7 +83,7 @@ func (f sshFS) List(ctx context.Context, dir string) ([]string, error) {
 // listLS is the fallback listing for hosts whose find is missing or too
 // restricted; a filename containing a newline splits here — the price of the
 // degraded path.
-func (f sshFS) listLS(ctx context.Context, dir string) ([]string, error) {
+func (f shellFS) listLS(ctx context.Context, dir string) ([]string, error) {
 	// -A lists dotfiles but omits . and ..; -1 is one per line.
 	res, err := f.r.Run(ctx, fmt.Sprintf("ls -1A %s", shellQuote(dir)))
 	if err != nil {
@@ -107,7 +103,7 @@ func (f sshFS) listLS(ctx context.Context, dir string) ([]string, error) {
 
 // Find locates markers under the roots with a single remote `find`, falling
 // back to a manual walk when `find` is unavailable (jailed shells) or errors.
-func (f sshFS) Find(ctx context.Context, roots, markers []string, opts FindOptions) ([]string, error) {
+func (f shellFS) Find(ctx context.Context, roots, markers []string, opts FindOptions) ([]string, error) {
 	if len(roots) == 0 || len(markers) == 0 {
 		return nil, nil
 	}
@@ -143,7 +139,7 @@ func (f sshFS) Find(ctx context.Context, roots, markers []string, opts FindOptio
 
 // RealPath resolves symlinks with `readlink -f`. When that is unavailable or
 // fails, it returns the path unchanged so detection still proceeds.
-func (f sshFS) RealPath(ctx context.Context, p string) (string, error) {
+func (f shellFS) RealPath(ctx context.Context, p string) (string, error) {
 	res, err := f.r.Run(ctx, "readlink -f "+shellQuote(p))
 	if err != nil {
 		return "", err
@@ -211,4 +207,4 @@ func markerDepth(markers []string) int {
 
 // shellQuote wraps a path in single quotes so spaces and shell
 // metacharacters in paths are inert.
-func shellQuote(s string) string { return ssh.ShellQuote(s) }
+func shellQuote(s string) string { return remote.ShellQuote(s) }
