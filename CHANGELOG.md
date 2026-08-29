@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.2.0](https://github.com/pietervanleuven/rehost/compare/v0.1.0...v0.2.0) (2026-08-29)
+
+
+### Features
+
+* **build:** publish a Homebrew cask on every release ([1562b6e](https://github.com/pietervanleuven/rehost/commit/1562b6edc9bd56aef1937c4afce62af98fc2e4c0))
+* **build:** publish a Homebrew cask on every release ([37a733c](https://github.com/pietervanleuven/rehost/commit/37a733c788a8e4f435857d1f21f697d83a3a3123))
+* **cli,project:** drive dump/import selection by database driver ([6121cef](https://github.com/pietervanleuven/rehost/commit/6121cef067bd95b5ef3ff283a0f432ffd34631dd))
+* **db,ssh,check:** MariaDB-named tooling, driver plumbing, engine advice ([de8d794](https://github.com/pietervanleuven/rehost/commit/de8d794a3e47bb18953be7ba7366f9499f14b72b))
+* **recipe:** Joomla, PrestaShop and Craft CMS recipes ([30593e0](https://github.com/pietervanleuven/rehost/commit/30593e01dd09a381a6a21c5972ce9dfd4ff77336))
+
+
+### Bug Fixes
+
+* **check,recipe,cli:** multisite refusal, honest disk math, exit codes ([ccf2e7b](https://github.com/pietervanleuven/rehost/commit/ccf2e7b7962d90964ea647de98e2da68b9890f11))
+* **check:** parse the MySQL version, not the distro package revision ([af3392d](https://github.com/pietervanleuven/rehost/commit/af3392de78d42aa7c22a4efbaa818bfb0737cbac))
+* **cli,state:** run lock, gate-before-prompt, non-interactive DB password ([28c92f4](https://github.com/pietervanleuven/rehost/commit/28c92f451eec21a664799c5f08286320af982e9c))
+* **cli,transfer,recipe:** close the remote-controlled path and filename holes ([0bef4ce](https://github.com/pietervanleuven/rehost/commit/0bef4ce9b576b3af7e8d1f1eebdea1aaa5122b86))
+* **db,check,cli:** name the actual engine in report rows ([d4a5277](https://github.com/pietervanleuven/rehost/commit/d4a52779e53f6be9178c50603e7646111c035c2b))
+* **db,recipe,cli:** credential and charset correctness minors ([22f6442](https://github.com/pietervanleuven/rehost/commit/22f6442b05eefcd5da0278c4dfc9cbc9c21bd54d))
+* **db:** bind the dump heredoc to mysqldump, not gzip ([33aa6b6](https://github.com/pietervanleuven/rehost/commit/33aa6b6a3dee80ba723ce4366fd551df3b12e405))
+* **dns,check,cli,tui:** make the cutover advice honest ([6706792](https://github.com/pietervanleuven/rehost/commit/6706792d14b8c11a8316a851acc858c99f4c0145))
+* **recipe:** scope Drupal rewrites to $databases and mask WP comments ([3ff7b9f](https://github.com/pietervanleuven/rehost/commit/3ff7b9ff7f5d83485e76e2a94b5bafcfc5a797b3))
+* **searchreplace,detect,cli,tui:** three robustness majors from the review ([11d0db3](https://github.com/pietervanleuven/rehost/commit/11d0db316f8682140e2d5dee8dcd66dba709cbf3))
+* **searchreplace:** opaque comments/idents in dumps, more URL variants ([d2cf3e6](https://github.com/pietervanleuven/rehost/commit/d2cf3e6503b075980e1761a3f62bb5c9982cf407))
+* **ssh,cli:** probe fallback honesty, IPv6 targets, ShellQuote tests ([4e01af9](https://github.com/pietervanleuven/rehost/commit/4e01af935362db04eb1bbf734ad98761f03eec0d))
+* **ssh:** host key algorithm hinting, keepalives, bounded cancel wait ([b3f3c2f](https://github.com/pietervanleuven/rehost/commit/b3f3c2f2b122456fc526dd5fcaae70236950e0ad))
+* **transfer:** carry symlinks and repair interrupted degraded transfers ([91439ce](https://github.com/pietervanleuven/rehost/commit/91439ceb01331415453de3c66cf9255e5bbaa9af))
+
 ## 0.1.0 (2026-08-27)
 
 
