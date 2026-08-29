@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // PostgreSQL support mirrors the MySQL path's credential discipline as far
