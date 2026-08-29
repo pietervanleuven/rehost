@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 // RewriteConfig points the synced PrestaShop config at the destination
@@ -44,7 +44,7 @@ func (p PrestaShop) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite)
 }
 
 // rewritePrestaShopConfig is the pure transform for both config shapes.
-func rewritePrestaShopConfig(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewritePrestaShopConfig(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"

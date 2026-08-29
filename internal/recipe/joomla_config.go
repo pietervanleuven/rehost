@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"regexp"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -63,7 +63,7 @@ func joinAnd(names []string) string {
 // rewriteJoomlaConfig is the pure transform: each JConfig DB property gets
 // the destination value as a single-quoted literal. It returns the
 // auth-critical properties (user, password) it could not replace.
-func rewriteJoomlaConfig(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewriteJoomlaConfig(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"
