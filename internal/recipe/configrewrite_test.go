@@ -201,8 +201,14 @@ func TestWordPressRewriteConfigEndToEnd(t *testing.T) {
 		t.Errorf("result = %+v", res)
 	}
 	joined := strings.Join(r.cmds, "\n")
-	if !strings.Contains(joined, "cat > '/home/d/www/wp-config.php'") || !strings.Contains(joined, "'u1_wp'") {
-		t.Errorf("rewritten config should be written back:\n%s", joined)
+	if !strings.Contains(joined, "cat > '/home/d/www/wp-config.php.rehost-tmp'") || !strings.Contains(joined, "'u1_wp'") {
+		t.Errorf("rewritten config should be staged through a temp file:\n%s", joined)
+	}
+	if !strings.Contains(joined, "mv -f '/home/d/www/wp-config.php.rehost-tmp' '/home/d/www/wp-config.php'") {
+		t.Errorf("staged config should be renamed into place:\n%s", joined)
+	}
+	if !strings.Contains(joined, `"$HOME"/.rehost/config-backups/`) || !strings.Contains(joined, "test -f") {
+		t.Errorf("a one-time backup outside the docroot should precede the rewrite:\n%s", joined)
 	}
 }
 
@@ -258,5 +264,75 @@ func TestDrupalRewriteConfigNoDrushGuides(t *testing.T) {
 	}
 	if len(res.PostSteps) != 1 || !strings.Contains(res.PostSteps[0], "no drush") {
 		t.Errorf("missing drush should leave guidance: %v", res.PostSteps)
+	}
+}
+
+// The rewrite must confine itself to the default $databases connection: a
+// redis block before it keeps its host and password, and the real entry gets
+// the new values.
+func TestRewriteDrupalSettingsSkipsUnrelatedBlocks(t *testing.T) {
+	in := []byte(`<?php
+$settings['redis.connection'] = [
+  'host' => 'redis.internal',
+  'password' => 'redis-secret',
+];
+$databases['default']['default'] = [
+  'database' => 'old_db',
+  'username' => 'old',
+  'password' => 'old-pass',
+  'host' => 'localhost',
+];
+`)
+	out, missing, err := rewriteDrupalSettings(in, db.Credentials{
+		Name: "new_db", User: "new_user", Password: "new_pass", Host: "localhost",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Errorf("missing = %v", missing)
+	}
+	s := string(out)
+	if !strings.Contains(s, "'host' => 'redis.internal'") || !strings.Contains(s, "'password' => 'redis-secret'") {
+		t.Errorf("redis block was corrupted:\n%s", s)
+	}
+	if !strings.Contains(s, "'database' => 'new_db'") || !strings.Contains(s, "'password' => 'new_pass'") {
+		t.Errorf("default connection not rewritten:\n%s", s)
+	}
+	if strings.Contains(s, "'old-pass'") {
+		t.Errorf("old credentials survived:\n%s", s)
+	}
+}
+
+// A file with config blocks but no $databases assignment degrades to the
+// edit-by-hand note instead of splicing into an unrelated block.
+func TestRewriteDrupalSettingsNoDatabasesErrs(t *testing.T) {
+	in := []byte(`<?php
+$settings['redis.connection'] = ['host' => 'r', 'password' => 'p', 'database' => 'x'];
+`)
+	if _, _, err := rewriteDrupalSettings(in, db.Credentials{Name: "n"}); err == nil {
+		t.Error("no $databases assignment should be an error")
+	}
+}
+
+// A commented-out define above the live one must not receive the rewrite.
+func TestRewriteWPConfigIgnoresCommentedDefines(t *testing.T) {
+	in := []byte(`<?php
+// define('DB_NAME', 'olddb');
+define('DB_NAME', 'livedb');
+define('DB_USER', 'u');
+define('DB_PASSWORD', 'p');
+define('DB_HOST', 'localhost');
+`)
+	out, err := rewriteWPConfig(in, db.Credentials{Name: "u1_wp", User: "u1", Password: "pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "// define('DB_NAME', 'olddb');") {
+		t.Errorf("the commented define should be untouched:\n%s", s)
+	}
+	if !strings.Contains(s, "define('DB_NAME', 'u1_wp');") {
+		t.Errorf("the live define should carry the new name:\n%s", s)
 	}
 }

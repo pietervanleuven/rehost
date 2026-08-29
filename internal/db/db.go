@@ -8,15 +8,75 @@ package db
 
 import (
 	"context"
+	"strings"
 
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
+// Normalized driver families. MySQL and MariaDB share one wire protocol and
+// one toolchain, so they are a single driver here; telling the two servers
+// apart (for the engine-compatibility advice) happens at inspection time.
+const (
+	DriverMySQL    = "mysql"
+	DriverPostgres = "pgsql"
+)
+
+// NormalizeDriver maps the driver spellings framework configs use (mysqli,
+// pdo_mysql, pdomysql, mariadb; pgsql, postgres, postgresql, pdo_pgsql) to
+// the two families rehost migrates. Empty and unknown values normalize to
+// mysql — the overwhelming shared-hosting default.
+func NormalizeDriver(d string) string {
+	switch strings.ToLower(strings.TrimSpace(d)) {
+	case "pgsql", "postgres", "postgresql", "pdo_pgsql", "pdopgsql":
+		return DriverPostgres
+	default:
+		return DriverMySQL
+	}
+}
+
+// EngineLabel names the engine for report rows: PostgreSQL for pgsql
+// credentials, MariaDB when the inspected server version says so, MySQL
+// otherwise — a report must not call a PostgreSQL database "MySQL".
+func EngineLabel(driver, serverVersion string) string {
+	if NormalizeDriver(driver) == DriverPostgres {
+		return "PostgreSQL"
+	}
+	if strings.Contains(serverVersion, "MariaDB") {
+		return "MariaDB"
+	}
+	return "MySQL"
+}
+
+// ClientTools names the client binaries used to reach one database. The zero
+// value means the driver's classic names; hosts that ship MariaDB without
+// the mysql-named symlinks get {"mariadb", "mariadb-dump"}.
+type ClientTools struct {
+	Client string // mysql, mariadb, or psql
+	Dump   string // mysqldump, mariadb-dump, or pg_dump
+}
+
+// ResolveClientTools picks the preferred client binaries for a driver on a
+// host whose capability probe answers has(). It only expresses preference —
+// whether the chosen tools actually exist is the check gate's judgment.
+func ResolveClientTools(driver string, has func(string) bool) ClientTools {
+	if NormalizeDriver(driver) == DriverPostgres {
+		return ClientTools{Client: "psql", Dump: "pg_dump"}
+	}
+	t := ClientTools{Client: "mysql", Dump: "mysqldump"}
+	if !has("mysql") && has("mariadb") {
+		t.Client = "mariadb"
+	}
+	if !has("mysqldump") && has("mariadb-dump") {
+		t.Dump = "mariadb-dump"
+	}
+	return t
+}
+
 // Credentials is one site's database connection info as configured on the
 // source host.
 type Credentials struct {
-	Driver      string `json:"driver,omitempty"` // mysql/mariadb unless a recipe says otherwise
+	Driver      string `json:"driver,omitempty"` // as configured; NormalizeDriver folds it to mysql/pgsql
 	Host        string `json:"host,omitempty"`   // may include a port or socket suffix as configured
 	Port        int    `json:"port,omitempty"`
 	Name        string `json:"name"`
@@ -26,6 +86,36 @@ type Credentials struct {
 	// Method records which extraction layer succeeded ("wp-cli", "drush",
 	// "php", "config-parse") so reports can say how trustworthy the data is.
 	Method string `json:"method,omitempty"`
+	// Charset, when learned from inspection, pins the dump connection's
+	// character set so a legacy site storing UTF-8 in latin1 columns is
+	// dumped as the bytes it holds instead of being transcoded.
+	Charset string `json:"charset,omitempty"`
+	// Tools overrides the client binaries for this database; the caller
+	// resolves them once from the host's capability probe
+	// (ResolveClientTools). Zero value = the driver's classic names.
+	Tools ClientTools `json:"-"`
+}
+
+// client returns the client binary to invoke for these credentials.
+func (c *Credentials) client() string {
+	if c.Tools.Client != "" {
+		return c.Tools.Client
+	}
+	if NormalizeDriver(c.Driver) == DriverPostgres {
+		return "psql"
+	}
+	return "mysql"
+}
+
+// dumper returns the dump binary to invoke for these credentials.
+func (c *Credentials) dumper() string {
+	if c.Tools.Dump != "" {
+		return c.Tools.Dump
+	}
+	if NormalizeDriver(c.Driver) == DriverPostgres {
+		return "pg_dump"
+	}
+	return "mysqldump"
 }
 
 // Runner executes commands on the source host; *ssh.Client satisfies it.

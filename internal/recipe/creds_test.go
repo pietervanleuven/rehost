@@ -218,3 +218,131 @@ func TestExtractorFor(t *testing.T) {
 		t.Error("static/unknown must have no extractor")
 	}
 }
+
+// A settings.php that configures redis and a 'migrate' connection before
+// $databases must yield the default connection's credentials, not the first
+// 'host'/'password' keys in the file.
+func TestParseDrupalSettingsScopedToDefaultConnection(t *testing.T) {
+	content := []byte(`<?php
+$settings['redis.connection'] = [
+  'interface' => 'PhpRedis',
+  'host' => 'redis.internal',
+  'password' => 'redis-secret',
+  'port' => 6379,
+];
+$databases['migrate']['default'] = [
+  'database' => 'legacy_db',
+  'username' => 'legacy',
+  'password' => 'legacy-pass',
+  'host' => 'legacy.host',
+];
+$databases['default']['default'] = [
+  'database' => 'live_db',
+  'username' => 'live',
+  'password' => 'live-pass',
+  'host' => 'localhost',
+];
+`)
+	creds := parseDrupalSettings(content)
+	if creds == nil {
+		t.Fatal("no credentials parsed")
+	}
+	if creds.Name != "live_db" || creds.User != "live" || creds.Password != "live-pass" || creds.Host != "localhost" {
+		t.Errorf("wrong connection extracted: %+v", creds)
+	}
+}
+
+// The D7 nested shape with a non-default connection listed first must still
+// resolve to default/default.
+func TestParseDrupalSettingsD7NestedDefault(t *testing.T) {
+	content := []byte(`<?php
+$databases = array(
+  'migrate' => array(
+    'default' => array(
+      'database' => 'old_db',
+      'username' => 'old',
+      'password' => 'old-pass',
+    ),
+  ),
+  'default' => array(
+    'default' => array(
+      'database' => 'd7_db',
+      'username' => 'd7',
+      'password' => 'd7-pass',
+      'host' => 'localhost',
+    ),
+  ),
+);
+`)
+	creds := parseDrupalSettings(content)
+	if creds == nil {
+		t.Fatal("no credentials parsed")
+	}
+	if creds.Name != "old_db" && creds.Name != "d7_db" {
+		t.Fatalf("unexpected database: %+v", creds)
+	}
+	if creds.Name != "d7_db" {
+		t.Errorf("default connection should win over 'migrate': %+v", creds)
+	}
+}
+
+// Escaped quotes inside credential literals are captured whole and decoded.
+func TestConfigParseEscapedQuotes(t *testing.T) {
+	drupal := []byte(`<?php
+$databases['default']['default'] = [
+  'database' => 'db',
+  'username' => 'u',
+  'password' => 'it\'s a pass\\',
+];
+`)
+	if creds := parseDrupalSettings(drupal); creds == nil || creds.Password != `it's a pass\` {
+		t.Errorf("drupal escaped password mis-extracted: %+v", creds)
+	}
+	wp := []byte("<?php\ndefine('DB_NAME', 'db');\ndefine('DB_PASSWORD', 'it\\'s');\n")
+	if creds := parseWPConfig(wp); creds == nil || creds.Password != "it's" {
+		t.Errorf("wp escaped password mis-extracted: %+v", creds)
+	}
+}
+
+// A commented-out define above the live one (common after hand edits) must
+// not shadow it.
+func TestParseWPConfigIgnoresCommentedDefines(t *testing.T) {
+	content := []byte(`<?php
+// define('DB_NAME', 'olddb');
+/* define('DB_PASSWORD', 'oldpass'); */
+define('DB_NAME', 'livedb');
+define('DB_USER', 'liveuser');
+define('DB_PASSWORD', 'livepass');
+# $table_prefix = 'old_';
+$table_prefix = 'wp_';
+`)
+	creds := parseWPConfig(content)
+	if creds == nil {
+		t.Fatal("no credentials parsed")
+	}
+	if creds.Name != "livedb" || creds.Password != "livepass" || creds.TablePrefix != "wp_" {
+		t.Errorf("commented define shadowed the live one: %+v", creds)
+	}
+}
+
+func TestApplyHostIPv6(t *testing.T) {
+	cases := []struct {
+		in   string
+		host string
+		port int
+	}{
+		{"::1", "::1", 0},
+		{"[::1]", "::1", 0},
+		{"[::1]:3307", "::1", 3307},
+		{"2001:db8::5", "2001:db8::5", 0},
+		{"localhost:3307", "localhost", 3307},
+		{"localhost:/tmp/mysql.sock", "localhost:/tmp/mysql.sock", 0},
+	}
+	for _, c := range cases {
+		var creds db.Credentials
+		applyHost(&creds, c.in)
+		if creds.Host != c.host || creds.Port != c.port {
+			t.Errorf("applyHost(%q) = %q:%d, want %q:%d", c.in, creds.Host, creds.Port, c.host, c.port)
+		}
+	}
+}

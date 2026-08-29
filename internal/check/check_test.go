@@ -263,6 +263,21 @@ func TestCharsetRules(t *testing.T) {
 		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
 	}
 
+	// Debian/Ubuntu-packaged MySQL 8: the package revision after the dash
+	// ("0ubuntu0.22.04.1") must not be read as the version.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64 ((Ubuntu))"}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "8.0.36") {
+		t.Errorf("distro-packaged MySQL 8 should be ok as 8.0.36, got %+v", r)
+	}
+
+	// Debian-packaged MariaDB: Distrib still wins over the client version.
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 15.1 Distrib 10.11.6-MariaDB, for debian-linux-gnu (x86_64) using  EditLine wrapper"}
+	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "10.11.6") {
+		t.Errorf("debian MariaDB should be ok as 10.11.6, got %+v", r)
+	}
+
 	// Unparseable version: info, not a false pass.
 	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: ""}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Info {
@@ -270,7 +285,7 @@ func TestCharsetRules(t *testing.T) {
 	}
 }
 
-func TestDiskIncludesDatabaseSize(t *testing.T) {
+func TestDiskSplitsDatabaseFromHomeQuota(t *testing.T) {
 	in := Input{
 		Source:        capsWith("", "rsync", "find"),
 		Destination:   capsWith("", "rsync"),
@@ -278,9 +293,14 @@ func TestDiskIncludesDatabaseSize(t *testing.T) {
 		DestFreeKB:    1100,
 		SourceDBs:     map[string]*db.Inspection{"/a": {Connected: true, SizeKB: 500}},
 	}
-	// 1000 sites + 500 db = 1500 needed > 1100 free → blocker.
-	if r := byID(t, Run(in), "disk.space"); r.Severity != Blocker || !strings.Contains(r.Detail, "database") {
-		t.Errorf("db size must count toward disk need, got %+v", r)
+	// The database lands on MySQL storage, not the home quota: 1000 KiB of
+	// files against 1100 KiB free is tight, not blocked by the DB's 500.
+	if r := byID(t, Run(in), "disk.space"); r.Severity != Warning || strings.Contains(r.Detail, "database") {
+		t.Errorf("db size must not count against the home quota, got %+v", r)
+	}
+	// The database size gets its own row, naming the local staging need.
+	if r := byID(t, Run(in), "disk.db"); r.Severity != Info || !strings.Contains(r.Detail, "THIS machine") {
+		t.Errorf("db size should be reported separately, got %+v", r)
 	}
 }
 
@@ -454,14 +474,22 @@ func TestDNSTTLRule(t *testing.T) {
 		t.Errorf("warning should suggest the ~300s target TTL, got %q", r.Detail)
 	}
 
-	// Low TTL: no warning (an Ok confirmation is fine).
+	// Low TTL from a resolver cache: never "cutover-ready" — a cached value
+	// is the decaying remainder of a possibly-huge authoritative TTL.
 	base.DNS.Records = []dns.Record{
 		{Type: "A", Value: "192.0.2.10", TTL: 300},
 		{Type: "CNAME", Value: "example.com", TTL: 120},
 	}
-	if r := byID(t, Run(base), "dns.ttl"); r.Severity == Warning {
-		t.Errorf("low TTLs should not warn, got %+v", r)
+	if r := byID(t, Run(base), "dns.ttl"); r.Severity != Info || !strings.Contains(r.Detail, "resolver cache") {
+		t.Errorf("low cached TTLs should hedge as info, got %+v", r)
 	}
+
+	// The same low TTLs confirmed at the domain's nameserver: Ok.
+	base.DNS.AuthoritativeTTLs = true
+	if r := byID(t, Run(base), "dns.ttl"); r.Severity != Ok || !strings.Contains(r.Detail, "ready for a fast cutover") {
+		t.Errorf("authoritative low TTLs should confirm readiness, got %+v", r)
+	}
+	base.DNS.AuthoritativeTTLs = false
 
 	// Snapshot present but no A/AAAA/CNAME records at all: nothing to advise.
 	base.DNS.Records = []dns.Record{{Type: "MX", Value: "mail.example.com", TTL: 86400, Priority: 10}}
@@ -479,5 +507,119 @@ func TestStrictestMinPHPPicksHighest(t *testing.T) {
 	})
 	if minPHP != "8.3" || !strings.Contains(needer, "drupal 11") {
 		t.Errorf("strictestMinPHP = %q for %q, want 8.3 for drupal 11", minPHP, needer)
+	}
+}
+
+func TestMultisiteBlocks(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find"),
+		Destination: capsWith("8.2", "rsync"),
+	}
+
+	// Single-site installs: silent.
+	in.Installs = []detect.Install{wpInstall}
+	if hasID(Run(in), "site.multisite") {
+		t.Error("single-site installs must not trigger the multisite rule")
+	}
+
+	// WordPress network install: blocker.
+	wpMulti := wpInstall
+	wpMulti.Extra = map[string]string{"multisite": "true"}
+	in.Installs = []detect.Install{wpMulti}
+	if r := byID(t, Run(in), "site.multisite"); r.Severity != Blocker || !strings.Contains(r.Detail, "multisite") {
+		t.Errorf("WP multisite must block, got %+v", r)
+	}
+
+	// Drupal with more than one configured site: blocker.
+	in.Installs = []detect.Install{{Framework: "drupal", Root: "/home/u/drupal", Sites: []string{"default", "shop.example.com"}}}
+	if r := byID(t, Run(in), "site.multisite"); r.Severity != Blocker || !strings.Contains(r.Detail, "shop.example.com") {
+		t.Errorf("Drupal multisite must block naming the sites, got %+v", r)
+	}
+}
+
+// Hosts with MariaDB-named binaries only (no mysql symlinks) must pass the
+// tooling rules.
+func TestDatabaseRulesMariaDBNames(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mariadb-dump"),
+		Destination: capsWith("8.2", "rsync", "mariadb"),
+		Installs:    []detect.Install{wpInstall},
+	}
+	if r := byID(t, Run(in), "db.dump"); r.Severity != Ok || !strings.Contains(r.Detail, "mariadb-dump") {
+		t.Errorf("mariadb-dump should satisfy the dump rule, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import"); r.Severity != Ok {
+		t.Errorf("mariadb client should satisfy the import rule, got %+v", r)
+	}
+}
+
+// PostgreSQL-backed sites need pg tooling; there is no PHP fallback, and
+// rehost never converts engines.
+func TestDatabaseRulesPostgres(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "php"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{{Framework: "wordpress", Root: "/home/u/craft"}},
+		SourceCreds: map[string]*db.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
+	}
+	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "no PHP fallback") {
+		t.Errorf("missing pg_dump must block without a PHP-fallback promise, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "never converts") {
+		t.Errorf("missing psql must block naming the no-conversion policy, got %+v", r)
+	}
+	// A pg-only site must not demand mysql tooling.
+	if hasID(Run(in), "db.dump") {
+		t.Error("a pgsql-only site must not produce mysql-family dump rows")
+	}
+
+	in.Source = capsWith("8.2", "rsync", "find", "pg_dump")
+	in.Destination = capsWith("8.2", "rsync", "psql")
+	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Ok {
+		t.Errorf("pg_dump present should be ok, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import.pgsql"); r.Severity != Ok {
+		t.Errorf("psql present should be ok, got %+v", r)
+	}
+}
+
+// The engine rule warns on MySQL↔MariaDB cross-migrations — as-is imports,
+// never conversions — and confirms matching engines.
+func TestEngineRule(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
+	}
+
+	// No inspection: engines unknown, rule silent.
+	if hasID(Run(in), "db.engine") {
+		t.Error("without an inspection the engine rule must stay silent")
+	}
+
+	// MariaDB source → MySQL destination: warn, as-is import named.
+	in.SourceDBs = map[string]*db.Inspection{
+		wpInstall.Root: {Connected: true, ServerVersion: "10.11.6-MariaDB"},
+	}
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64"}
+	r := byID(t, Run(in), "db.engine")
+	if r.Severity != Warning || !strings.Contains(r.Detail, "MariaDB") || !strings.Contains(r.Detail, "no conversion") {
+		t.Errorf("MariaDB→MySQL should warn about the as-is import, got %+v", r)
+	}
+
+	// MariaDB → MariaDB (via the mariadb-named client): ok.
+	in.Destination = capsWith("8.2", "rsync", "mariadb")
+	in.Destination.Tools["mariadb"] = ssh.Tool{Name: "mariadb", Found: true,
+		Version: "mariadb  Ver 15.1 Distrib 10.11.6-MariaDB"}
+	if r := byID(t, Run(in), "db.engine"); r.Severity != Ok || !strings.Contains(r.Detail, "MariaDB") {
+		t.Errorf("matching engines should confirm, got %+v", r)
+	}
+
+	// MySQL → MariaDB: warn the other way.
+	in.SourceDBs[wpInstall.Root].ServerVersion = "8.0.36"
+	if r := byID(t, Run(in), "db.engine"); r.Severity != Warning || !strings.Contains(r.Detail, "MySQL 8.0.36") {
+		t.Errorf("MySQL→MariaDB should warn, got %+v", r)
 	}
 }

@@ -126,3 +126,38 @@ func TestCutoverReportJSONEnvelope(t *testing.T) {
 		t.Errorf("smoke 200 should be OK: %+v", env.Smoke)
 	}
 }
+
+// A 404 is what an unconfigured vhost serves — the checklist must lead with
+// FIX FIRST, not spot-check advice.
+func TestCutoverSteps404IsNotServing(t *testing.T) {
+	v := tui.CutoverView{
+		Domain: "example.com",
+		DestIP: "198.51.100.7",
+		Smoke:  &tui.SmokeResult{Scheme: "https", Status: 404},
+	}
+	steps := cutoverSteps(v)
+	if len(steps) == 0 || !strings.Contains(steps[0], "FIX FIRST") {
+		t.Errorf("404 should demand a fix before the flip: %v", steps)
+	}
+}
+
+// Low TTLs that were only read from a resolver cache must carry the hedge in
+// the DNS step.
+func TestCutoverStepsCachedTTLHedge(t *testing.T) {
+	v := tui.CutoverView{
+		Domain: "example.com",
+		DestIP: "198.51.100.7",
+		DNS: &dns.Snapshot{Records: []dns.Record{
+			{Type: "A", Value: "192.0.2.10", TTL: 120},
+		}},
+	}
+	found := false
+	for _, s := range cutoverSteps(v) {
+		if strings.Contains(s, "resolver cache") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("cached TTLs should be hedged in the steps: %v", cutoverSteps(v))
+	}
+}
