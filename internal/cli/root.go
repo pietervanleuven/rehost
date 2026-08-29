@@ -5,7 +5,16 @@ import (
 	"context"
 
 	"github.com/spf13/cobra"
+
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
+
+// rehost predates go-hostdb's .hostdb default and already owns the .rehost
+// dotdir on users' hosts (run history lives there); keep credential staging
+// in the same place.
+func init() {
+	hostdb.StageDir = ".rehost"
+}
 
 // BuildInfo carries version metadata stamped by the build.
 type BuildInfo struct {

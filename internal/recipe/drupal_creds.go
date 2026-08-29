@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -13,15 +13,15 @@ import (
 // (authoritative), then a PHP echo-helper that includes settings.php, then a
 // regex over the file. Multisite: the default site's settings (in.ConfigFile)
 // are used; per-subsite credentials are a later phase.
-func (d Drupal) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
+func (d Drupal) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
-		{h.Run != nil && h.HasTool("drush"), func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("drush"), func(ctx context.Context) (*hostdb.Credentials, error) {
 			return drushCredentials(ctx, h.Run, in.Root)
 		}},
-		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			return drupalPHPCredentials(ctx, h.Run, in.ConfigFile)
 		}},
-		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
 			if err != nil {
 				return nil, err
@@ -33,7 +33,7 @@ func (d Drupal) ExtractCredentials(ctx context.Context, h Host, in detect.Instal
 
 // drushCredentials asks drush for the SQL config. `sql-conf` is the alias
 // that works across drush 8 through 12+.
-func drushCredentials(ctx context.Context, r remote.Runner, root string) (*db.Credentials, error) {
+func drushCredentials(ctx context.Context, r remote.Runner, root string) (*hostdb.Credentials, error) {
 	cmd := "cd " + remote.ShellQuote(root) + " && drush sql-conf --format=json 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
@@ -46,7 +46,7 @@ func drushCredentials(ctx context.Context, r remote.Runner, root string) (*db.Cr
 }
 
 // parseDrushSQLConf reads `drush sql-conf --format=json` output.
-func parseDrushSQLConf(stdout string) *db.Credentials {
+func parseDrushSQLConf(stdout string) *hostdb.Credentials {
 	var conf struct {
 		Driver   string          `json:"driver"`
 		Database string          `json:"database"`
@@ -59,7 +59,7 @@ func parseDrushSQLConf(stdout string) *db.Credentials {
 	if err := decodeFirstJSON(stdout, &conf); err != nil || conf.Database == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver:   conf.Driver,
 		Name:     conf.Database,
 		User:     conf.Username,
@@ -101,7 +101,7 @@ if (is_array($d)) {
 }
 `
 
-func drupalPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+func drupalPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*hostdb.Credentials, error) {
 	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(drupalPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
@@ -115,7 +115,7 @@ func drupalPHPCredentials(ctx context.Context, r remote.Runner, configFile strin
 // block earlier in the file can never supply the credentials. A file with no
 // recognizable $databases assignment falls back to a whole-file match —
 // best-effort beats returning nothing.
-func parseDrupalSettings(content []byte) *db.Credentials {
+func parseDrupalSettings(content []byte) *hostdb.Credentials {
 	if s, e, ok := drupalDefaultConnRange(maskPHPComments(content)); ok {
 		content = content[s:e]
 	}
@@ -123,7 +123,7 @@ func parseDrupalSettings(content []byte) *db.Credentials {
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver:      firstConfigValue(content, "driver"),
 		Name:        name,
 		User:        firstConfigValue(content, "username"),

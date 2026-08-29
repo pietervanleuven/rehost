@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -13,12 +13,12 @@ import (
 // PHP echo-helper that evaluates the config the way the shop does, then a
 // regex over the file. Both generations are covered; there is no ubiquitous
 // shop CLI on shared hosts.
-func (p PrestaShop) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
+func (p PrestaShop) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
-		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			return prestashopPHPCredentials(ctx, h.Run, in.ConfigFile)
 		}},
-		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
 			if err != nil {
 				return nil, err
@@ -57,7 +57,7 @@ if (substr($f, -14) === 'parameters.php') {
 }
 `
 
-func prestashopPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+func prestashopPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*hostdb.Credentials, error) {
 	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(prestashopPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
@@ -68,13 +68,13 @@ func prestashopPHPCredentials(ctx context.Context, r remote.Runner, configFile s
 
 // parsePrestaShopConfig is the last-resort regex layer, keyed by shape: the
 // parameters array ('database_name' => …) or the legacy defines (_DB_NAME_).
-func parsePrestaShopConfig(content []byte) *db.Credentials {
+func parsePrestaShopConfig(content []byte) *hostdb.Credentials {
 	if bytes.Contains(content, []byte("database_name")) {
 		name := firstConfigValue(content, "database_name")
 		if name == "" {
 			return nil
 		}
-		creds := &db.Credentials{
+		creds := &hostdb.Credentials{
 			Name:        name,
 			User:        firstConfigValue(content, "database_user"),
 			Password:    firstConfigValue(content, "database_password"),
@@ -90,7 +90,7 @@ func parsePrestaShopConfig(content []byte) *db.Credentials {
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Name:        name,
 		User:        wpDefine(masked, "_DB_USER_"),
 		Password:    wpDefine(masked, "_DB_PASSWD_"),
