@@ -72,26 +72,23 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		if err != nil {
 			return nil, err
 		}
-		switch {
-		case creds == nil || creds.Name == "":
+		if creds == nil || creds.Name == "" {
 			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": credentials not readable — cannot dump")
-		case !caps.Has("mysqldump") && !caps.Has("php"):
-			add("dryrun.dump:"+site, "Database dump", check.Warning, site+": neither mysqldump nor php on the source — cannot dump")
-		default:
-			// mysqldump when present; the PHP helper is the fallback for
-			// hosts that only have PHP.
-			dump, method := db.Dump, "mysqldump"
-			if !caps.Has("mysqldump") {
-				dump, method = db.DumpPHP, "php fallback"
-			}
-			progress("source: dumping database %s (%s)…", creds.Name, method)
-			detail, ok := dumpToFile(ctx, client, creds, dumpDir, dump)
-			sev := check.Ok
-			if !ok {
-				sev = check.Warning
-			}
-			add("dryrun.dump:"+site, "Database dump", sev, fmt.Sprintf("%s: %s (%s)", site, detail, method))
+			continue
 		}
+		dump, method, usable := dumpStrategy(creds, caps)
+		if !usable {
+			add("dryrun.dump:"+site, "Database dump", check.Warning,
+				fmt.Sprintf("%s: no tool on the source can dump this database (driver %s) — cannot dump", site, db.NormalizeDriver(creds.Driver)))
+			continue
+		}
+		progress("source: dumping database %s (%s)…", creds.Name, method)
+		detail, ok := dumpToFile(ctx, client, creds, dumpDir, dump)
+		sev := check.Ok
+		if !ok {
+			sev = check.Warning
+		}
+		add("dryrun.dump:"+site, "Database dump", sev, fmt.Sprintf("%s: %s (%s)", site, detail, method))
 	}
 
 	// Leave a trace in the source's hidden state folder: the history the
