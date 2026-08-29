@@ -3,8 +3,8 @@ package recipe
 import (
 	"context"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -29,5 +29,5 @@ func (h Host) HasTool(name string) bool {
 // alongside detection. (nil, nil) means "not found" — an honest absence;
 // an error is a transport failure, never absence.
 type Extractor interface {
-	ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error)
+	ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error)
 }

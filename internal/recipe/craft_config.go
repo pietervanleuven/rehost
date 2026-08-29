@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -49,7 +49,7 @@ func (c Craft) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (Con
 // rewriteCraftEnv is the pure transform: each DB variable present in the
 // file gets the destination value; absent auth-critical variables are
 // reported rather than appended (an append could contradict config/db.php).
-func rewriteCraftEnv(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewriteCraftEnv(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	if envHasAny(content, "CRAFT_DB_URL", "DB_DSN", "DB_URL") {
 		return nil, nil, fmt.Errorf("the database is configured as a single URL/DSN")
 	}
