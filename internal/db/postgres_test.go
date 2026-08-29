@@ -148,4 +148,3 @@ printf -- '-- PostgreSQL database dump\nCREATE TABLE public.t (id int);\n-- Post
 		t.Errorf("passfile left behind: %v", leftovers)
 	}
 }
-
