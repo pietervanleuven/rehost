@@ -34,6 +34,7 @@ if (!function_exists('gzopen')) {
   fwrite(STDERR, "rehost: the PHP zlib extension is missing\n");
   exit(1);
 }
+$cs = isset($cfg['charset']) && preg_match('/^[A-Za-z0-9_]+$/', $cfg['charset']) ? $cfg['charset'] : 'utf8mb4';
 $host = isset($cfg['host']) && $cfg['host'] !== '' ? $cfg['host'] : 'localhost';
 $port = isset($cfg['port']) ? (int)$cfg['port'] : 0;
 $user = isset($cfg['user']) ? $cfg['user'] : '';
@@ -51,7 +52,11 @@ try {
     if (!$db) {
       throw new Exception('connect failed: ' . mysqli_connect_error());
     }
-    mysqli_set_charset($db, 'utf8mb4');
+    if (!mysqli_set_charset($db, $cs)) {
+      // Failing loudly beats mangling: the dump header declares this
+      // charset, so a connection left on another one would transcode rows.
+      throw new Exception('cannot set connection charset ' . $cs . ': ' . mysqli_error($db));
+    }
     $all = function ($sql) use ($db) {
       $res = mysqli_query($db, $sql);
       if ($res === false) {
@@ -87,7 +92,7 @@ try {
       return "'" . mysqli_real_escape_string($db, $s) . "'";
     };
   } elseif (class_exists('PDO') && in_array('mysql', PDO::getAvailableDrivers())) {
-    $dsn = 'mysql:dbname=' . $cfg['name'] . ';charset=utf8mb4;';
+    $dsn = 'mysql:dbname=' . $cfg['name'] . ';charset=' . $cs . ';';
     if ($socket !== null) {
       $dsn .= 'unix_socket=' . $socket;
     } else {
@@ -156,7 +161,7 @@ try {
   $note = function ($msg) use ($gz) {
     gzwrite($gz, "\n-- " . str_replace(array("\r", "\n"), ' ', (string)$msg) . "\n");
   };
-  gzwrite($gz, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n");
+  gzwrite($gz, "SET NAMES " . $cs . ";\nSET FOREIGN_KEY_CHECKS=0;\n");
   foreach ($all("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'") as $row) {
     $table = $row[0];
     $bq = $bt($table);
@@ -287,7 +292,8 @@ func dumpPHPCmd(creds *Credentials) string {
 		Name     string `json:"name"`
 		User     string `json:"user,omitempty"`
 		Password string `json:"password"`
-	}{creds.Host, creds.Port, creds.Name, creds.User, creds.Password})
+		Charset  string `json:"charset,omitempty"`
+	}{creds.Host, creds.Port, creds.Name, creds.User, creds.Password, creds.Charset})
 	return "php -d display_errors=stderr -d error_reporting=0 -r " + ssh.ShellQuote(phpDumpScript) +
 		" <<'REHOST_CREDS'\n" + string(cfg) + "\nREHOST_CREDS"
 }

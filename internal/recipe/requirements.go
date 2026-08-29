@@ -3,6 +3,7 @@ package recipe
 import (
 	"strings"
 
+	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -41,9 +42,41 @@ func RequirementsFor(in detect.Install) Requirements {
 			RecommendedExt: []string{"curl", "mbstring", "openssl", "zip"},
 			NeedsDB:        true,
 		}
+	case "joomla":
+		return Requirements{
+			MinPHP:         joomlaMinPHP(in.Version),
+			RequiredExt:    dbDriverExt(in, "mysqli", "pgsql"),
+			RecommendedExt: []string{"curl", "gd", "mbstring", "zip"},
+			NeedsDB:        true,
+		}
+	case "prestashop":
+		return Requirements{
+			MinPHP:         prestashopMinPHP(in.Version),
+			RequiredExt:    []string{"pdo_mysql", "gd", "intl", "zip"},
+			RecommendedExt: []string{"curl", "mbstring", "openssl"},
+			NeedsDB:        true,
+		}
+	case "craft":
+		return Requirements{
+			MinPHP:         craftMinPHP(in.Version),
+			RequiredExt:    dbDriverExt(in, "pdo_mysql", "pdo_pgsql"),
+			RecommendedExt: []string{"curl", "gd", "intl", "mbstring", "openssl", "zip"},
+			NeedsDB:        true,
+		}
 	default:
 		return Requirements{}
 	}
+}
+
+// dbDriverExt picks the database extension requirement from the driver the
+// detection recorded (Extra["db_driver"]): frameworks like Joomla and Craft
+// run on MySQL/MariaDB or PostgreSQL, and demanding mysqli of a PostgreSQL
+// site would false-block it.
+func dbDriverExt(in detect.Install, mysqlExt, pgExt string) []string {
+	if db.NormalizeDriver(in.Extra["db_driver"]) == db.DriverPostgres {
+		return []string{pgExt}
+	}
+	return []string{mysqlExt}
 }
 
 // drupalMinPHP maps a Drupal core version to its minimum PHP version.

@@ -50,6 +50,34 @@ func RewriteDump(r io.Reader, w io.Writer, pairs []Pair) (*Stats, error) {
 		}
 		atLineStart = b == '\n'
 
+		// A /*…*/ comment — mysqldump wraps trigger/routine DDL and session
+		// SET statements in conditional comments — may contain apostrophes;
+		// pass it through opaquely so one cannot open a phantom literal.
+		if b == '/' {
+			if next, _ := br.Peek(1); len(next) == 1 && next[0] == '*' {
+				if err := bw.WriteByte(b); err != nil {
+					return &rep.Stats, err
+				}
+				last, err := copyBlockComment(br, bw)
+				if err != nil {
+					return &rep.Stats, err
+				}
+				atLineStart = last == '\n'
+				continue
+			}
+		}
+		// A backtick identifier (`it's odd`) may contain apostrophes too.
+		if b == '`' {
+			if err := bw.WriteByte(b); err != nil {
+				return &rep.Stats, err
+			}
+			if err := copyBacktickIdent(br, bw); err != nil {
+				return &rep.Stats, err
+			}
+			atLineStart = false
+			continue
+		}
+
 		if b != '\'' {
 			if err := bw.WriteByte(b); err != nil {
 				return &rep.Stats, err
@@ -61,6 +89,65 @@ func RewriteDump(r io.Reader, w io.Writer, pairs []Pair) (*Stats, error) {
 		}
 	}
 	return &rep.Stats, bw.Flush()
+}
+
+// copyBlockComment copies through the closing */ (opening / already written,
+// * still unread) and returns the last byte copied. The opening * cannot
+// close the comment (`/*/` is an open comment, not a complete one). EOF
+// before the close is tolerated — truncation is the footer check's job.
+func copyBlockComment(br *bufio.Reader, bw *bufio.Writer) (byte, error) {
+	open, err := br.ReadByte() // the '*' peeked by the caller
+	if err != nil {
+		return 0, err
+	}
+	if err := bw.WriteByte(open); err != nil {
+		return open, err
+	}
+	var last, prev byte
+	last = 0 // the opening '*' is deliberately not eligible as prev
+	for {
+		b, err := br.ReadByte()
+		if err == io.EOF {
+			return last, nil
+		}
+		if err != nil {
+			return last, err
+		}
+		if err := bw.WriteByte(b); err != nil {
+			return last, err
+		}
+		prev, last = last, b
+		if prev == '*' && b == '/' {
+			return last, nil
+		}
+	}
+}
+
+// copyBacktickIdent copies through the closing backtick (opening one already
+// written); a doubled “ stays inside the identifier. EOF is tolerated.
+func copyBacktickIdent(br *bufio.Reader, bw *bufio.Writer) error {
+	for {
+		b, err := br.ReadByte()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := bw.WriteByte(b); err != nil {
+			return err
+		}
+		if b == '`' {
+			if next, _ := br.Peek(1); len(next) == 1 && next[0] == '`' {
+				_, _ = br.ReadByte()
+				if err := bw.WriteByte('`'); err != nil {
+					return err
+				}
+				continue
+			}
+			return nil
+		}
+	}
 }
 
 // copyLine copies up to and including the next newline (or EOF).

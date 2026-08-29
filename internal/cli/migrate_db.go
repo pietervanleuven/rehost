@@ -16,6 +16,7 @@ import (
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/searchreplace"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 	"github.com/pietervanleuven/rehost/internal/state"
 	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
@@ -34,23 +35,59 @@ var (
 	inspectFn = db.Inspect
 )
 
+// dumpStrategy picks the dump function and its display label for one site's
+// credentials given the source capabilities, stamping the resolved client
+// tools onto the credentials on the way. ok=false when nothing on the host
+// can dump this database (the check gate blocks before this in migrate; the
+// dry run reports it as a warning).
+func dumpStrategy(creds *db.Credentials, caps *ssh.Capabilities) (fn func(context.Context, db.Streamer, *db.Credentials, io.Writer) (*db.DumpStats, error), method string, ok bool) {
+	creds.Tools = db.ResolveClientTools(creds.Driver, caps.Has)
+	if db.NormalizeDriver(creds.Driver) == db.DriverPostgres {
+		// No PHP fallback exists for PostgreSQL — the helper speaks mysqli/PDO-mysql.
+		return dumpFn, "pg_dump", caps.Has("pg_dump")
+	}
+	switch {
+	case caps.Has("mysqldump"), caps.Has("mariadb-dump"):
+		return dumpFn, creds.Tools.Dump, true
+	case caps.Has("php"):
+		return dumpPHPFn, "php fallback", true
+	}
+	return nil, "", false
+}
+
 // dbIdentity keys credential prompting and inspection so sites sharing one
-// panel database are asked about and probed once.
+// panel database are asked about and probed once. Host and port are
+// normalized first: "" vs localhost and 0 vs 3306 spell the same database,
+// and a cosmetic migrate.yaml edit must not make a rerun refuse its own
+// prior import.
 func dbIdentity(c *project.SiteDB) string {
-	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+	return identityKey(c.Name, c.User, c.Host, c.Port)
 }
 
 // dbCredIdentity is dbIdentity over resolved credentials. destDBResults gates
 // its overwrite guard on this, and migrateSiteDB records it after a successful
 // import, so the two agree on which database rehost has filled.
 func dbCredIdentity(c *db.Credentials) string {
-	return c.Name + "\x00" + c.User + "\x00" + c.Host + "\x00" + strconv.Itoa(c.Port)
+	return identityKey(c.Name, c.User, c.Host, c.Port)
+}
+
+func identityKey(name, user, host string, port int) string {
+	if host == "" {
+		host = "localhost"
+	}
+	if port == 0 {
+		port = 3306
+	}
+	return name + "\x00" + user + "\x00" + host + "\x00" + strconv.Itoa(port)
 }
 
 // destDBCredentials resolves each dest_db site to runtime credentials,
 // prompting once per distinct database identity. The password never touches
-// migrate.yaml — this prompt is its only source.
-func destDBCredentials(sites []siteDest, password func(string) (string, error)) (map[string]*db.Credentials, error) {
+// migrate.yaml — this prompt is its only source. The driver follows the
+// site's source database (a PostgreSQL site imports into PostgreSQL — rehost
+// never converts engines) unless dest_db.driver overrides it, and the client
+// binaries are resolved from the destination's capability probe.
+func destDBCredentials(sites []siteDest, srcCreds map[string]*db.Credentials, destHas func(string) bool, password func(string) (string, error)) (map[string]*db.Credentials, error) {
 	prompted := map[string]string{}
 	var out map[string]*db.Credentials
 	for _, s := range sites {
@@ -68,15 +105,23 @@ func destDBCredentials(sites []siteDest, password func(string) (string, error)) 
 			var err error
 			pw, err = password("Password for destination database " + label)
 			if err != nil {
-				return nil, fmt.Errorf("destination database %s: %w — the panel-created database's password is prompted at runtime; run migrate interactively, or remove dest_db to migrate files only", cfg.Name, err)
+				return nil, fmt.Errorf("destination database %s: %w — the panel-created database's password is prompted at runtime; run migrate interactively (or set REHOST_DB_PASSWORD/--db-password-file), or remove dest_db to migrate files only", cfg.Name, err)
 			}
 			prompted[id] = pw
+		}
+		driver := cfg.Driver
+		if driver == "" {
+			if sc := srcCreds[s.install.Root]; sc != nil {
+				driver = sc.Driver
+			}
 		}
 		if out == nil {
 			out = map[string]*db.Credentials{}
 		}
 		out[s.install.Root] = &db.Credentials{
 			Name: cfg.Name, User: cfg.User, Host: cfg.Host, Port: cfg.Port, Password: pw,
+			Driver: driver,
+			Tools:  db.ResolveClientTools(driver, destHas),
 		}
 	}
 	return out, nil
@@ -123,10 +168,11 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 				Detail: fmt.Sprintf("%s holds %d tables — overwriting because --onto-existing was set; there is no rollback yet", c.Name, insp.Tables)})
 		case verdict == destRerun:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
-				Detail: fmt.Sprintf("%s reachable (MySQL %s) — %d tables from a previous rehost run, import re-converges them", c.Name, insp.ServerVersion, insp.Tables)})
+				Detail: fmt.Sprintf("%s reachable (%s %s) — %d tables from a previous rehost run, import re-converges them",
+					c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion, insp.Tables)})
 		default: // destFresh
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
-				Detail: fmt.Sprintf("%s reachable (MySQL %s)", c.Name, insp.ServerVersion)})
+				Detail: fmt.Sprintf("%s reachable (%s %s)", c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion)})
 		}
 	}
 	return rows, nil
@@ -205,7 +251,13 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	}
 
 	// Final dump, inside the window, into the same .rehost/dumps/ layout the
-	// dry run uses.
+	// dry run uses. The inspected charset rides along so the dump connection
+	// matches how the data is actually stored.
+	if insp := p.srcDBs[root]; insp != nil && insp.Charset != "" && srcCreds.Charset == "" {
+		c := *srcCreds
+		c.Charset = insp.Charset
+		srcCreds = &c
+	}
 	u.progress("  dumping %s…", srcCreds.Name)
 	dumpPath, stats, err := dumpForImport(ctx, p, srcCreds)
 	if err != nil {
@@ -227,19 +279,28 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	// DEFINER clauses (always — a cross-account import aborts on a foreign
 	// definer) and apply the serialized-safe docroot rewrite. Same-domain
 	// migrations yield no docroot pairs, but the DEFINER pass still runs.
-	pairs := searchreplace.Pairs(searchreplace.PlanInput{SourceDocroot: root, DestDocroot: s.destRoot})
-	if len(pairs) > 0 {
-		u.progress("  rewriting paths in the dump…")
-	}
-	rstats, err := finalizeDumpFile(dumpPath, pairs)
-	if err != nil {
-		d.Err = fmt.Sprintf("finalizing the dump: %v", err)
-		return d, delta, warnings, true
-	}
-	d.Replacements = rstats.ValuesChanged
-	d.Unparseable = rstats.Unparseable
-	if rstats.Unparseable > 0 {
-		warnings = append(warnings, fmt.Sprintf("%s: %d serialized-looking values could not be parsed and were left untouched — inspect them after cutover", root, rstats.Unparseable))
+	// PostgreSQL dumps skip both stages honestly: DEFINER is a MySQL
+	// construct, and pg_dump carries row data in COPY blocks the SQL-literal
+	// rewriter would corrupt rather than rewrite.
+	if db.NormalizeDriver(srcCreds.Driver) == db.DriverPostgres {
+		if root != s.destRoot {
+			warnings = append(warnings, fmt.Sprintf("%s: stored paths/URLs are NOT rewritten inside PostgreSQL dumps yet — the data imports unchanged; update any stored docroot references (%s → %s) after cutover", root, root, s.destRoot))
+		}
+	} else {
+		pairs := searchreplace.Pairs(searchreplace.PlanInput{SourceDocroot: root, DestDocroot: s.destRoot})
+		if len(pairs) > 0 {
+			u.progress("  rewriting paths in the dump…")
+		}
+		rstats, err := finalizeDumpFile(dumpPath, pairs)
+		if err != nil {
+			d.Err = fmt.Sprintf("finalizing the dump: %v", err)
+			return d, delta, warnings, true
+		}
+		d.Replacements = rstats.ValuesChanged
+		d.Unparseable = rstats.Unparseable
+		if rstats.Unparseable > 0 {
+			warnings = append(warnings, fmt.Sprintf("%s: %d serialized-looking values could not be parsed and were left untouched — inspect them after cutover", root, rstats.Unparseable))
+		}
 	}
 
 	// Import + verification.
@@ -333,22 +394,25 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	return d, delta, warnings, false
 }
 
-// dumpForImport streams one footer-verified dump (mysqldump, or the PHP
-// helper when the source lacks it) to .rehost/dumps/<db>.sql.gz. A failed
-// verification removes the file so a truncated dump can never be imported.
+// dumpForImport streams one footer-verified dump (mysqldump/mariadb-dump/
+// pg_dump per driver, or the PHP helper when a MySQL-family source lacks a
+// dumper) to .rehost/dumps/<db>.sql.gz. A failed verification removes the
+// file so a truncated dump can never be imported.
 func dumpForImport(ctx context.Context, p migratePlan, creds *db.Credentials) (string, *db.DumpStats, error) {
 	dir := filepath.Join(p.stateDir, "dumps")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", nil, err
 	}
-	path := filepath.Join(dir, creds.Name+".sql.gz")
+	path := filepath.Join(dir, dumpFileName(creds.Name))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", nil, err
 	}
-	dump := dumpFn
-	if !p.srcMysqldump {
-		dump = dumpPHPFn
+	dump, _, ok := dumpStrategy(creds, p.srcHost.Caps)
+	if !ok {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", nil, fmt.Errorf("no tool on the source can dump %s (driver %s)", creds.Name, db.NormalizeDriver(creds.Driver))
 	}
 	stats, dumpErr := dump(ctx, p.srcStream, creds, f)
 	closeErr := f.Close()

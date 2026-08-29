@@ -2,6 +2,7 @@ package searchreplace
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,61 @@ func FuzzReplace(f *testing.F) {
 		// serialized data — the whole point of the package.
 		if parsedBefore && !parsesFully(out) {
 			t.Fatalf("valid input became invalid:\n in=%q\nout=%q", value, out)
+		}
+	})
+}
+
+// FuzzRewriteDump asserts the dump rewriter's contract over arbitrary dump
+// bytes: it never panics, a rewrite with no pairs (or a pair the dump does
+// not contain) is a byte-identical copy, and rewritten output still rewrites
+// cleanly (no phantom literal desync carried forward).
+func FuzzRewriteDump(f *testing.F) {
+	seeds := []string{
+		"INSERT INTO t VALUES ('https://old.example.com/x');\n",
+		"-- comment with 'apostrophe\nINSERT INTO t VALUES ('a');\n",
+		"/*!50003 CREATE TRIGGER x -- don't */;\nINSERT INTO t VALUES ('b');\n",
+		"CREATE TABLE `it's odd` (id int);\n",
+		"INSERT INTO t VALUES ('esc\\'aped', 'do''ubled');\n",
+		"INSERT INTO t VALUES ('" + `a:1:{i:0;s:23:"https://old.example.com";}` + "');\n",
+		"'unterminated",
+		"/* unterminated comment",
+		"`unterminated ident",
+		"",
+	}
+	for _, s := range seeds {
+		f.Add([]byte(s), "old.example.com", "new.example.org")
+	}
+
+	f.Fuzz(func(t *testing.T, dump []byte, from, to string) {
+		var noPairs bytes.Buffer
+		if _, err := RewriteDump(bytes.NewReader(dump), &noPairs, nil); err == nil {
+			if !bytes.Equal(noPairs.Bytes(), dump) {
+				t.Fatalf("no-pair rewrite must be byte-identical:\n in=%q\nout=%q", dump, noPairs.Bytes())
+			}
+		}
+
+		if from == "" || from == to {
+			return
+		}
+		var out bytes.Buffer
+		if _, err := RewriteDump(bytes.NewReader(dump), &out, []Pair{{From: from, To: to}}); err != nil {
+			return // unterminated literals are a legitimate error
+		}
+		// A literal's decoded value can contain from even when the escaped
+		// dump bytes do not ('\0' decodes to a NUL byte), so the containment
+		// check is only sound for froms free of quote/backslash/escape-target
+		// bytes.
+		plainFrom := !strings.ContainsAny(from, "\\'\x00\b\n\r\t\x1a")
+		if plainFrom && !bytes.Contains(dump, []byte(from)) && !bytes.Equal(out.Bytes(), dump) {
+			t.Fatalf("non-matching rewrite must be byte-identical:\n in=%q\nout=%q", dump, out.Bytes())
+		}
+		// The output must still scan: rewriting it again with no pairs is a
+		// clean byte-identical pass, proving no desync was introduced.
+		var again bytes.Buffer
+		if _, err := RewriteDump(bytes.NewReader(out.Bytes()), &again, nil); err == nil {
+			if !bytes.Equal(again.Bytes(), out.Bytes()) {
+				t.Fatalf("rewritten dump does not re-scan cleanly:\n out=%q\nagain=%q", out.Bytes(), again.Bytes())
+			}
 		}
 	})
 }

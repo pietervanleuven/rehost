@@ -39,6 +39,36 @@ transport exists) and gained a `db.dest` warning per DB-backed site missing
 `dest_db`; history growth is bounded by semantic-safe `state.Compact`; the
 docroot/database destination policies share one `destPolicy` verdict.
 
+A full pre-release code review (2026-08-28) was worked through end to end —
+all 5 criticals, all 14 majors and every listed minor are fixed with
+regression tests. Highlights: the mysqldump heredoc now binds to mysqldump
+(it fed the credentials to gzip — every dump failed); distro MySQL banners
+parse correctly (no more false utf8mb4 blockers); remote-controlled DB names
+can no longer traverse local paths; Drupal rewrites are scoped to
+`$databases['default']['default']` and WP defines are comment-masked;
+`HostKeyAlgorithms`/keepalives fixed the SSH posture; manifests carry
+symlinks; migrate takes an advisory destination run lock, gates before
+prompting, and supports `--db-password-file`/`REHOST_DB_PASSWORD`; cutover
+advice is honest about 404s, cached TTLs and SERVFAIL (TTLs are re-confirmed
+at the domain's own nameserver); multisite installs are detected and refused;
+exit code 2 now means "gate refused", 1 "operational failure".
+
+Framework and engine expansion (2026-08-29): **Joomla, PrestaShop and Craft
+CMS recipes** joined Drupal/WordPress/static (detection, layered credential
+extraction, config rewrite, maintenance where the framework offers a
+mechanism — Joomla's `$offline` splice, Craft's `craft off/on`; PrestaShop's
+is a DB setting, honestly left to the back office). **MariaDB is explicit**
+(the `mariadb`/`mariadb-dump` binary names are probed and used when the
+mysql-named symlinks are absent) and **PostgreSQL is a second engine** in
+`internal/db` (psql/pg_dump, pgpass-file credential staging under umask 077,
+verified dump footer, ON_ERROR_STOP import; no PHP dump fallback; the
+stored-URL rewrite is skipped for pg dumps — COPY-format data — with an
+explicit warning). Credentials carry a normalized driver + resolved client
+tools end to end; `dest_db` grows an optional `driver:` override. The check
+gate is driver-aware and a `db.engine` rule warns on MySQL↔MariaDB
+cross-migrations — **rehost never converts between engines** (a PostgreSQL
+site needs a PostgreSQL destination; that mismatch is a blocker).
+
 **Field validation against a real Drupal and a real WordPress site on shared
 hosting has still not happened** (docs/TODO.md §1) — this remains the top
 priority and the gate before the marketing launch push, v0.1.0 notwithstanding.
@@ -95,7 +125,8 @@ runtime.
 - `internal/detect` — framework discovery over an `FS` abstraction (shell-based
   `SSHFS` + local for tests): marker `Find` with walk fallback, `Scan`,
   realpath de-dup.
-- `internal/recipe` — pluggable framework recipes (drupal, wordpress, static):
+- `internal/recipe` — pluggable framework recipes (drupal, wordpress, joomla,
+  prestashop, craft, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
   needs-DB), layered credential extraction (framework CLI → PHP
   echo-helper with sentinel → config regex; transport errors abort, tool
@@ -112,6 +143,11 @@ runtime.
   charset and table counts in one round trip, feeding the password to mysql
   via a defaults file on stdin (never argv/env); `Import` streams a verified
   local dump into the destination's mysql, password over a 0600 FIFO.
+  Driver-aware throughout: `NormalizeDriver` folds config spellings to
+  mysql/pgsql, `ResolveClientTools` picks mysql/mariadb/psql binary names
+  from the probe, and the PostgreSQL paths (`postgres.go`) stage the
+  password in a umask-077 pgpass file under `~/.rehost` (libpq refuses
+  FIFOs) removed on the same command line.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.

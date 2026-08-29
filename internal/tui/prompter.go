@@ -3,12 +3,21 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"charm.land/huh/v2"
 )
 
-// HuhPrompter answers ssh.Prompter interactively on a TTY.
+// HuhPrompter answers ssh.Prompter interactively on a TTY. Prompts render on
+// stderr: they are conversation, not document output, so a piped or
+// redirected stdout (plain mode, `| tee`) stays clean while the operator
+// still gets asked.
 type HuhPrompter struct{}
+
+// runField runs one field as a form pinned to the terminal streams.
+func runField(f huh.Field) error {
+	return huh.NewForm(huh.NewGroup(f)).WithInput(os.Stdin).WithOutput(os.Stderr).Run()
+}
 
 func (HuhPrompter) Password(prompt string) (string, error) {
 	var pw string
@@ -16,7 +25,7 @@ func (HuhPrompter) Password(prompt string) (string, error) {
 		Title(prompt).
 		EchoMode(huh.EchoModePassword).
 		Value(&pw)
-	if err := input.Run(); err != nil {
+	if err := runField(input); err != nil {
 		return "", err
 	}
 	return pw, nil
@@ -28,7 +37,7 @@ func (HuhPrompter) ConfirmHostKey(host, keyType, fingerprint string) (bool, erro
 		Title(fmt.Sprintf("Unknown host %s", host)).
 		Description(fmt.Sprintf("Host key: %s %s\nTrust this host and add it to ~/.ssh/known_hosts?", keyType, fingerprint)).
 		Value(&ok)
-	if err := confirm.Run(); err != nil {
+	if err := runField(confirm); err != nil {
 		return false, err
 	}
 	return ok, nil
