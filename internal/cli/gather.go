@@ -151,7 +151,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 	if len(startRoots) == 0 {
 		startRoots = []string{homeOrDot(caps.Home)}
 	}
-	fsys := detect.NewSSHFS(client)
+	fsys := detect.NewShellFS(client)
 	installs, err := detect.Discover(ctx, fsys, startRoots, recipe.All(),
 		detect.FindOptions{Prune: detect.DefaultPrune})
 	if err != nil {
@@ -173,7 +173,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 
 	// Credentials stay in memory for this run only — never stored, never
 	// printed; the check gate only reports whether they were readable.
-	host := db.Host{Run: client, FS: fsys, Caps: caps}
+	host := recipe.Host{Run: client, FS: fsys, Caps: caps}
 	creds := map[string]*db.Credentials{}
 	for _, inst := range installs {
 		ex := recipe.ExtractorFor(inst.Framework)

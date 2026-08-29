@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // Streamer executes a remote command with streaming stdout; *ssh.Client
 // satisfies it. A local seam like runner and Conn, so measuring throughput
 // does not couple transfer to the database package.
 type Streamer interface {
-	Stream(ctx context.Context, cmd string, w io.Writer) (ssh.Result, error)
+	Stream(ctx context.Context, cmd string, w io.Writer) (remote.Result, error)
 }
 
 // ThroughputStats is what a capped measurement observed.
@@ -77,7 +77,7 @@ func Throughput(ctx context.Context, s Streamer, root string, excludes []string,
 		// sample cannot be trusted, however many bytes arrived.
 		return stats, nil
 	default:
-		return stats, fmt.Errorf("tar failed on the source (exit %d): %s", res.ExitCode, ssh.FirstLine(res.Stderr))
+		return stats, fmt.Errorf("tar failed on the source (exit %d): %s", res.ExitCode, remote.FirstLine(res.Stderr))
 	}
 }
 
@@ -85,9 +85,9 @@ func Throughput(ctx context.Context, s Streamer, root string, excludes []string,
 // --exclude=pattern form (GNU and busybox tar).
 func tarCmd(root string, excludes []string) string {
 	var b strings.Builder
-	b.WriteString("cd " + ssh.ShellQuote(root) + " && tar -cf -")
+	b.WriteString("cd " + remote.ShellQuote(root) + " && tar -cf -")
 	for _, e := range excludes {
-		b.WriteString(" --exclude=" + ssh.ShellQuote("./"+e))
+		b.WriteString(" --exclude=" + remote.ShellQuote("./"+e))
 	}
 	b.WriteString(" . | gzip")
 	return b.String()

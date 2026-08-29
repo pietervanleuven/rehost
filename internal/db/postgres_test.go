@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 func pgCreds() *Credentials {
@@ -33,7 +33,7 @@ func TestPGPassLine(t *testing.T) {
 }
 
 func TestInspectPGCommandShape(t *testing.T) {
-	r := &fakeRunnerDB{res: ssh.Result{Stdout: "version::16.2\nsizekb::2048\ntables::12\nencoding::UTF8\n"}}
+	r := &fakeRunnerDB{res: remote.Result{Stdout: "version::16.2\nsizekb::2048\ntables::12\nencoding::UTF8\n"}}
 	insp, err := Inspect(context.Background(), r, pgCreds())
 	if err != nil {
 		t.Fatal(err)
@@ -82,11 +82,11 @@ func TestPGDumpFooterVerified(t *testing.T) {
 // fakeRunnerDB records commands and replies with one canned result.
 type fakeRunnerDB struct {
 	cmds []string
-	res  ssh.Result
+	res  remote.Result
 	err  error
 }
 
-func (f *fakeRunnerDB) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeRunnerDB) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.cmds = append(f.cmds, cmd)
 	return f.res, f.err
 }

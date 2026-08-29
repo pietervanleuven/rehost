@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // FileEntry is one file of a manifest. Size/MTime are zero in a degraded
@@ -53,7 +53,7 @@ func (m *Manifest) TotalBytes() int64 {
 
 // runner is the slice of ssh.Client manifests need.
 type runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
+	Run(ctx context.Context, cmd string) (remote.Result, error)
 }
 
 // findStyle is one output flavor of the listing command, richest first.
@@ -92,7 +92,7 @@ var findVariants = []struct {
 func TakeManifest(ctx context.Context, r runner, root string, excludes []string) (*Manifest, error) {
 	m := &Manifest{Root: root, TakenAt: time.Now().UTC()}
 
-	var last ssh.Result
+	var last remote.Result
 	for _, v := range findVariants {
 		res, err := r.Run(ctx, findCmd(root, excludes, v.style))
 		if err != nil {
@@ -113,10 +113,10 @@ func TakeManifest(ctx context.Context, r runner, root string, excludes []string)
 			continue // no output: the predicate was likely not understood
 		default:
 			// Killed (128+sig, -1) or a hard failure: any stdout is suspect.
-			return nil, fmt.Errorf("find failed on %s (exit %d): %s", root, res.ExitCode, ssh.FirstLine(res.Stderr))
+			return nil, fmt.Errorf("find failed on %s (exit %d): %s", root, res.ExitCode, remote.FirstLine(res.Stderr))
 		}
 	}
-	return nil, fmt.Errorf("find failed on %s: %s", root, ssh.FirstLine(last.Stderr))
+	return nil, fmt.Errorf("find failed on %s: %s", root, remote.FirstLine(last.Stderr))
 }
 
 // findCmd builds the listing command. Excluded directories are pruned so
@@ -124,14 +124,14 @@ func TakeManifest(ctx context.Context, r runner, root string, excludes []string)
 // diagnostic when find fails.
 func findCmd(root string, excludes []string, style findStyle) string {
 	var b strings.Builder
-	b.WriteString("find " + ssh.ShellQuote(root))
+	b.WriteString("find " + remote.ShellQuote(root))
 	if len(excludes) > 0 {
 		b.WriteString(` \(`)
 		for i, e := range excludes {
 			if i > 0 {
 				b.WriteString(" -o")
 			}
-			b.WriteString(" -path " + ssh.ShellQuote(globEscape(path.Join(root, e))))
+			b.WriteString(" -path " + remote.ShellQuote(globEscape(path.Join(root, e))))
 		}
 		b.WriteString(` \) -prune -o`)
 	}

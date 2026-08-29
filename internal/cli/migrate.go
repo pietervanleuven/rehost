@@ -95,8 +95,8 @@ type migratePlan struct {
 
 	srcStream db.Streamer // dump exec on the source; nil = database step disabled
 	destConn  db.Conn     // import sessions on the destination
-	srcHost   db.Host     // maintenance toggles on the source
-	destHost  db.Host     // config rewrite + post-steps on the destination
+	srcHost   recipe.Host // maintenance toggles on the source
+	destHost  recipe.Host // config rewrite + post-steps on the destination
 	srcCreds  map[string]*db.Credentials
 	srcDBs    map[string]*db.Inspection
 	destCreds map[string]*db.Credentials
@@ -220,8 +220,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		dest:         h.dest.client,
 		srcStream:    h.source.client,
 		destConn:     h.dest.client,
-		srcHost:      db.Host{Run: h.source.client, FS: detect.NewSSHFS(h.source.client), Caps: h.source.caps},
-		destHost:     db.Host{Run: h.dest.client, FS: detect.NewSSHFS(h.dest.client), Caps: h.dest.caps},
+		srcHost:      recipe.Host{Run: h.source.client, FS: detect.NewShellFS(h.source.client), Caps: h.source.caps},
+		destHost:     recipe.Host{Run: h.dest.client, FS: detect.NewShellFS(h.dest.client), Caps: h.dest.caps},
 		srcCreds:     h.source.creds,
 		srcDBs:       h.source.dbs,
 		destCreds:    destCreds,

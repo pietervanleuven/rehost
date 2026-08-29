@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // PostgreSQL support mirrors the MySQL path's credential discipline as far
@@ -37,13 +37,13 @@ func pgPassLine(creds *Credentials) (string, error) {
 func pgConnFlags(creds *Credentials) string {
 	var b strings.Builder
 	if creds.Host != "" {
-		b.WriteString(" -h " + ssh.ShellQuote(creds.Host))
+		b.WriteString(" -h " + remote.ShellQuote(creds.Host))
 	}
 	if creds.Port != 0 {
 		b.WriteString(" -p " + strconv.Itoa(creds.Port))
 	}
 	if creds.User != "" {
-		b.WriteString(" -U " + ssh.ShellQuote(creds.User))
+		b.WriteString(" -U " + remote.ShellQuote(creds.User))
 	}
 	return b.String()
 }
@@ -79,9 +79,9 @@ UNION ALL SELECT 'tables::' || (SELECT count(*) FROM information_schema.tables W
 UNION ALL SELECT 'encoding::' || pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()`
 
 // inspectPG is Inspect for the pgsql driver: same contract, psql transport.
-func inspectPG(ctx context.Context, r Runner, creds *Credentials) (*Inspection, error) {
+func inspectPG(ctx context.Context, r remote.Runner, creds *Credentials) (*Inspection, error) {
 	psql := `PGPASSFILE="$t" ` + creds.client() + " -w -X -A -t" + pgConnFlags(creds) +
-		" -d " + ssh.ShellQuote(creds.Name) + " -c " + ssh.ShellQuote(inspectPGSQL)
+		" -d " + remote.ShellQuote(creds.Name) + " -c " + remote.ShellQuote(inspectPGSQL)
 	cmd, err := pgWithPassFile(creds, psql)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func inspectPG(ctx context.Context, r Runner, creds *Credentials) (*Inspection, 
 // wire. Same heredoc discipline as the MySQL path: pg_dump's stdin is free.
 func pgDumpCmd(creds *Credentials) (string, error) {
 	dump := `PGPASSFILE="$t" ` + creds.dumper() + " -w --no-owner --no-privileges" + pgConnFlags(creds) +
-		" " + ssh.ShellQuote(creds.Name) + " | gzip"
+		" " + remote.ShellQuote(creds.Name) + " | gzip"
 	return pgWithPassFile(creds, dump)
 }
 
@@ -159,7 +159,7 @@ func importPGRun(ctx context.Context, conn Conn, creds *Credentials, remoteGunzi
 	if res, err := conn.Run(ctx, setup); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("staging the PostgreSQL password file on the destination: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("staging the PostgreSQL password file on the destination: %s", remote.FirstLine(res.Stderr))
 	}
 	defer func() {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -168,7 +168,7 @@ func importPGRun(ctx context.Context, conn Conn, creds *Credentials, remoteGunzi
 	}()
 
 	importSQL := "PGPASSFILE=" + passRef + " " + creds.client() + " -w -X -q -v ON_ERROR_STOP=1" +
-		pgConnFlags(creds) + " -d " + ssh.ShellQuote(creds.Name)
+		pgConnFlags(creds) + " -d " + remote.ShellQuote(creds.Name)
 	if remoteGunzip {
 		// The pipeline's exit status is psql's (the last stage), which is
 		// authoritative; the dump was footer-verified locally already.
@@ -190,9 +190,9 @@ const countTablesPGSQL = `SELECT count(*) FROM information_schema.tables WHERE t
 
 // countTablesPG reads the destination table count for verification; stdin is
 // free again here, so the passfile stages and cleans up on one command line.
-func countTablesPG(ctx context.Context, r Runner, creds *Credentials) (int, error) {
+func countTablesPG(ctx context.Context, r remote.Runner, creds *Credentials) (int, error) {
 	psql := `PGPASSFILE="$t" ` + creds.client() + " -w -X -A -t" + pgConnFlags(creds) +
-		" -d " + ssh.ShellQuote(creds.Name) + " -c " + ssh.ShellQuote(countTablesPGSQL)
+		" -d " + remote.ShellQuote(creds.Name) + " -c " + remote.ShellQuote(countTablesPGSQL)
 	cmd, err := pgWithPassFile(creds, psql)
 	if err != nil {
 		return 0, err
@@ -206,7 +206,7 @@ func countTablesPG(ctx context.Context, r Runner, creds *Credentials) (int, erro
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return 0, fmt.Errorf("unexpected table-count output %q", ssh.FirstLine(res.Stdout))
+		return 0, fmt.Errorf("unexpected table-count output %q", remote.FirstLine(res.Stdout))
 	}
 	return n, nil
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -13,7 +13,7 @@ import (
 // (authoritative), then a PHP echo-helper that includes settings.php, then a
 // regex over the file. Multisite: the default site's settings (in.ConfigFile)
 // are used; per-subsite credentials are a later phase.
-func (d Drupal) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (d Drupal) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
 		{h.Run != nil && h.HasTool("drush"), func(ctx context.Context) (*db.Credentials, error) {
 			return drushCredentials(ctx, h.Run, in.Root)
@@ -33,8 +33,8 @@ func (d Drupal) ExtractCredentials(ctx context.Context, h db.Host, in detect.Ins
 
 // drushCredentials asks drush for the SQL config. `sql-conf` is the alias
 // that works across drush 8 through 12+.
-func drushCredentials(ctx context.Context, r db.Runner, root string) (*db.Credentials, error) {
-	cmd := "cd " + ssh.ShellQuote(root) + " && drush sql-conf --format=json 2>/dev/null"
+func drushCredentials(ctx context.Context, r remote.Runner, root string) (*db.Credentials, error) {
+	cmd := "cd " + remote.ShellQuote(root) + " && drush sql-conf --format=json 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -101,8 +101,8 @@ if (is_array($d)) {
 }
 `
 
-func drupalPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(drupalPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func drupalPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*db.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(drupalPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err

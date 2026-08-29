@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/state"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
@@ -90,7 +90,7 @@ func TestUnlockClearsLockedSite(t *testing.T) {
 		"rm -f":                          {ExitCode: 0},
 	}}
 	f := unlockFile(project.Site{Framework: "wordpress", Root: "/home/u/pub"})
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestUnlockToolFailureDoesNotAbortRun(t *testing.T) {
 		project.Site{Framework: "wordpress", Root: "/home/u/broken"},
 		project.Site{Framework: "wordpress", Root: "/home/u/ok"},
 	)
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("a tool failure must not abort the run: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestUnlockNothingLocked(t *testing.T) {
 	// is attempted.
 	r := &unlockRunner{results: map[string]ssh.Result{"test -e": {ExitCode: 1}}}
 	f := unlockFile(project.Site{Framework: "wordpress", Root: "/home/u/pub"})
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestUnlockLiveProbeOverridesHistory(t *testing.T) {
 		results: map[string]ssh.Result{"test -e": {ExitCode: 1}}, // off
 	}
 	f := unlockFile(project.Site{Framework: "wordpress", Root: "/home/u/pub"})
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestUnlockProbeUnknownWithHistoryDisables(t *testing.T) {
 		},
 	}
 	f := unlockFile(project.Site{Framework: "drupal", Root: "/home/u/drupal", Version: "10.3.1"})
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestUnlockUnsupportedSiteFails(t *testing.T) {
 	}
 	f := unlockFile(project.Site{Framework: "drupal", Root: "/home/u/drupal", Version: "10.3.1"})
 	view, failed, err := unlockSites(context.Background(),
-		db.Host{Run: r, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{}}}, "/home/u", "u@src.example.com", f)
+		recipe.Host{Run: r, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{}}}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestUnlockHistoryRootMissingFromProject(t *testing.T) {
 	// cleared — it becomes a failed row with the recover-by-hand guidance.
 	r := &unlockRunner{history: lockHistory("/home/u/ghost")}
 	f := unlockFile() // no sites
-	view, failed, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, failed, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestUnlockTransportFailureAborts(t *testing.T) {
 	boom := errors.New("connection lost")
 	r := &unlockRunner{err: boom}
 	f := unlockFile(project.Site{Framework: "wordpress", Root: "/home/u/pub"})
-	_, _, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	_, _, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err == nil || !strings.Contains(err.Error(), "run history") {
 		t.Fatalf("a transport failure reading history should abort, got %v", err)
 	}
@@ -262,7 +262,7 @@ func TestUnlockJSONShape(t *testing.T) {
 		"rm -f":                          {ExitCode: 0},
 	}}
 	f := unlockFile(project.Site{Framework: "wordpress", Root: "/home/u/pub"})
-	view, _, err := unlockSites(context.Background(), db.Host{Run: r}, "/home/u", "u@src.example.com", f)
+	view, _, err := unlockSites(context.Background(), recipe.Host{Run: r}, "/home/u", "u@src.example.com", f)
 	if err != nil {
 		t.Fatalf("unlockSites: %v", err)
 	}

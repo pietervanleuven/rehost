@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 )
 
@@ -173,21 +173,21 @@ type rewriteRunner struct {
 	drush   int // exit code for drush cr
 }
 
-func (r *rewriteRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (r *rewriteRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	r.cmds = append(r.cmds, cmd)
 	switch {
 	case strings.HasPrefix(cmd, "cat -- "):
-		return ssh.Result{Stdout: r.content}, nil
+		return remote.Result{Stdout: r.content}, nil
 	case strings.Contains(cmd, "drush cr"):
-		return ssh.Result{ExitCode: r.drush, Stdout: "rebuilt"}, nil
+		return remote.Result{ExitCode: r.drush, Stdout: "rebuilt"}, nil
 	default:
-		return ssh.Result{}, nil
+		return remote.Result{}, nil
 	}
 }
 
 func TestWordPressRewriteConfigEndToEnd(t *testing.T) {
 	r := &rewriteRunner{content: "<?php\ndefine('DB_NAME','a');define('DB_USER','b');define('DB_PASSWORD','c');define('DB_HOST','d');\n"}
-	h := db.Host{Run: r, Caps: &ssh.Capabilities{}}
+	h := Host{Run: r, Caps: &remote.Capabilities{}}
 	res, err := WordPress{}.RewriteConfig(context.Background(), h, ConfigRewrite{
 		SourceConfig: "/home/u/site/wp-config.php",
 		SourceRoot:   "/home/u/site",
@@ -213,7 +213,7 @@ func TestWordPressRewriteConfigEndToEnd(t *testing.T) {
 }
 
 func TestWordPressConfigAboveDocrootUnsupported(t *testing.T) {
-	res, err := WordPress{}.RewriteConfig(context.Background(), db.Host{Run: &rewriteRunner{}}, ConfigRewrite{
+	res, err := WordPress{}.RewriteConfig(context.Background(), Host{Run: &rewriteRunner{}}, ConfigRewrite{
 		SourceConfig: "/home/u/wp-config.php", // one level above the docroot
 		SourceRoot:   "/home/u/site",
 		DestRoot:     "/home/d/www",
@@ -229,7 +229,7 @@ func TestWordPressConfigAboveDocrootUnsupported(t *testing.T) {
 
 func TestDrupalRewriteConfigRunsCacheRebuild(t *testing.T) {
 	r := &rewriteRunner{content: "<?php\n$databases['default']['default'] = ['database' => 'a', 'username' => 'b', 'password' => 'c', 'host' => 'd'];\n"}
-	h := db.Host{Run: r, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{"drush": {Found: true}}}}
+	h := Host{Run: r, Caps: &remote.Capabilities{Tools: map[string]remote.Tool{"drush": {Found: true}}}}
 	res, err := Drupal{}.RewriteConfig(context.Background(), h, ConfigRewrite{
 		SourceConfig: "/home/u/site/sites/default/settings.php",
 		SourceRoot:   "/home/u/site",
@@ -252,7 +252,7 @@ func TestDrupalRewriteConfigRunsCacheRebuild(t *testing.T) {
 
 func TestDrupalRewriteConfigNoDrushGuides(t *testing.T) {
 	r := &rewriteRunner{content: "<?php\n$databases['default']['default'] = ['database' => 'a'];\n"}
-	h := db.Host{Run: r, Caps: &ssh.Capabilities{}} // no drush
+	h := Host{Run: r, Caps: &remote.Capabilities{}} // no drush
 	res, err := Drupal{}.RewriteConfig(context.Background(), h, ConfigRewrite{
 		SourceConfig: "/home/u/site/sites/default/settings.php",
 		SourceRoot:   "/home/u/site",

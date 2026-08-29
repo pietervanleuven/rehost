@@ -9,7 +9,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
@@ -51,7 +51,7 @@ func (r styledRenderer) capabilityReport(reports []HostReport) error {
 		}
 		fprintf(r.out, "%s %s\n", roleStyle.Render(hr.Role+":"), titleStyle.Render(hr.Caps.Target()))
 		fprintf(r.out, "  %s\n", dimStyle.Render(summaryLine(hr.Caps)))
-		for _, name := range ssh.ProbedTools() {
+		for _, name := range remote.ProbedTools() {
 			tool := hr.Caps.Tools[name]
 			if tool.Found {
 				detail := tool.Path
@@ -106,7 +106,7 @@ func (r plainRenderer) capabilityReport(reports []HostReport) error {
 		}
 		fprintf(w, "%s: %s\n", hr.Role, hr.Caps.Target())
 		fprintf(w, "  %s\n", summaryLine(hr.Caps))
-		for _, name := range ssh.ProbedTools() {
+		for _, name := range remote.ProbedTools() {
 			tool := hr.Caps.Tools[name]
 			if tool.Found {
 				detail := tool.Path
@@ -182,7 +182,7 @@ func (r plainRenderer) Error(err error) {
 }
 
 // summaryLine condenses host facts into one line under the host header.
-func summaryLine(caps *ssh.Capabilities) string {
+func summaryLine(caps *remote.Capabilities) string {
 	s := "shell " + orUnknown(caps.Shell)
 	if caps.Uname != "" {
 		s += " · " + caps.Uname
@@ -211,7 +211,7 @@ type jsonRenderer struct{ out io.Writer }
 
 type jsonHost struct {
 	Role string `json:"role"`
-	*ssh.Capabilities
+	*remote.Capabilities
 	Installs    []detect.Install                `json:"installs"`
 	Inventories map[string]*inventory.Inventory `json:"inventories,omitempty"`
 }

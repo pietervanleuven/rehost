@@ -14,7 +14,7 @@ import (
 // project's own source of truth (config/db.php conventionally reads these
 // very variables). Both env layouts are handled: CRAFT_DB_* (Craft 4/5) and
 // DB_* (Craft 3), plus the single-URL forms (CRAFT_DB_URL / DB_DSN).
-func (c Craft) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (c Craft) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*db.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
 		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)

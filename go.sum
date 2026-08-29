@@ -67,8 +67,8 @@ github.com/pietervanleuven/go-dns v0.1.0 h1:yqhJbDRevwRcZjxxcadVvha8BFEpolRreI/I
 github.com/pietervanleuven/go-dns v0.1.0/go.mod h1:UsAUOQ4epfQTrithU3K8LFHEYnaoJIvSU3iDa9/YxFM=
 github.com/pietervanleuven/go-searchreplace v0.1.0 h1:dKmqKRHQTRa0mOhdCPBeHQYu/OpLLV1Fo/u5cKGGkrg=
 github.com/pietervanleuven/go-searchreplace v0.1.0/go.mod h1:rMMAGDnKrsrS523W4XFo6PpNf6b5F6MU66SSyEKWZuI=
-github.com/pietervanleuven/go-ssh v0.1.0 h1:hFrl2+4FH3MvTQEUF/2Qu4hJm7Sj5GWA9lcgb/NNAkQ=
-github.com/pietervanleuven/go-ssh v0.1.0/go.mod h1:rOkC2h54HxccfE6aIiUEn06kmiyNyZkMNqcpCg4CI7k=
+github.com/pietervanleuven/go-ssh v0.2.0 h1:LmBTk/lOuGYApDjZIAJZ6kzM2z/HZF/Po6h3/k59YbY=
+github.com/pietervanleuven/go-ssh v0.2.0/go.mod h1:rOkC2h54HxccfE6aIiUEn06kmiyNyZkMNqcpCg4CI7k=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=

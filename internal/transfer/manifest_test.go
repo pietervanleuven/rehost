@@ -6,19 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // manifestRunner answers each find variant with a canned result. The zero
 // value answers everything with a clean empty run (exit 0).
 type manifestRunner struct {
-	printf ssh.Result
-	print0 ssh.Result
-	print  ssh.Result
+	printf remote.Result
+	print0 remote.Result
+	print  remote.Result
 	cmds   []string
 }
 
-func (m *manifestRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (m *manifestRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	m.cmds = append(m.cmds, cmd)
 	switch {
 	case strings.Contains(cmd, "-printf"):
@@ -37,7 +37,7 @@ const printfListing = "512 1690000000.1234 index.php\x00" +
 	"1024 1690000200.5 wp-includes/version.php\x00"
 
 func TestTakeManifestGNU(t *testing.T) {
-	r := &manifestRunner{printf: ssh.Result{Stdout: printfListing}}
+	r := &manifestRunner{printf: remote.Result{Stdout: printfListing}}
 	m, err := TakeManifest(context.Background(), r, "/home/u/site", []string{"wp-content/cache", ".git"})
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestTakeManifestEmptySiteIsComplete(t *testing.T) {
 func TestTakeManifestPermissionNoiseAccepted(t *testing.T) {
 	// Exit 1 with output is find's "some subdirectories were unreadable" —
 	// the documented skip-not-fatal case.
-	r := &manifestRunner{printf: ssh.Result{
+	r := &manifestRunner{printf: remote.Result{
 		Stdout:   "512 1690000000.0 index.php\x00",
 		Stderr:   "find: ‘/home/u/site/private’: Permission denied\n",
 		ExitCode: 1,
@@ -103,7 +103,7 @@ func TestTakeManifestPermissionNoiseAccepted(t *testing.T) {
 }
 
 func TestTakeManifestCleanRunIsNotPruned(t *testing.T) {
-	r := &manifestRunner{printf: ssh.Result{Stdout: "512 1690000000.0 index.php\x00"}}
+	r := &manifestRunner{printf: remote.Result{Stdout: "512 1690000000.0 index.php\x00"}}
 	m, err := TakeManifest(context.Background(), r, "/home/u/site", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestTakeManifestCleanRunIsNotPruned(t *testing.T) {
 func TestTakeManifestKilledMidListingFails(t *testing.T) {
 	// A find killed by the host's resource limiter leaves partial output and
 	// an exit status > 1: the truncated listing must never become a manifest.
-	r := &manifestRunner{printf: ssh.Result{
+	r := &manifestRunner{printf: remote.Result{
 		Stdout:   "512 1690000000.0 index.php\x00",
 		ExitCode: 137,
 	}}
@@ -129,8 +129,8 @@ func TestTakeManifestKilledMidListingFails(t *testing.T) {
 
 func TestTakeManifestFallbackPrint0(t *testing.T) {
 	r := &manifestRunner{
-		printf: ssh.Result{ExitCode: 1, Stderr: "find: -printf: unknown primary or operator\n"},
-		print0: ssh.Result{Stdout: "/home/u/site/index.html\x00/home/u/site/css/ site.css\x00"},
+		printf: remote.Result{ExitCode: 1, Stderr: "find: -printf: unknown primary or operator\n"},
+		print0: remote.Result{Stdout: "/home/u/site/index.html\x00/home/u/site/css/ site.css\x00"},
 	}
 	m, err := TakeManifest(context.Background(), r, "/home/u/site", nil)
 	if err != nil {
@@ -146,9 +146,9 @@ func TestTakeManifestFallbackPrint0(t *testing.T) {
 
 func TestTakeManifestLastResortPrint(t *testing.T) {
 	r := &manifestRunner{
-		printf: ssh.Result{ExitCode: 1},
-		print0: ssh.Result{ExitCode: 1},
-		print:  ssh.Result{Stdout: "/home/u/site/index.html\n/home/u/site/css/ site.css \n"},
+		printf: remote.Result{ExitCode: 1},
+		print0: remote.Result{ExitCode: 1},
+		print:  remote.Result{Stdout: "/home/u/site/index.html\n/home/u/site/css/ site.css \n"},
 	}
 	m, err := TakeManifest(context.Background(), r, "/home/u/site", nil)
 	if err != nil {
@@ -166,7 +166,7 @@ func TestTakeManifestLastResortPrint(t *testing.T) {
 }
 
 func TestTakeManifestAllVariantsFail(t *testing.T) {
-	fail := ssh.Result{ExitCode: 1, Stderr: "find: /home/u/site: No such file or directory\n"}
+	fail := remote.Result{ExitCode: 1, Stderr: "find: /home/u/site: No such file or directory\n"}
 	r := &manifestRunner{printf: fail, print0: fail, print: fail}
 	if _, err := TakeManifest(context.Background(), r, "/home/u/site", nil); err == nil {
 		t.Fatal("expected an error")

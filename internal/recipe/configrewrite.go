@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 )
 
@@ -39,7 +39,7 @@ type ConfigRewriteResult struct {
 // Implementations must preserve everything but the database settings —
 // salts, keys and custom code stay byte-exact.
 type ConfigRewriter interface {
-	RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error)
+	RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error)
 }
 
 // RewriterFor returns the config-rewrite strategy of a framework's recipe,
@@ -77,13 +77,13 @@ func phpSingleQuote(s string) string {
 // readRemoteFile fetches a remote file's content over Run. A transport error
 // propagates; a non-zero exit (missing/unreadable file) is an
 // ErrMaintenanceTool-style local failure the caller can degrade on.
-func readRemoteFile(ctx context.Context, r db.Runner, p string) ([]byte, error) {
-	res, err := r.Run(ctx, "cat -- "+ssh.ShellQuote(p))
+func readRemoteFile(ctx context.Context, r remote.Runner, p string) ([]byte, error) {
+	res, err := r.Run(ctx, "cat -- "+remote.ShellQuote(p))
 	if err != nil {
 		return nil, err
 	}
 	if res.ExitCode != 0 {
-		return nil, fmt.Errorf("reading %s: %s", p, ssh.FirstLine(res.Stderr))
+		return nil, fmt.Errorf("reading %s: %s", p, remote.FirstLine(res.Stderr))
 	}
 	return []byte(res.Stdout), nil
 }
@@ -97,7 +97,7 @@ func readRemoteFile(ctx context.Context, r db.Runner, p string) ([]byte, error) 
 // than next to the config: a wp-config.php.bak-style sibling in the docroot
 // would be served as plain text, credentials included. A rerun keeps the
 // existing backup, which is the pre-rehost original.
-func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content []byte) error {
+func writeRemoteFileRandom(ctx context.Context, r remote.Runner, p string, content []byte) error {
 	var b [8]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return err
@@ -106,8 +106,8 @@ func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content [
 	// The heredoc terminates the last body line itself, so a trailing
 	// newline in content would come back doubled.
 	body := strings.TrimSuffix(string(content), "\n")
-	q := ssh.ShellQuote(p)
-	tmp := ssh.ShellQuote(p + ".rehost-tmp")
+	q := remote.ShellQuote(p)
+	tmp := remote.ShellQuote(p + ".rehost-tmp")
 	bak := `"$HOME"/.rehost/config-backups/` + backupName(p)
 	cmd := `{ mkdir -p "$HOME"/.rehost/config-backups && { test -f ` + bak + ` || cp -p ` + q + ` ` + bak + `; }; } 2>/dev/null; ` +
 		"cp -p " + q + " " + tmp + " && cat > " + tmp + " <<'" + marker + "' && mv -f " + tmp + " " + q +
@@ -117,7 +117,7 @@ func writeRemoteFileRandom(ctx context.Context, r db.Runner, p string, content [
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("writing %s: %s", p, ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("writing %s: %s", p, remote.FirstLine(res.Stderr))
 	}
 	return nil
 }

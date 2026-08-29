@@ -13,6 +13,7 @@ import (
 
 	"github.com/pietervanleuven/go-searchreplace"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/project"
@@ -133,7 +134,7 @@ func destDBCredentials(sites []siteDest, srcCreds map[string]*db.Credentials, de
 // has no record of filling is refused unless --onto-existing, because the
 // import's DROP TABLE statements overwrite it. A site without dest_db gets a
 // warning row: files will sync, the database will not.
-func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map[string]*db.Credentials, migratedDBs map[string]bool, ontoExisting bool) ([]check.Result, error) {
+func destDBResults(ctx context.Context, r remote.Runner, sites []siteDest, creds map[string]*db.Credentials, migratedDBs map[string]bool, ontoExisting bool) ([]check.Result, error) {
 	const title = "Destination database"
 	inspected := map[string]*db.Inspection{}
 	var rows []check.Result

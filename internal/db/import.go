@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/units"
 )
 
@@ -22,8 +22,8 @@ import (
 // the two streamed sessions (the dump relay and the credential feeder).
 // *ssh.Client satisfies it.
 type Conn interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
-	StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w io.Writer) (ssh.Result, error)
+	Run(ctx context.Context, cmd string) (remote.Result, error)
+	StreamPipe(ctx context.Context, cmd string, stdin io.Reader, w io.Writer) (remote.Result, error)
 }
 
 // ImportOptions tunes one import. The zero value streams plain SQL (no remote
@@ -188,7 +188,7 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 	if res, err := conn.Run(ctx, setup); err != nil {
 		return err
 	} else if res.ExitCode != 0 {
-		return fmt.Errorf("preparing the credentials pipe on the destination: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("preparing the credentials pipe on the destination: %s", remote.FirstLine(res.Stderr))
 	}
 	defer func() {
 		// Best-effort cleanup on a context detached from ctx's cancellation so a
@@ -202,7 +202,7 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 	defer cancel()
 
 	importSQL := creds.client() + " --defaults-extra-file=" + fifoRef +
-		" --default-character-set=" + ssh.ShellQuote(charset) + " " + ssh.ShellQuote(creds.Name)
+		" --default-character-set=" + remote.ShellQuote(charset) + " " + remote.ShellQuote(creds.Name)
 	if remoteGunzip {
 		// The pipeline's exit status is mysql's (the last stage) under POSIX
 		// sh, which is what we want: mysql is authoritative. The dump was
@@ -213,7 +213,7 @@ func importCreds(ctx context.Context, conn Conn, creds *Credentials, charset str
 
 	var (
 		wg          sync.WaitGroup
-		importRes   ssh.Result
+		importRes   remote.Result
 		importErr   error
 		feederErr   error
 		credsReader = strings.NewReader(clientDefaults(creds))
@@ -259,9 +259,9 @@ const countTablesSQL = `SELECT COUNT(*) FROM information_schema.TABLES WHERE tab
 // countTables reads the destination table count for verification. mysql's
 // stdin is free again here, so the password rides the Inspect-style defaults
 // file on stdin (heredoc) rather than a FIFO.
-func countTables(ctx context.Context, r Runner, creds *Credentials) (int, error) {
+func countTables(ctx context.Context, r remote.Runner, creds *Credentials) (int, error) {
 	cmd := creds.client() + " --defaults-extra-file=/dev/stdin --batch --skip-column-names --connect-timeout=10 -e " +
-		ssh.ShellQuote(countTablesSQL) + " " + ssh.ShellQuote(creds.Name) + credsHeredoc(creds, "")
+		remote.ShellQuote(countTablesSQL) + " " + remote.ShellQuote(creds.Name) + credsHeredoc(creds, "")
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return 0, err
@@ -271,7 +271,7 @@ func countTables(ctx context.Context, r Runner, creds *Credentials) (int, error)
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(res.Stdout))
 	if err != nil {
-		return 0, fmt.Errorf("unexpected table-count output %q", ssh.FirstLine(res.Stdout))
+		return 0, fmt.Errorf("unexpected table-count output %q", remote.FirstLine(res.Stdout))
 	}
 	return n, nil
 }

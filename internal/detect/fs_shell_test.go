@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
-// scriptRunner answers remote commands from a function, for exercising sshFS.
-type scriptRunner func(cmd string) ssh.Result
+// scriptRunner answers remote commands from a function, for exercising shellFS.
+type scriptRunner func(cmd string) remote.Result
 
-func (s scriptRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (s scriptRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	return s(cmd), nil
 }
 
@@ -37,15 +37,15 @@ func TestFindCommand(t *testing.T) {
 }
 
 func TestSSHFindParsesOutput(t *testing.T) {
-	run := scriptRunner(func(cmd string) ssh.Result {
+	run := scriptRunner(func(cmd string) remote.Result {
 		if strings.HasPrefix(cmd, "find") {
 			// NUL-terminated: a newline inside a path stays one hit.
-			return ssh.Result{Stdout: "/home/u/public_html/wp-includes/version.php\x00/home/u/blog\nx/wp-includes/version.php\x00"}
+			return remote.Result{Stdout: "/home/u/public_html/wp-includes/version.php\x00/home/u/blog\nx/wp-includes/version.php\x00"}
 		}
 		t.Fatalf("unexpected command: %s", cmd)
-		return ssh.Result{}
+		return remote.Result{}
 	})
-	fs := sshFS{r: run}
+	fs := shellFS{r: run}
 	got, err := fs.Find(context.Background(), []string{"/home/u"}, []string{"wp-includes/version.php"}, FindOptions{})
 	if err != nil {
 		t.Fatalf("Find: %v", err)
@@ -58,14 +58,14 @@ func TestSSHFindParsesOutput(t *testing.T) {
 // List prefers a NUL-separated find so a newline-bearing filename stays one
 // entry; hosts without find degrade to ls.
 func TestSSHListNULSeparated(t *testing.T) {
-	run := scriptRunner(func(cmd string) ssh.Result {
+	run := scriptRunner(func(cmd string) remote.Result {
 		if strings.HasPrefix(cmd, "find") {
-			return ssh.Result{Stdout: "/srv/site/./b.txt\x00/srv/site/./weird\nname.txt\x00/srv/site/./.htaccess\x00"}
+			return remote.Result{Stdout: "/srv/site/./b.txt\x00/srv/site/./weird\nname.txt\x00/srv/site/./.htaccess\x00"}
 		}
 		t.Fatalf("unexpected command: %s", cmd)
-		return ssh.Result{}
+		return remote.Result{}
 	})
-	fs := sshFS{r: run}
+	fs := shellFS{r: run}
 	got, err := fs.List(context.Background(), "/srv/site")
 	if err != nil {
 		t.Fatal(err)
@@ -76,17 +76,17 @@ func TestSSHListNULSeparated(t *testing.T) {
 }
 
 func TestSSHListFallsBackToLS(t *testing.T) {
-	run := scriptRunner(func(cmd string) ssh.Result {
+	run := scriptRunner(func(cmd string) remote.Result {
 		switch {
 		case strings.HasPrefix(cmd, "find"):
-			return ssh.Result{Stderr: "sh: find: command not found", ExitCode: 127}
+			return remote.Result{Stderr: "sh: find: command not found", ExitCode: 127}
 		case strings.HasPrefix(cmd, "ls "):
-			return ssh.Result{Stdout: "a.txt\nb.txt\n"}
+			return remote.Result{Stdout: "a.txt\nb.txt\n"}
 		default:
-			return ssh.Result{ExitCode: 1}
+			return remote.Result{ExitCode: 1}
 		}
 	})
-	fs := sshFS{r: run}
+	fs := shellFS{r: run}
 	got, err := fs.List(context.Background(), "/srv/site")
 	if err != nil {
 		t.Fatal(err)
@@ -99,21 +99,21 @@ func TestSSHListFallsBackToLS(t *testing.T) {
 func TestSSHFindFallsBackWhenFindMissing(t *testing.T) {
 	// find is absent (127); the walk fallback then uses test/ls to locate the
 	// marker directly under the root.
-	run := scriptRunner(func(cmd string) ssh.Result {
+	run := scriptRunner(func(cmd string) remote.Result {
 		switch {
 		case strings.HasPrefix(cmd, "find"):
-			return ssh.Result{Stderr: "sh: find: command not found", ExitCode: 127}
+			return remote.Result{Stderr: "sh: find: command not found", ExitCode: 127}
 		case strings.Contains(cmd, "test -e") && strings.Contains(cmd, "marker"):
-			return ssh.Result{ExitCode: 0} // marker exists at the root
+			return remote.Result{ExitCode: 0} // marker exists at the root
 		case strings.HasPrefix(cmd, "test "):
-			return ssh.Result{ExitCode: 1}
+			return remote.Result{ExitCode: 1}
 		case strings.HasPrefix(cmd, "ls "):
-			return ssh.Result{Stdout: ""} // empty dir: no descent
+			return remote.Result{Stdout: ""} // empty dir: no descent
 		default:
-			return ssh.Result{ExitCode: 1}
+			return remote.Result{ExitCode: 1}
 		}
 	})
-	fs := sshFS{r: run}
+	fs := shellFS{r: run}
 	got, err := fs.Find(context.Background(), []string{"/srv/site"}, []string{"marker"}, FindOptions{MaxDepth: 2})
 	if err != nil {
 		t.Fatalf("Find fallback: %v", err)

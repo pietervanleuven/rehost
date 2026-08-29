@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
@@ -15,7 +15,7 @@ import (
 // database: the JConfig $db/$user/$password/$host properties are replaced in
 // place; $secret, paths and everything else stay byte-exact. Joomla keeps a
 // port inside $host ("localhost:3306"), so a configured port folds back in.
-func (j Joomla) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (j Joomla) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,
@@ -113,26 +113,26 @@ func replaceJoomlaProperty(content []byte, key, value string) ([]byte, bool) {
 // shared hosts, so the recipe splices '1'/'0' into the config through the
 // same atomic temp+rename write the config rewrite uses.
 
-func (j Joomla) EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (j Joomla) EnableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return j.setOffline(ctx, h, in, true)
 }
 
 // DisableMaintenance is idempotent: writing '0' over '0' converges.
-func (j Joomla) DisableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (j Joomla) DisableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return j.setOffline(ctx, h, in, false)
 }
 
-func (j Joomla) setOffline(ctx context.Context, h db.Host, in detect.Install, on bool) (MaintenanceResult, error) {
+func (j Joomla) setOffline(ctx context.Context, h Host, in detect.Install, on bool) (MaintenanceResult, error) {
 	if h.Run == nil || in.ConfigFile == "" {
 		return MaintenanceResult{Supported: false,
 			Note: "no configuration.php to toggle $offline in — put the site offline in the administrator backend"}, nil
 	}
-	res, err := h.Run.Run(ctx, "cat -- "+ssh.ShellQuote(in.ConfigFile))
+	res, err := h.Run.Run(ctx, "cat -- "+remote.ShellQuote(in.ConfigFile))
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
 	if res.ExitCode != 0 {
-		return MaintenanceResult{}, fmt.Errorf("%w: reading %s: %s", ErrMaintenanceTool, in.ConfigFile, ssh.FirstLine(res.Stderr))
+		return MaintenanceResult{}, fmt.Errorf("%w: reading %s: %s", ErrMaintenanceTool, in.ConfigFile, remote.FirstLine(res.Stderr))
 	}
 	value := "0"
 	if on {
@@ -153,11 +153,11 @@ func (j Joomla) setOffline(ctx context.Context, h db.Host, in detect.Install, on
 }
 
 // MaintenanceStatus reads $offline back out of configuration.php.
-func (j Joomla) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error) {
+func (j Joomla) MaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error) {
 	if h.Run == nil || in.ConfigFile == "" {
 		return MaintenanceUnknown, nil
 	}
-	res, err := h.Run.Run(ctx, "cat -- "+ssh.ShellQuote(in.ConfigFile))
+	res, err := h.Run.Run(ctx, "cat -- "+remote.ShellQuote(in.ConfigFile))
 	if err != nil {
 		return MaintenanceUnknown, err
 	}

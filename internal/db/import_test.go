@@ -12,7 +12,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeConn implements Conn. It drains every stdin it is handed (so the dump
@@ -23,7 +23,7 @@ type fakeConn struct {
 
 	setupExit   int
 	setupStderr string
-	importRes   ssh.Result
+	importRes   remote.Result
 	importErr   error
 	feederErr   error
 	countStdout string
@@ -43,27 +43,27 @@ func (f *fakeConn) record(cmd string) {
 	f.mu.Unlock()
 }
 
-func (f *fakeConn) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeConn) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.record(cmd)
 	switch {
 	case strings.Contains(cmd, "mkfifo"):
 		f.mu.Lock()
 		f.fifoCreated = true
 		f.mu.Unlock()
-		return ssh.Result{ExitCode: f.setupExit, Stderr: f.setupStderr}, nil
+		return remote.Result{ExitCode: f.setupExit, Stderr: f.setupStderr}, nil
 	case strings.HasPrefix(cmd, "rm -f"):
 		f.mu.Lock()
 		f.fifoRemoved = true
 		f.mu.Unlock()
-		return ssh.Result{}, nil
+		return remote.Result{}, nil
 	case strings.Contains(cmd, "information_schema"):
-		return ssh.Result{Stdout: f.countStdout, ExitCode: f.countExit, Stderr: f.countStderr}, nil
+		return remote.Result{Stdout: f.countStdout, ExitCode: f.countExit, Stderr: f.countStderr}, nil
 	default:
-		return ssh.Result{}, nil
+		return remote.Result{}, nil
 	}
 }
 
-func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, _ io.Writer) (ssh.Result, error) {
+func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, _ io.Writer) (remote.Result, error) {
 	f.record(cmd)
 	var drained int64
 	if stdin != nil {
@@ -73,7 +73,7 @@ func (f *fakeConn) StreamPipe(_ context.Context, cmd string, stdin io.Reader, _ 
 			f.mu.Lock()
 			f.feederStdin = buf.String()
 			f.mu.Unlock()
-			return ssh.Result{}, f.feederErr
+			return remote.Result{}, f.feederErr
 		}
 	}
 	f.mu.Lock()
@@ -225,7 +225,7 @@ func TestImportSurfacesMysqlError(t *testing.T) {
 	dir := t.TempDir()
 	path := writeDump(t, dir, "d.sql.gz", completeDump)
 	conn := &fakeConn{
-		importRes: ssh.Result{ExitCode: 1, Stderr: "ERROR 1064 (42000) at line 5: syntax error near hunter2\n"},
+		importRes: remote.Result{ExitCode: 1, Stderr: "ERROR 1064 (42000) at line 5: syntax error near hunter2\n"},
 	}
 	creds := &Credentials{Name: "d", Password: "hunter2"}
 	_, err := Import(context.Background(), conn, creds, path, ImportOptions{RemoteGunzip: true})
@@ -244,7 +244,7 @@ func TestImportSurfacesMysqlError(t *testing.T) {
 func TestImportStderrErrorFailsEvenOnZeroExit(t *testing.T) {
 	dir := t.TempDir()
 	path := writeDump(t, dir, "d.sql.gz", completeDump)
-	conn := &fakeConn{importRes: ssh.Result{ExitCode: 0, Stderr: "ERROR 1146: table missing\n"}}
+	conn := &fakeConn{importRes: remote.Result{ExitCode: 0, Stderr: "ERROR 1146: table missing\n"}}
 	if _, err := Import(context.Background(), conn, &Credentials{Name: "d"}, path, ImportOptions{}); err == nil {
 		t.Error("an ERROR on stderr must fail the import even at exit 0")
 	}

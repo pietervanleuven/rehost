@@ -17,12 +17,12 @@ const credSentinel = "::REHOST-DB::"
 
 // ExtractorFor returns the credential extractor of a framework's recipe, or
 // nil when the framework has none (static) or is unknown.
-func ExtractorFor(framework string) db.Extractor {
+func ExtractorFor(framework string) Extractor {
 	for _, r := range All() {
 		if r.Name() != framework {
 			continue
 		}
-		if e, ok := r.(db.Extractor); ok {
+		if e, ok := r.(Extractor); ok {
 			return e
 		}
 	}

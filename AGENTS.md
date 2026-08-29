@@ -125,15 +125,21 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   error); `Dial` auth chain agent → keys → password prompts via the `Prompter`
   interface; known_hosts strict + TOFU (key mismatch always hard-fails); `Run`
   (non-zero exit ≠ Go error); `Probe` = one sentinel-delimited POSIX script with
-  a per-command sequential fallback for restricted shells.
+  a per-command sequential fallback for restricted shells. The transport-free
+  contract (`Result`, `Runner`, `ShellQuote`, `FirstLine`, `Tool`/
+  `Capabilities` and the probe) lives in the `go-ssh/remote` subpackage; the
+  root package aliases those names, so both paths name identical types. Every
+  internal package except `cli` and `project` imports only `go-ssh/remote` —
+  keep it that way: nothing below the orchestrator should compile the dial
+  stack.
 - `internal/project` — migrate.yaml schema v1, strict decode (unknown/secret
   fields rejected with guidance), atomic 0600 writes.
 - `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
   `NonInteractivePrompter` + the init/plan wizard forms (huh stays out of cli);
   tui imports ssh, never the reverse.
-- `internal/detect` — framework discovery over an `FS` abstraction (shell-based
-  `SSHFS` + local for tests): marker `Find` with walk fallback, `Scan`,
-  realpath de-dup.
+- `internal/detect` — framework discovery over an `FS` abstraction
+  (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
+  with walk fallback, `Scan`, realpath de-dup.
 - `internal/recipe` — pluggable framework recipes (drupal, wordpress, joomla,
   prestashop, craft, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
@@ -141,15 +147,17 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   echo-helper with sentinel → config regex; transport errors abort, tool
   failures fall through), and the `Maintainer` seam (same layering;
   per-site tool failures are typed `ErrMaintenanceTool` so callers keep
-  going).
+  going). The capability seams' shared input lives here too: `Host`
+  (runner + FS + capabilities) and the `Extractor` interface recipes
+  implement.
 - `searchreplace` (**external module: github.com/pietervanleuven/go-searchreplace**,
   at ~/Projects/go-searchreplace) — pure serialized-safe replacement core
   (wp search-replace --precise semantics, fuzzed round-trip invariant) +
   the URL/docroot replacement-pair planner + `RewriteDump`, which applies
   pairs inside a SQL dump's string literals (the local application point
   migrate uses between dump and import).
-- `internal/db` — `Credentials` (Password excluded from JSON, in-memory only)
-  + the `Extractor` seam recipes implement; `Inspect` learns version, size,
+- `internal/db` — `Credentials` (Password excluded from JSON, in-memory only);
+  `Inspect` learns version, size,
   charset and table counts in one round trip, feeding the password to mysql
   via a defaults file on stdin (never argv/env); `Import` streams a verified
   local dump into the destination's mysql, password over a 0600 FIFO.
