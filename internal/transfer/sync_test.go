@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/go-ssh"
 )
 
 // fakeConn is a scripted endpoint: it answers mkdir/find/rm on Run and records
