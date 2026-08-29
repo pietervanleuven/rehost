@@ -536,3 +536,90 @@ func TestMultisiteBlocks(t *testing.T) {
 		t.Errorf("Drupal multisite must block naming the sites, got %+v", r)
 	}
 }
+
+// Hosts with MariaDB-named binaries only (no mysql symlinks) must pass the
+// tooling rules.
+func TestDatabaseRulesMariaDBNames(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mariadb-dump"),
+		Destination: capsWith("8.2", "rsync", "mariadb"),
+		Installs:    []detect.Install{wpInstall},
+	}
+	if r := byID(t, Run(in), "db.dump"); r.Severity != Ok || !strings.Contains(r.Detail, "mariadb-dump") {
+		t.Errorf("mariadb-dump should satisfy the dump rule, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import"); r.Severity != Ok {
+		t.Errorf("mariadb client should satisfy the import rule, got %+v", r)
+	}
+}
+
+// PostgreSQL-backed sites need pg tooling; there is no PHP fallback, and
+// rehost never converts engines.
+func TestDatabaseRulesPostgres(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "php"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{{Framework: "wordpress", Root: "/home/u/craft"}},
+		SourceCreds: map[string]*db.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
+	}
+	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "no PHP fallback") {
+		t.Errorf("missing pg_dump must block without a PHP-fallback promise, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "never converts") {
+		t.Errorf("missing psql must block naming the no-conversion policy, got %+v", r)
+	}
+	// A pg-only site must not demand mysql tooling.
+	if hasID(Run(in), "db.dump") {
+		t.Error("a pgsql-only site must not produce mysql-family dump rows")
+	}
+
+	in.Source = capsWith("8.2", "rsync", "find", "pg_dump")
+	in.Destination = capsWith("8.2", "rsync", "psql")
+	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Ok {
+		t.Errorf("pg_dump present should be ok, got %+v", r)
+	}
+	if r := byID(t, Run(in), "db.import.pgsql"); r.Severity != Ok {
+		t.Errorf("psql present should be ok, got %+v", r)
+	}
+}
+
+// The engine rule warns on MySQL↔MariaDB cross-migrations — as-is imports,
+// never conversions — and confirms matching engines.
+func TestEngineRule(t *testing.T) {
+	in := Input{
+		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
+		Destination: capsWith("8.2", "rsync", "mysql"),
+		Installs:    []detect.Install{wpInstall},
+		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
+	}
+
+	// No inspection: engines unknown, rule silent.
+	if hasID(Run(in), "db.engine") {
+		t.Error("without an inspection the engine rule must stay silent")
+	}
+
+	// MariaDB source → MySQL destination: warn, as-is import named.
+	in.SourceDBs = map[string]*db.Inspection{
+		wpInstall.Root: {Connected: true, ServerVersion: "10.11.6-MariaDB"},
+	}
+	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64"}
+	r := byID(t, Run(in), "db.engine")
+	if r.Severity != Warning || !strings.Contains(r.Detail, "MariaDB") || !strings.Contains(r.Detail, "no conversion") {
+		t.Errorf("MariaDB→MySQL should warn about the as-is import, got %+v", r)
+	}
+
+	// MariaDB → MariaDB (via the mariadb-named client): ok.
+	in.Destination = capsWith("8.2", "rsync", "mariadb")
+	in.Destination.Tools["mariadb"] = ssh.Tool{Name: "mariadb", Found: true,
+		Version: "mariadb  Ver 15.1 Distrib 10.11.6-MariaDB"}
+	if r := byID(t, Run(in), "db.engine"); r.Severity != Ok || !strings.Contains(r.Detail, "MariaDB") {
+		t.Errorf("matching engines should confirm, got %+v", r)
+	}
+
+	// MySQL → MariaDB: warn the other way.
+	in.SourceDBs[wpInstall.Root].ServerVersion = "8.0.36"
+	if r := byID(t, Run(in), "db.engine"); r.Severity != Warning || !strings.Contains(r.Detail, "MySQL 8.0.36") {
+		t.Errorf("MySQL→MariaDB should warn, got %+v", r)
+	}
+}

@@ -84,6 +84,7 @@ func Run(in Input) []Result {
 	checkMultisite(in, add)
 	checkTransfer(in, add)
 	checkDatabase(in, add)
+	checkEngine(in, add)
 	checkDestDB(in, add)
 	checkCredentials(in, add)
 	checkDBConnect(in, add)
@@ -168,25 +169,130 @@ func hostsMissing(in Input, tool string) string {
 	return strings.Join(missing, " and ")
 }
 
-func checkDatabase(in Input, add addFunc) {
-	if !anyNeedsDB(in.Installs) {
-		return
+// installDriver returns the normalized driver of an install, read from its
+// extracted credentials; a site whose extraction failed defaults to mysql,
+// the shared-hosting overwhelming default.
+func installDriver(in Input, inst detect.Install) string {
+	if c := in.SourceCreds[inst.Root]; c != nil {
+		return db.NormalizeDriver(c.Driver)
 	}
-	switch {
-	case in.Source.Has("mysqldump"):
-		add("db.dump", "Database dump (source)", Ok, "mysqldump available")
-	case in.Source.Has("php"):
-		add("db.dump", "Database dump (source)", Warning,
-			"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
-	default:
-		add("db.dump", "Database dump (source)", Blocker,
-			"the source has neither mysqldump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
+	return db.DriverMySQL
+}
+
+// neededDrivers partitions the DB-backed installs by driver family.
+func neededDrivers(in Input) (mysqlSites, pgSites []string) {
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB {
+			continue
+		}
+		if installDriver(in, inst) == db.DriverPostgres {
+			pgSites = append(pgSites, inst.Root)
+		} else {
+			mysqlSites = append(mysqlSites, inst.Root)
+		}
 	}
+	return mysqlSites, pgSites
+}
+
+// destMySQLTool returns the destination's mysql-family client: hosts with
+// modern MariaDB packages ship `mariadb` without the mysql-named symlink.
+func destMySQLTool(in Input) (ssh.Tool, bool) {
 	if in.Destination.Has("mysql") {
-		add("db.import", "Database import (destination)", Ok, "mysql client available")
-	} else {
-		add("db.import", "Database import (destination)", Blocker,
-			"the mysql client is missing on the destination — the database cannot be imported")
+		return in.Destination.Tools["mysql"], true
+	}
+	if in.Destination.Has("mariadb") {
+		return in.Destination.Tools["mariadb"], true
+	}
+	return ssh.Tool{}, false
+}
+
+func checkDatabase(in Input, add addFunc) {
+	mysqlSites, pgSites := neededDrivers(in)
+	if len(mysqlSites) > 0 {
+		switch {
+		case in.Source.Has("mysqldump"):
+			add("db.dump", "Database dump (source)", Ok, "mysqldump available")
+		case in.Source.Has("mariadb-dump"):
+			add("db.dump", "Database dump (source)", Ok, "mariadb-dump available")
+		case in.Source.Has("php"):
+			add("db.dump", "Database dump (source)", Warning,
+				"mysqldump is missing on the source — rehost will fall back to a slower PHP dump helper")
+		default:
+			add("db.dump", "Database dump (source)", Blocker,
+				"the source has neither mysqldump/mariadb-dump nor a PHP CLI — there is no way to dump the database; migrate would fail at the dump step")
+		}
+		if _, ok := destMySQLTool(in); ok {
+			add("db.import", "Database import (destination)", Ok, "mysql client available")
+		} else {
+			add("db.import", "Database import (destination)", Blocker,
+				"no mysql/mariadb client on the destination — the database cannot be imported")
+		}
+	}
+	if len(pgSites) > 0 {
+		if in.Source.Has("pg_dump") {
+			add("db.dump.pgsql", "Database dump (source, PostgreSQL)", Ok, "pg_dump available")
+		} else {
+			add("db.dump.pgsql", "Database dump (source, PostgreSQL)", Blocker,
+				"pg_dump is missing on the source — there is no PHP fallback for PostgreSQL, so "+
+					strings.Join(pgSites, ", ")+" cannot be dumped")
+		}
+		if in.Destination.Has("psql") {
+			add("db.import.pgsql", "Database import (destination, PostgreSQL)", Ok, "psql available")
+		} else {
+			add("db.import.pgsql", "Database import (destination, PostgreSQL)", Blocker,
+				"psql is missing on the destination — "+strings.Join(pgSites, ", ")+
+					" store content in PostgreSQL, and rehost never converts between database engines; pick a destination that offers PostgreSQL")
+		}
+	}
+}
+
+// checkEngine advises on the MySQL↔MariaDB pairing. The two are one
+// toolchain but not one engine: a cross-migration generally works for
+// typical sites, yet features do not fully overlap (and MariaDB→MySQL is
+// the riskier direction), so a mismatch is worth a warning, never silence —
+// and never a conversion attempt. PostgreSQL needs no row here: the import
+// rule already blocks when the destination lacks it.
+func checkEngine(in Input, add addFunc) {
+	const title = "Database engine"
+	tool, ok := destMySQLTool(in)
+	if !ok {
+		return // no mysql-family destination — nothing to compare against
+	}
+	destVersion := mysqlToolVersion(tool.Version)
+	destEngine := "MySQL"
+	if strings.Contains(tool.Version, "MariaDB") || tool.Name == "mariadb" {
+		destEngine = "MariaDB"
+	}
+
+	seen := map[string]bool{}
+	for _, inst := range in.Installs {
+		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == db.DriverPostgres {
+			continue
+		}
+		insp := in.SourceDBs[inst.Root]
+		if insp == nil || !insp.Connected || insp.ServerVersion == "" {
+			continue // cannot tell MySQL from MariaDB without an inspection
+		}
+		srcEngine := "MySQL"
+		if strings.Contains(insp.ServerVersion, "MariaDB") {
+			srcEngine = "MariaDB"
+		}
+		key := srcEngine + "→" + destEngine
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		switch {
+		case srcEngine == destEngine:
+			add("db.engine", title, Ok,
+				fmt.Sprintf("source and destination both run %s (%s → %s)", srcEngine, insp.ServerVersion, destVersion))
+		case srcEngine == "MariaDB":
+			add("db.engine", title, Warning,
+				fmt.Sprintf("source runs MariaDB %s but the destination runs MySQL %s — rehost imports the data as-is (no conversion); this usually works for typical sites, but MariaDB-only features (its JSON/sequence handling, some collations) do not exist on MySQL — test the site thoroughly after migration", insp.ServerVersion, destVersion))
+		default:
+			add("db.engine", title, Warning,
+				fmt.Sprintf("source runs MySQL %s but the destination runs MariaDB %s — rehost imports the data as-is (no conversion); MariaDB accepts MySQL dumps for typical sites, but the engines have diverged (JSON is stored differently, some collations differ) — test the site after migration", insp.ServerVersion, destVersion))
+		}
 	}
 }
 
@@ -298,10 +404,11 @@ func checkCharset(in Input, add addFunc) {
 			mb4 += insp.UTF8MB4Tables
 		}
 	}
-	if mb4 == 0 || !in.Destination.Has("mysql") {
+	tool, ok := destMySQLTool(in)
+	if mb4 == 0 || !ok {
 		return // nothing to compare, or db.import already blocked
 	}
-	version := mysqlToolVersion(in.Destination.Tools["mysql"].Version)
+	version := mysqlToolVersion(tool.Version)
 	switch {
 	case version == "":
 		add("db.charset", title, Info,

@@ -10,19 +10,26 @@ import (
 
 // probedTools are the remote binaries every migration strategy cares about.
 // Recipes can extend this list in later phases.
-var probedTools = []string{"rsync", "mysqldump", "mysql", "tar", "gzip", "php", "wp", "drush", "find"}
+var probedTools = []string{
+	"rsync", "mysqldump", "mysql", "mariadb", "mariadb-dump",
+	"psql", "pg_dump", "tar", "gzip", "php", "wp", "drush", "find",
+}
 
 // versionCmds print a single identifying line per tool; all best-effort.
 var versionCmds = map[string]string{
-	"rsync":     "rsync --version",
-	"mysqldump": "mysqldump --version",
-	"mysql":     "mysql --version",
-	"tar":       "tar --version",
-	"gzip":      "gzip --version",
-	"php":       "php -v",
-	"wp":        "wp cli version",
-	"drush":     "drush --version",
-	"find":      "find --version",
+	"rsync":        "rsync --version",
+	"mysqldump":    "mysqldump --version",
+	"mysql":        "mysql --version",
+	"mariadb":      "mariadb --version",
+	"mariadb-dump": "mariadb-dump --version",
+	"psql":         "psql --version",
+	"pg_dump":      "pg_dump --version",
+	"tar":          "tar --version",
+	"gzip":         "gzip --version",
+	"php":          "php -v",
+	"wp":           "wp cli version",
+	"drush":        "drush --version",
+	"find":         "find --version",
 }
 
 // Tool is one probed remote binary.
