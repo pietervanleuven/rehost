@@ -35,6 +35,19 @@ func NormalizeDriver(d string) string {
 	}
 }
 
+// EngineLabel names the engine for report rows: PostgreSQL for pgsql
+// credentials, MariaDB when the inspected server version says so, MySQL
+// otherwise — a report must not call a PostgreSQL database "MySQL".
+func EngineLabel(driver, serverVersion string) string {
+	if NormalizeDriver(driver) == DriverPostgres {
+		return "PostgreSQL"
+	}
+	if strings.Contains(serverVersion, "MariaDB") {
+		return "MariaDB"
+	}
+	return "MySQL"
+}
+
 // ClientTools names the client binaries used to reach one database. The zero
 // value means the driver's classic names; hosts that ship MariaDB without
 // the mysql-named symlinks get {"mariadb", "mariadb-dump"}.
