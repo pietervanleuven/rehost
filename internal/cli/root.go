@@ -9,13 +9,6 @@ import (
 	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
-// rehost predates go-hostdb's .hostdb default and already owns the .rehost
-// dotdir on users' hosts (run history lives there); keep credential staging
-// in the same place.
-func init() {
-	hostdb.StageDir = ".rehost"
-}
-
 // BuildInfo carries version metadata stamped by the build.
 type BuildInfo struct {
 	Version string
@@ -31,6 +24,13 @@ type options struct {
 }
 
 func newRootCmd(info BuildInfo) *cobra.Command {
+	// rehost predates go-hostdb's .hostdb default and already owns the
+	// .rehost dotdir on users' hosts (run history lives there); keep
+	// credential staging in the same place. Set here rather than in an
+	// init() so it stays visible to anyone reading the wiring — and so a
+	// second entry point cannot skip it.
+	hostdb.StageDir = ".rehost"
+
 	opts := &options{}
 	root := &cobra.Command{
 		Use:   "rehost",
