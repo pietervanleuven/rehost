@@ -159,6 +159,9 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	//    The destination run history feeds both the docroot and the database
 	//    policy, so it is read once here.
 	sites := migrateSites(f, h.source.installs, h.source.caps.Home, h.dest.caps.Home)
+	if err := checkDestCollisions(sites); err != nil {
+		return u.fail(err)
+	}
 	entries, err := state.History(cmd.Context(), h.dest.client, h.dest.caps.Home)
 	if err != nil {
 		return u.fail(fmt.Errorf("reading destination run history: %w", err))
@@ -432,6 +435,35 @@ func migrateSites(f *project.File, installs []detect.Install, srcHome, destHome 
 		sites = append(sites, siteDest{install: inst, destRoot: dest, destDB: cfg.DestDB})
 	}
 	return sites
+}
+
+// checkDestCollisions refuses a run whose sites resolve onto the same
+// destination. project.Validate catches collisions written into migrate.yaml;
+// this catches the ones only visible after resolution — an explicit dest_root
+// landing where another site's rebased default goes. Either way the second
+// site's sync would converge the shared docroot onto its own files (and with
+// --delete remove the first site's), and the second import's DROP TABLEs would
+// wipe the first site's tables — after both were reported converged.
+func checkDestCollisions(sites []siteDest) error {
+	roots := map[string]string{}
+	dbs := map[string]string{}
+	for _, s := range sites {
+		if prev, dup := roots[s.destRoot]; dup {
+			return fmt.Errorf("%s and %s both migrate into %s — set a distinct dest_root for each in %s",
+				prev, s.install.Root, s.destRoot, project.DefaultFilename)
+		}
+		roots[s.destRoot] = s.install.Root
+		if s.destDB == nil {
+			continue
+		}
+		key := s.destDB.Identity()
+		if prev, dup := dbs[key]; dup {
+			return fmt.Errorf("%s and %s both import into database %s — set a distinct dest_db for each in %s",
+				prev, s.install.Root, key, project.DefaultFilename)
+		}
+		dbs[key] = s.install.Root
+	}
+	return nil
 }
 
 // mapDestRoot rebases a source docroot onto the destination account: the same
