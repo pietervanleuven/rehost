@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -64,13 +64,13 @@ func TestParseJoomlaConfig(t *testing.T) {
 		creds.Host != "localhost" || creds.TablePrefix != "j4x_" || creds.Driver != "mysqli" {
 		t.Errorf("creds = %+v", creds)
 	}
-	if db.NormalizeDriver(creds.Driver) != db.DriverMySQL {
+	if hostdb.NormalizeDriver(creds.Driver) != hostdb.DriverMySQL {
 		t.Errorf("mysqli should normalize to mysql")
 	}
 }
 
 func TestRewriteJoomlaConfig(t *testing.T) {
-	out, missing, err := rewriteJoomlaConfig([]byte(joomlaConfig), db.Credentials{
+	out, missing, err := rewriteJoomlaConfig([]byte(joomlaConfig), hostdb.Credentials{
 		Name: "new_db", User: "new_u", Password: "new_p", Host: "db.internal", Port: 3307,
 	})
 	if err != nil {

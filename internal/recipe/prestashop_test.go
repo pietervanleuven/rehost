@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 const psParameters = `<?php return array (
@@ -86,7 +86,7 @@ func TestParsePrestaShopConfigBothShapes(t *testing.T) {
 }
 
 func TestRewritePrestaShopConfigBothShapes(t *testing.T) {
-	creds := db.Credentials{Name: "new_db", User: "new_u", Password: "new_p", Host: "db.internal", Port: 3307}
+	creds := hostdb.Credentials{Name: "new_db", User: "new_u", Password: "new_p", Host: "db.internal", Port: 3307}
 
 	out, missing, err := rewritePrestaShopConfig([]byte(psParameters), creds)
 	if err != nil {

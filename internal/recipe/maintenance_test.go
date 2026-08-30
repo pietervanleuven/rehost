@@ -6,8 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -16,18 +15,18 @@ var wpInstall = detect.Install{Framework: "wordpress", Root: "/home/u/public_htm
 
 // noTool is a capability set that reports every probed tool as missing, so a
 // layer keyed on HasTool is skipped (a nil Caps would optimistically try it).
-func noTool() *ssh.Capabilities { return &ssh.Capabilities{Tools: map[string]ssh.Tool{}} }
+func noTool() *remote.Capabilities { return &remote.Capabilities{Tools: map[string]remote.Tool{}} }
 
 func TestWordPressEnableWritesLiveTimeFileNotWPCLI(t *testing.T) {
 	// Even with wp-cli available, enable must write .maintenance directly with a
 	// live time() call — wp-cli's fixed timestamp self-lifts after 10 minutes,
 	// resuming the live site mid-migration and losing writes.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"wp maintenance-mode activate": {ExitCode: 0},
 		"cat > ":                       {ExitCode: 0},
 	}}
-	caps := &ssh.Capabilities{Tools: map[string]ssh.Tool{"wp": {Found: true}}}
-	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r, Caps: caps}, wpInstall)
+	caps := &remote.Capabilities{Tools: map[string]remote.Tool{"wp": {Found: true}}}
+	res, err := WordPress{}.EnableMaintenance(context.Background(), Host{Run: r, Caps: caps}, wpInstall)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -51,11 +50,11 @@ func TestWordPressEnableWritesLiveTimeFileNotWPCLI(t *testing.T) {
 func TestWordPressDisableWPCLIRemovesFile(t *testing.T) {
 	// wp-cli deactivate succeeds, and disable still removes .maintenance so a
 	// file a crashed core upgrade left behind is cleared too.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"wp maintenance-mode deactivate": {ExitCode: 0},
 		"rm -f":                          {ExitCode: 0},
 	}}
-	res, err := WordPress{}.DisableMaintenance(context.Background(), db.Host{Run: r}, wpInstall)
+	res, err := WordPress{}.DisableMaintenance(context.Background(), Host{Run: r}, wpInstall)
 	if err != nil {
 		t.Fatalf("DisableMaintenance: %v", err)
 	}
@@ -75,8 +74,8 @@ func TestWordPressDisableWPCLIRemovesFile(t *testing.T) {
 
 func TestWordPressEnableWPCLIAbsentUsesFile(t *testing.T) {
 	// wp-cli absent per capabilities: the CLI layer is skipped entirely.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"cat > ": {ExitCode: 0}}}
-	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r, Caps: noTool()}, wpInstall)
+	r := &fakeRunner{byContains: map[string]remote.Result{"cat > ": {ExitCode: 0}}}
+	res, err := WordPress{}.EnableMaintenance(context.Background(), Host{Run: r, Caps: noTool()}, wpInstall)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -93,8 +92,8 @@ func TestWordPressEnableWPCLIAbsentUsesFile(t *testing.T) {
 func TestWordPressEnableUnwritableDocrootErrors(t *testing.T) {
 	// The file write itself failing (non-zero exit) is a real error — there is
 	// no further layer below the file.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"cat > ": {ExitCode: 1, Stderr: "Permission denied"}}}
-	_, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{Run: r, Caps: noTool()}, wpInstall)
+	r := &fakeRunner{byContains: map[string]remote.Result{"cat > ": {ExitCode: 1, Stderr: "Permission denied"}}}
+	_, err := WordPress{}.EnableMaintenance(context.Background(), Host{Run: r, Caps: noTool()}, wpInstall)
 	if err == nil || !strings.Contains(err.Error(), "Permission denied") {
 		t.Fatalf("unwritable docroot should error naming the cause, got: %v", err)
 	}
@@ -103,23 +102,23 @@ func TestWordPressEnableUnwritableDocrootErrors(t *testing.T) {
 func TestWordPressTransportErrorAborts(t *testing.T) {
 	boom := errors.New("connection lost")
 	r := &fakeRunner{err: boom}
-	if _, err := (WordPress{}).EnableMaintenance(context.Background(), db.Host{Run: r}, wpInstall); !errors.Is(err, boom) {
+	if _, err := (WordPress{}).EnableMaintenance(context.Background(), Host{Run: r}, wpInstall); !errors.Is(err, boom) {
 		t.Errorf("enable transport failure should propagate, got %v", err)
 	}
 	r = &fakeRunner{err: boom}
-	if _, err := (WordPress{}).DisableMaintenance(context.Background(), db.Host{Run: r}, wpInstall); !errors.Is(err, boom) {
+	if _, err := (WordPress{}).DisableMaintenance(context.Background(), Host{Run: r}, wpInstall); !errors.Is(err, boom) {
 		t.Errorf("disable transport failure should propagate, got %v", err)
 	}
 	r = &fakeRunner{err: boom}
-	if _, err := (WordPress{}).MaintenanceStatus(context.Background(), db.Host{Run: r}, wpInstall); !errors.Is(err, boom) {
+	if _, err := (WordPress{}).MaintenanceStatus(context.Background(), Host{Run: r}, wpInstall); !errors.Is(err, boom) {
 		t.Errorf("status transport failure should propagate, got %v", err)
 	}
 }
 
 func TestWordPressStatusFromMaintenanceFile(t *testing.T) {
 	// .maintenance present → on.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"test -e": {ExitCode: 0}}}
-	st, err := WordPress{}.MaintenanceStatus(context.Background(), db.Host{Run: r}, wpInstall)
+	r := &fakeRunner{byContains: map[string]remote.Result{"test -e": {ExitCode: 0}}}
+	st, err := WordPress{}.MaintenanceStatus(context.Background(), Host{Run: r}, wpInstall)
 	if err != nil || st != MaintenanceOn {
 		t.Fatalf("present .maintenance → %v (err %v), want on", st, err)
 	}
@@ -127,13 +126,13 @@ func TestWordPressStatusFromMaintenanceFile(t *testing.T) {
 		t.Errorf("status must probe .maintenance, got %q", r.calls[0])
 	}
 	// Absent (non-zero exit) → off, not unknown.
-	r = &fakeRunner{byContains: map[string]ssh.Result{"test -e": {ExitCode: 1}}}
-	st, err = WordPress{}.MaintenanceStatus(context.Background(), db.Host{Run: r}, wpInstall)
+	r = &fakeRunner{byContains: map[string]remote.Result{"test -e": {ExitCode: 1}}}
+	st, err = WordPress{}.MaintenanceStatus(context.Background(), Host{Run: r}, wpInstall)
 	if err != nil || st != MaintenanceOff {
 		t.Fatalf("absent .maintenance → %v (err %v), want off", st, err)
 	}
 	// No runner at all → unknown.
-	st, err = WordPress{}.MaintenanceStatus(context.Background(), db.Host{}, wpInstall)
+	st, err = WordPress{}.MaintenanceStatus(context.Background(), Host{}, wpInstall)
 	if err != nil || st != MaintenanceUnknown {
 		t.Fatalf("no runner → %v (err %v), want unknown", st, err)
 	}
@@ -142,8 +141,8 @@ func TestWordPressStatusFromMaintenanceFile(t *testing.T) {
 func TestWordPressDisableIdempotentWhenOff(t *testing.T) {
 	// wp-cli absent, nothing locked: rm -f succeeds regardless, so disable is a
 	// safe no-op reporting off.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"rm -f": {ExitCode: 0}}}
-	res, err := WordPress{}.DisableMaintenance(context.Background(), db.Host{Run: r, Caps: noTool()}, wpInstall)
+	r := &fakeRunner{byContains: map[string]remote.Result{"rm -f": {ExitCode: 0}}}
+	res, err := WordPress{}.DisableMaintenance(context.Background(), Host{Run: r, Caps: noTool()}, wpInstall)
 	if err != nil {
 		t.Fatalf("DisableMaintenance: %v", err)
 	}
@@ -153,7 +152,7 @@ func TestWordPressDisableIdempotentWhenOff(t *testing.T) {
 }
 
 func TestWordPressNoRunnerUnsupported(t *testing.T) {
-	res, err := WordPress{}.EnableMaintenance(context.Background(), db.Host{}, wpInstall)
+	res, err := WordPress{}.EnableMaintenance(context.Background(), Host{}, wpInstall)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -168,11 +167,11 @@ var drupalD7 = detect.Install{Framework: "drupal", Root: "/home/u/drupal7", Vers
 func TestDrupalEnableModernDrush(t *testing.T) {
 	// D8+ uses the state API and rebuilds the cache; the legacy dialect is never
 	// tried when the modern one answers.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"state:set system.maintenance_mode 1": {ExitCode: 0},
 		"cache:rebuild":                       {ExitCode: 0},
 	}}
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: r}, drupalD10)
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -201,11 +200,11 @@ func TestDrupalEnableModernDrush(t *testing.T) {
 func TestDrupalEnableCacheRebuildFails(t *testing.T) {
 	// Once state:set has succeeded the flag is flipped: a cache:rebuild failure
 	// degrades to a note, never to a fall-through onto the D7 dialect.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"state:set system.maintenance_mode 1": {ExitCode: 0},
 		"cache:rebuild":                       {ExitCode: 1},
 	}}
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: r}, drupalD10)
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -223,8 +222,8 @@ func TestDrupalEnableCacheRebuildFails(t *testing.T) {
 }
 
 func TestDrupalDisableModernDrush(t *testing.T) {
-	r := &fakeRunner{byContains: map[string]ssh.Result{"state:set system.maintenance_mode 0": {ExitCode: 0}}}
-	res, err := Drupal{}.DisableMaintenance(context.Background(), db.Host{Run: r}, drupalD10)
+	r := &fakeRunner{byContains: map[string]remote.Result{"state:set system.maintenance_mode 0": {ExitCode: 0}}}
+	res, err := Drupal{}.DisableMaintenance(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil {
 		t.Fatalf("DisableMaintenance: %v", err)
 	}
@@ -238,8 +237,8 @@ func TestDrupalDisableModernDrush(t *testing.T) {
 
 func TestDrupalEnableLegacyDrushD7(t *testing.T) {
 	// A detected D7 core tries the variable dialect first.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"vset --exact maintenance_mode 1": {ExitCode: 0}}}
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: r}, drupalD7)
+	r := &fakeRunner{byContains: map[string]remote.Result{"vset --exact maintenance_mode 1": {ExitCode: 0}}}
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: r}, drupalD7)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -257,7 +256,7 @@ func TestDrupalEnableLegacyDrushD7(t *testing.T) {
 func TestDrupalDrushAbsentUnsupported(t *testing.T) {
 	// No drush per capabilities: a typed unsupported outcome with an explaining
 	// note, never a silent skip.
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -275,7 +274,7 @@ func TestDrupalDrushFailingAndNoCredsUnsupported(t *testing.T) {
 	// dialects are tried, then the DB fallback, then the outcome is unsupported —
 	// not a false success — with a note naming both missing paths.
 	r := &fakeRunner{}
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: r}, drupalD10)
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -305,26 +304,26 @@ func TestDrupalDrushFailingAndNoCredsUnsupported(t *testing.T) {
 func TestDrupalTransportErrorAborts(t *testing.T) {
 	boom := errors.New("connection lost")
 	r := &fakeRunner{err: boom}
-	if _, err := (Drupal{}).EnableMaintenance(context.Background(), db.Host{Run: r}, drupalD10); !errors.Is(err, boom) {
+	if _, err := (Drupal{}).EnableMaintenance(context.Background(), Host{Run: r}, drupalD10); !errors.Is(err, boom) {
 		t.Errorf("transport failure should propagate, got %v", err)
 	}
 }
 
 func TestDrupalStatusViaDrush(t *testing.T) {
 	// Modern state:get answering "1" is on.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"state:get system.maintenance_mode": {ExitCode: 0, Stdout: "1\n"}}}
-	st, err := Drupal{}.MaintenanceStatus(context.Background(), db.Host{Run: r}, drupalD10)
+	r := &fakeRunner{byContains: map[string]remote.Result{"state:get system.maintenance_mode": {ExitCode: 0, Stdout: "1\n"}}}
+	st, err := Drupal{}.MaintenanceStatus(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil || st != MaintenanceOn {
 		t.Fatalf("state:get 1 → %v (err %v), want on", st, err)
 	}
 	// "0" is off.
-	r = &fakeRunner{byContains: map[string]ssh.Result{"state:get system.maintenance_mode": {ExitCode: 0, Stdout: "0\n"}}}
-	st, err = Drupal{}.MaintenanceStatus(context.Background(), db.Host{Run: r}, drupalD10)
+	r = &fakeRunner{byContains: map[string]remote.Result{"state:get system.maintenance_mode": {ExitCode: 0, Stdout: "0\n"}}}
+	st, err = Drupal{}.MaintenanceStatus(context.Background(), Host{Run: r}, drupalD10)
 	if err != nil || st != MaintenanceOff {
 		t.Fatalf("state:get 0 → %v (err %v), want off", st, err)
 	}
 	// No drush: unknown, never mistaken for off.
-	st, err = Drupal{}.MaintenanceStatus(context.Background(), db.Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
+	st, err = Drupal{}.MaintenanceStatus(context.Background(), Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
 	if err != nil || st != MaintenanceUnknown {
 		t.Fatalf("no drush → %v (err %v), want unknown", st, err)
 	}
@@ -346,10 +345,10 @@ $databases['default']['default'] = array(
 // drupalDBHost builds a Host whose drush/php tools are reported absent (so the
 // direct-DB fallback is the only maintenance path and creds come from the
 // settings.php regex layer), with the given runner canning the mysql calls.
-func drupalDBHost(t *testing.T, r *fakeRunner) (db.Host, detect.Install, detect.Install) {
+func drupalDBHost(t *testing.T, r *fakeRunner) (Host, detect.Install, detect.Install) {
 	t.Helper()
 	fs, _ := tree(t, map[string]string{"site/sites/default/settings.php": drupalSettingsPrefixed})
-	h := db.Host{Run: r, FS: fs, Caps: noTool()}
+	h := Host{Run: r, FS: fs, Caps: noTool()}
 	d10 := detect.Install{Framework: "drupal", Root: "site", ConfigFile: "site/sites/default/settings.php", Version: "10.3.1"}
 	d7 := detect.Install{Framework: "drupal", Root: "site", ConfigFile: "site/sites/default/settings.php", Version: "7.98"}
 	return h, d10, d7
@@ -407,7 +406,7 @@ func TestDrupalEnableViaDBFallback(t *testing.T) {
 	// No drush: the flag is written straight into the DB. Success carries no note
 	// and reports the "db" method. Both the write and the cache clear must name
 	// the prefixed tables, and the write must be an idempotent upsert.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"INSERT INTO": {ExitCode: 0},
 		"DELETE FROM": {ExitCode: 0},
 	}}
@@ -440,7 +439,7 @@ func TestDrupalEnableViaDBFallback(t *testing.T) {
 }
 
 func TestDrupalDisableViaDBFallback(t *testing.T) {
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"INSERT INTO": {ExitCode: 0},
 		"DELETE FROM": {ExitCode: 0},
 	}}
@@ -465,7 +464,7 @@ func TestDrupalDisableViaDBFallback(t *testing.T) {
 
 func TestDrupalEnableD7ViaDBFallback(t *testing.T) {
 	// A detected D7 core uses the variable dialect, never key_value.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"INSERT INTO": {ExitCode: 0},
 		"DELETE FROM": {ExitCode: 0},
 	}}
@@ -498,7 +497,7 @@ func TestDrupalDBCacheDeleteFailsDegrades(t *testing.T) {
 	// under an alternate cache backend): the flag IS set, so the result stays a
 	// success and the failure surfaces only as a note — never an error, never a
 	// fall-through.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"INSERT INTO": {ExitCode: 0},
 		"DELETE FROM": {ExitCode: 1, Stderr: "ERROR 1146 (42S02): Table 'db.dr_cache_bootstrap' doesn't exist"},
 	}}
@@ -518,7 +517,7 @@ func TestDrupalDBCacheDeleteFailsDegrades(t *testing.T) {
 func TestDrupalDBWriteFailsErrors(t *testing.T) {
 	// The flag write itself failing is a real per-site failure (a maintenance
 	// tool error the caller can skip past), not a silent success.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"INSERT INTO": {ExitCode: 1, Stderr: "ERROR 1045 (28000): Access denied"},
 	}}
 	h, d10, _ := drupalDBHost(t, r)
@@ -531,7 +530,7 @@ func TestDrupalDBWriteFailsErrors(t *testing.T) {
 func TestDrupalDrushAbsentNoCredsUnsupported(t *testing.T) {
 	// drush absent AND no way to reach credentials (no FS, no php): unsupported,
 	// with a note naming both the missing drush and the missing credentials.
-	res, err := Drupal{}.EnableMaintenance(context.Background(), db.Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
+	res, err := Drupal{}.EnableMaintenance(context.Background(), Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
 	if err != nil {
 		t.Fatalf("EnableMaintenance: %v", err)
 	}
@@ -545,7 +544,7 @@ func TestDrupalDrushAbsentNoCredsUnsupported(t *testing.T) {
 
 func TestDrupalStatusViaDBFallback(t *testing.T) {
 	// i:1; → on.
-	r := &fakeRunner{byContains: map[string]ssh.Result{"SELECT value FROM": {ExitCode: 0, Stdout: "i:1;\n"}}}
+	r := &fakeRunner{byContains: map[string]remote.Result{"SELECT value FROM": {ExitCode: 0, Stdout: "i:1;\n"}}}
 	h, d10, _ := drupalDBHost(t, r)
 	st, err := Drupal{}.MaintenanceStatus(context.Background(), h, d10)
 	if err != nil || st != MaintenanceOn {
@@ -555,25 +554,25 @@ func TestDrupalStatusViaDBFallback(t *testing.T) {
 		t.Errorf("status must query the prefixed key_value table, got %q", r.calls[len(r.calls)-1])
 	}
 	// i:0; → off.
-	r = &fakeRunner{byContains: map[string]ssh.Result{"SELECT value FROM": {ExitCode: 0, Stdout: "i:0;\n"}}}
+	r = &fakeRunner{byContains: map[string]remote.Result{"SELECT value FROM": {ExitCode: 0, Stdout: "i:0;\n"}}}
 	h, d10, _ = drupalDBHost(t, r)
 	if st, err = (Drupal{}).MaintenanceStatus(context.Background(), h, d10); err != nil || st != MaintenanceOff {
 		t.Fatalf("i:0; → %v (err %v), want off", st, err)
 	}
 	// Absent row (empty result) → off, not unknown.
-	r = &fakeRunner{byContains: map[string]ssh.Result{"SELECT value FROM": {ExitCode: 0, Stdout: ""}}}
+	r = &fakeRunner{byContains: map[string]remote.Result{"SELECT value FROM": {ExitCode: 0, Stdout: ""}}}
 	h, d10, _ = drupalDBHost(t, r)
 	if st, err = (Drupal{}).MaintenanceStatus(context.Background(), h, d10); err != nil || st != MaintenanceOff {
 		t.Fatalf("absent row → %v (err %v), want off", st, err)
 	}
 	// A DB we cannot reach (mysql-level failure) → unknown, never off.
-	r = &fakeRunner{byContains: map[string]ssh.Result{"SELECT value FROM": {ExitCode: 1, Stderr: "ERROR 2002: Can't connect"}}}
+	r = &fakeRunner{byContains: map[string]remote.Result{"SELECT value FROM": {ExitCode: 1, Stderr: "ERROR 2002: Can't connect"}}}
 	h, d10, _ = drupalDBHost(t, r)
 	if st, err = (Drupal{}).MaintenanceStatus(context.Background(), h, d10); err != nil || st != MaintenanceUnknown {
 		t.Fatalf("unreachable DB → %v (err %v), want unknown", st, err)
 	}
 	// No credentials at all → unknown.
-	st, err = Drupal{}.MaintenanceStatus(context.Background(), db.Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
+	st, err = Drupal{}.MaintenanceStatus(context.Background(), Host{Run: &fakeRunner{}, Caps: noTool()}, drupalD10)
 	if err != nil || st != MaintenanceUnknown {
 		t.Fatalf("no creds → %v (err %v), want unknown", st, err)
 	}
@@ -581,13 +580,13 @@ func TestDrupalStatusViaDBFallback(t *testing.T) {
 
 func TestDrupalDrushPresentShortCircuitsNoSQL(t *testing.T) {
 	// drush working must win outright: no credential extraction, no SQL.
-	r := &fakeRunner{byContains: map[string]ssh.Result{
+	r := &fakeRunner{byContains: map[string]remote.Result{
 		"state:set system.maintenance_mode 1": {ExitCode: 0},
 		"cache:rebuild":                       {ExitCode: 0},
 	}}
 	fs, _ := tree(t, map[string]string{"site/sites/default/settings.php": drupalSettingsPrefixed})
 	// nil Caps → drush is optimistically present.
-	h := db.Host{Run: r, FS: fs}
+	h := Host{Run: r, FS: fs}
 	in := detect.Install{Framework: "drupal", Root: "site", ConfigFile: "site/sites/default/settings.php", Version: "10.3.1"}
 	res, err := Drupal{}.EnableMaintenance(context.Background(), h, in)
 	if err != nil {
@@ -604,15 +603,15 @@ func TestDrupalDrushPresentShortCircuitsNoSQL(t *testing.T) {
 }
 
 func TestStaticMaintenanceIsNoop(t *testing.T) {
-	on, err := Static{}.EnableMaintenance(context.Background(), db.Host{}, detect.Install{Framework: "static"})
+	on, err := Static{}.EnableMaintenance(context.Background(), Host{}, detect.Install{Framework: "static"})
 	if err != nil || !on.Supported || on.State != MaintenanceOff || on.Method != "noop" {
 		t.Fatalf("static enable = %+v (err %v), want a noop off", on, err)
 	}
-	off, err := Static{}.DisableMaintenance(context.Background(), db.Host{}, detect.Install{Framework: "static"})
+	off, err := Static{}.DisableMaintenance(context.Background(), Host{}, detect.Install{Framework: "static"})
 	if err != nil || !off.Supported || off.State != MaintenanceOff || off.Method != "noop" {
 		t.Fatalf("static disable = %+v (err %v), want a noop off", off, err)
 	}
-	st, err := Static{}.MaintenanceStatus(context.Background(), db.Host{}, detect.Install{Framework: "static"})
+	st, err := Static{}.MaintenanceStatus(context.Background(), Host{}, detect.Install{Framework: "static"})
 	if err != nil || st != MaintenanceOff {
 		t.Fatalf("static status = %v (err %v), want off", st, err)
 	}

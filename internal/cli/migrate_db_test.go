@@ -12,11 +12,13 @@ import (
 	"strings"
 	"testing"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -57,7 +59,7 @@ func TestDestDBCredentialsPromptFailureGuides(t *testing.T) {
 }
 
 func TestDestDBResultsPolicy(t *testing.T) {
-	stubInspect(t, map[string]*db.Inspection{
+	stubInspect(t, map[string]*hostdb.Inspection{
 		"reachable": {Connected: true, ServerVersion: "8.0.36"},
 		"occupied":  {Connected: true, Tables: 12},
 		"broken":    {Connected: false, Reason: "Access denied"},
@@ -80,10 +82,10 @@ func TestDestDBResultsPolicy(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := siteDest{install: wpInstall("/home/u/site"), destRoot: "/home/d/site"}
-			creds := map[string]*db.Credentials{}
+			creds := map[string]*hostdb.Credentials{}
 			if c.dbName != "" {
 				s.destDB = &project.SiteDB{Name: c.dbName}
-				creds["/home/u/site"] = &db.Credentials{Name: c.dbName}
+				creds["/home/u/site"] = &hostdb.Credentials{Name: c.dbName}
 			}
 			migratedDBs := map[string]bool{}
 			if c.migrated {
@@ -107,7 +109,7 @@ func TestRunSyncDatabaseChoreography(t *testing.T) {
 	p := dbPlan(source, dest, stateDir)
 	syncCalls := stubSync(t)
 	stubDump(t, "INSERT INTO `opts` VALUES ('/home/u/public_html/uploads');\n-- Dump completed on 2026-07-29\n")
-	imported := stubImport(t, &db.ImportResult{SourceTables: 3, DestTables: 3}, nil)
+	imported := stubImport(t, &hostdb.ImportResult{SourceTables: 3, DestTables: 3}, nil)
 
 	var buf bytes.Buffer
 	err := runSync(context.Background(), testUI(tui.ModeJSON, &buf),
@@ -233,13 +235,13 @@ func dbPlan(source, dest *fakeConn, stateDir string) migratePlan {
 		dest:      dest,
 		srcStream: nopStreamer{},
 		destConn:  dest,
-		srcHost: db.Host{Run: source, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{
+		srcHost: recipe.Host{Run: source, Caps: &ssh.Capabilities{Tools: map[string]ssh.Tool{
 			"mysqldump": {Name: "mysqldump", Found: true},
 			"mysql":     {Name: "mysql", Found: true},
 		}}},
-		destHost:  db.Host{Run: dest},
-		srcCreds:  map[string]*db.Credentials{root: {Name: "wp_src", User: "u", Password: "pw"}},
-		destCreds: map[string]*db.Credentials{root: {Name: "u1_wp", User: "u1", Password: "pw2"}},
+		destHost:  recipe.Host{Run: dest},
+		srcCreds:  map[string]*hostdb.Credentials{root: {Name: "wp_src", User: "u", Password: "pw"}},
+		destCreds: map[string]*hostdb.Credentials{root: {Name: "u1_wp", User: "u1", Password: "pw2"}},
 		sites: []siteDest{
 			{install: wpInstall(root), destRoot: "/home/d/www", destDB: &project.SiteDB{Name: "u1_wp"}},
 		},
@@ -262,7 +264,7 @@ func stubDump(t *testing.T, sql string) {
 	t.Helper()
 	prevDump, prevPHP := dumpFn, dumpPHPFn
 	t.Cleanup(func() { dumpFn, dumpPHPFn = prevDump, prevPHP })
-	fake := func(_ context.Context, _ db.Streamer, _ *db.Credentials, w io.Writer) (*db.DumpStats, error) {
+	fake := func(_ context.Context, _ hostdb.Streamer, _ *hostdb.Credentials, w io.Writer) (*hostdb.DumpStats, error) {
 		gz := gzip.NewWriter(w)
 		if _, err := gz.Write([]byte(sql)); err != nil {
 			return nil, err
@@ -270,30 +272,30 @@ func stubDump(t *testing.T, sql string) {
 		if err := gz.Close(); err != nil {
 			return nil, err
 		}
-		return &db.DumpStats{Bytes: int64(len(sql)), FooterOK: true}, nil
+		return &hostdb.DumpStats{Bytes: int64(len(sql)), FooterOK: true}, nil
 	}
 	dumpFn, dumpPHPFn = fake, fake
 }
 
 // stubImport captures dump paths handed to the import and returns canned
 // results.
-func stubImport(t *testing.T, res *db.ImportResult, err error) *[]string {
+func stubImport(t *testing.T, res *hostdb.ImportResult, err error) *[]string {
 	t.Helper()
 	prev := importFn
 	t.Cleanup(func() { importFn = prev })
 	var paths []string
-	importFn = func(_ context.Context, _ db.Conn, _ *db.Credentials, dumpPath string, _ db.ImportOptions) (*db.ImportResult, error) {
+	importFn = func(_ context.Context, _ hostdb.Conn, _ *hostdb.Credentials, dumpPath string, _ hostdb.ImportOptions) (*hostdb.ImportResult, error) {
 		paths = append(paths, dumpPath)
 		return res, err
 	}
 	return &paths
 }
 
-func stubInspect(t *testing.T, byName map[string]*db.Inspection) {
+func stubInspect(t *testing.T, byName map[string]*hostdb.Inspection) {
 	t.Helper()
 	prev := inspectFn
 	t.Cleanup(func() { inspectFn = prev })
-	inspectFn = func(_ context.Context, _ db.Runner, c *db.Credentials) (*db.Inspection, error) {
+	inspectFn = func(_ context.Context, _ remote.Runner, c *hostdb.Credentials) (*hostdb.Inspection, error) {
 		if insp, ok := byName[c.Name]; ok {
 			return insp, nil
 		}
@@ -327,7 +329,7 @@ func TestDestDBCredentialsInheritDriver(t *testing.T) {
 		{install: wpInstall("/home/u/blog"), destDB: &project.SiteDB{Name: "my_db"}},
 		{install: wpInstall("/home/u/forced"), destDB: &project.SiteDB{Name: "f_db", Driver: "pgsql"}},
 	}
-	srcCreds := map[string]*db.Credentials{
+	srcCreds := map[string]*hostdb.Credentials{
 		"/home/u/craft": {Name: "src_pg", Driver: "pgsql"},
 		"/home/u/blog":  {Name: "src_my"},
 	}
@@ -338,13 +340,13 @@ func TestDestDBCredentialsInheritDriver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := creds["/home/u/craft"]; db.NormalizeDriver(got.Driver) != db.DriverPostgres || got.Tools.Client != "psql" {
+	if got := creds["/home/u/craft"]; hostdb.NormalizeDriver(got.Driver) != hostdb.DriverPostgres || got.Tools.Client != "psql" {
 		t.Errorf("pg site should inherit pgsql + psql tools: %+v", got)
 	}
-	if got := creds["/home/u/blog"]; db.NormalizeDriver(got.Driver) != db.DriverMySQL || got.Tools.Client != "mariadb" {
+	if got := creds["/home/u/blog"]; hostdb.NormalizeDriver(got.Driver) != hostdb.DriverMySQL || got.Tools.Client != "mariadb" {
 		t.Errorf("mysql site should resolve the mariadb-named client here: %+v", got)
 	}
-	if got := creds["/home/u/forced"]; db.NormalizeDriver(got.Driver) != db.DriverPostgres {
+	if got := creds["/home/u/forced"]; hostdb.NormalizeDriver(got.Driver) != hostdb.DriverPostgres {
 		t.Errorf("explicit dest_db.driver must win: %+v", got)
 	}
 }
