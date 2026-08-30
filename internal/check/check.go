@@ -14,8 +14,8 @@ import (
 	"strings"
 
 	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
@@ -42,8 +42,8 @@ type Result struct {
 // Input is everything the rules look at. Zero/nil measurement fields mean
 // "unknown" and downgrade the affected rule to Info, never to a false pass.
 type Input struct {
-	Source      *ssh.Capabilities
-	Destination *ssh.Capabilities
+	Source      *remote.Capabilities
+	Destination *remote.Capabilities
 	Installs    []detect.Install // detected on the source
 
 	DestPHPExtensions []string // php -m on the destination; nil = unknown
@@ -52,12 +52,12 @@ type Input struct {
 
 	// SourceCreds maps install root → credentials extracted on the source
 	// (nil value = extraction failed for that site). nil map = not gathered.
-	SourceCreds map[string]*db.Credentials
+	SourceCreds map[string]*hostdb.Credentials
 
 	// SourceDBs maps install root → inspection made with that site's
 	// credentials. nil map = not gathered (no credentials or no mysql
 	// client on the source).
-	SourceDBs map[string]*db.Inspection
+	SourceDBs map[string]*hostdb.Inspection
 
 	// DestDBs maps install root → true when migrate.yaml names a dest_db
 	// for that site. nil map = not gathered (the rule stays silent); an
@@ -135,7 +135,7 @@ func checkSites(in Input, add addFunc) {
 	add("sites", title, Ok, strings.Join(parts, ", "))
 }
 
-// checkTransfer mirrors what internal/transfer actually does: every sync is
+// checkTransfer mirrors what go-transfer actually does: every sync is
 // a manifest-driven tar pipe, so tar and find are needed on both hosts and
 // there is no other transport to fall back to.
 func checkTransfer(in Input, add addFunc) {
@@ -174,9 +174,9 @@ func hostsMissing(in Input, tool string) string {
 // the shared-hosting overwhelming default.
 func installDriver(in Input, inst detect.Install) string {
 	if c := in.SourceCreds[inst.Root]; c != nil {
-		return db.NormalizeDriver(c.Driver)
+		return hostdb.NormalizeDriver(c.Driver)
 	}
-	return db.DriverMySQL
+	return hostdb.DriverMySQL
 }
 
 // neededDrivers partitions the DB-backed installs by driver family.
@@ -185,7 +185,7 @@ func neededDrivers(in Input) (mysqlSites, pgSites []string) {
 		if !recipe.RequirementsFor(inst).NeedsDB {
 			continue
 		}
-		if installDriver(in, inst) == db.DriverPostgres {
+		if installDriver(in, inst) == hostdb.DriverPostgres {
 			pgSites = append(pgSites, inst.Root)
 		} else {
 			mysqlSites = append(mysqlSites, inst.Root)
@@ -196,14 +196,14 @@ func neededDrivers(in Input) (mysqlSites, pgSites []string) {
 
 // destMySQLTool returns the destination's mysql-family client: hosts with
 // modern MariaDB packages ship `mariadb` without the mysql-named symlink.
-func destMySQLTool(in Input) (ssh.Tool, bool) {
+func destMySQLTool(in Input) (remote.Tool, bool) {
 	if in.Destination.Has("mysql") {
 		return in.Destination.Tools["mysql"], true
 	}
 	if in.Destination.Has("mariadb") {
 		return in.Destination.Tools["mariadb"], true
 	}
-	return ssh.Tool{}, false
+	return remote.Tool{}, false
 }
 
 func checkDatabase(in Input, add addFunc) {
@@ -266,7 +266,7 @@ func checkEngine(in Input, add addFunc) {
 
 	seen := map[string]bool{}
 	for _, inst := range in.Installs {
-		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == db.DriverPostgres {
+		if !recipe.RequirementsFor(inst).NeedsDB || installDriver(in, inst) == hostdb.DriverPostgres {
 			continue
 		}
 		insp := in.SourceDBs[inst.Root]
@@ -380,7 +380,7 @@ func checkDBConnect(in Input, add addFunc) {
 			failed = append(failed, inst.Root+": "+insp.Reason)
 		default:
 			detail := fmt.Sprintf("%s: %s %s · %d tables · %s", inst.Root,
-				db.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
+				hostdb.EngineLabel(installDriver(in, inst), insp.ServerVersion), insp.ServerVersion, insp.Tables, humanKB(insp.SizeKB))
 			if insp.Charset != "" {
 				detail += " · " + insp.Charset
 			}

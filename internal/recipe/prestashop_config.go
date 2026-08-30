@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 // RewriteConfig points the synced PrestaShop config at the destination
@@ -14,7 +14,7 @@ import (
 // (app/config/parameters.php, 1.7/8) or the legacy _DB_*_ defines
 // (config/settings.inc.php, 1.6). Cookie keys, salts and everything else
 // stay byte-exact.
-func (p PrestaShop) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (p PrestaShop) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,
@@ -44,7 +44,7 @@ func (p PrestaShop) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewri
 }
 
 // rewritePrestaShopConfig is the pure transform for both config shapes.
-func rewritePrestaShopConfig(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewritePrestaShopConfig(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"

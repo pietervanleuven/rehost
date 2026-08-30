@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -20,17 +20,17 @@ import (
 // skipping.
 
 // EnableMaintenance turns on Drupal maintenance mode via drush.
-func (d Drupal) EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (d Drupal) EnableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return d.setMaintenance(ctx, h, in, true)
 }
 
 // DisableMaintenance turns off Drupal maintenance mode via drush. drush setting
 // the flag to 0 is inherently idempotent — safe when already off.
-func (d Drupal) DisableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (d Drupal) DisableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	return d.setMaintenance(ctx, h, in, false)
 }
 
-func (d Drupal) setMaintenance(ctx context.Context, h db.Host, in detect.Install, on bool) (MaintenanceResult, error) {
+func (d Drupal) setMaintenance(ctx context.Context, h Host, in detect.Install, on bool) (MaintenanceResult, error) {
 	if h.Run == nil {
 		return drupalUnsupported(on), nil
 	}
@@ -59,7 +59,7 @@ func (d Drupal) setMaintenance(ctx context.Context, h db.Host, in detect.Install
 // IS set, so a failed cache clear — the {prefix}cache_bootstrap table may not
 // exist under a memcache/redis backend — must degrade to a note, not undo the
 // success or fail the site.
-func (d Drupal) dbSetMaintenance(ctx context.Context, h db.Host, in detect.Install, on bool) (MaintenanceResult, error) {
+func (d Drupal) dbSetMaintenance(ctx context.Context, h Host, in detect.Install, on bool) (MaintenanceResult, error) {
 	creds, err := d.ExtractCredentials(ctx, h, in)
 	if err != nil {
 		return MaintenanceResult{}, err
@@ -70,7 +70,7 @@ func (d Drupal) dbSetMaintenance(ctx context.Context, h db.Host, in detect.Insta
 	legacy := drupalMajor(in.Version) == "7"
 	write, cache := drupalMaintSQL(creds.TablePrefix, on, legacy)
 
-	res, err := db.RunSQL(ctx, h.Run, creds, write)
+	res, err := hostdb.RunSQL(ctx, h.Run, creds, write)
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
@@ -79,7 +79,7 @@ func (d Drupal) dbSetMaintenance(ctx context.Context, h db.Host, in detect.Insta
 	}
 
 	note := ""
-	cres, err := db.RunSQL(ctx, h.Run, creds, cache)
+	cres, err := hostdb.RunSQL(ctx, h.Run, creds, cache)
 	if err != nil {
 		return MaintenanceResult{}, err
 	}
@@ -99,7 +99,7 @@ func maintenanceState(on bool) MaintenanceState {
 // MaintenanceStatus asks drush for the current flag. A drush that is absent or
 // cannot bootstrap yields Unknown (not Off) so the caller does not mistake "we
 // could not tell" for "not locked".
-func (d Drupal) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error) {
+func (d Drupal) MaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error) {
 	if h.Run == nil {
 		return MaintenanceUnknown, nil
 	}
@@ -121,7 +121,7 @@ func (d Drupal) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Inst
 // unavailable. A database we cannot reach — no credentials, or a refused
 // connection — yields Unknown, never Off, so "we could not tell" is never
 // mistaken for "not locked". An absent row or a serialized 0 is Off.
-func (d Drupal) dbMaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error) {
+func (d Drupal) dbMaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error) {
 	creds, err := d.ExtractCredentials(ctx, h, in)
 	if err != nil {
 		return MaintenanceUnknown, err
@@ -129,7 +129,7 @@ func (d Drupal) dbMaintenanceStatus(ctx context.Context, h db.Host, in detect.In
 	if creds == nil {
 		return MaintenanceUnknown, nil
 	}
-	res, err := db.RunSQL(ctx, h.Run, creds, drupalStatusSQL(creds.TablePrefix, drupalMajor(in.Version) == "7"))
+	res, err := hostdb.RunSQL(ctx, h.Run, creds, drupalStatusSQL(creds.TablePrefix, drupalMajor(in.Version) == "7"))
 	if err != nil {
 		return MaintenanceUnknown, err
 	}
@@ -167,20 +167,20 @@ func drupalMajor(version string) string {
 // once state:set has succeeded the flag IS flipped, so a cache:rebuild failure
 // must degrade to a note — chaining them would misreport the site's real state
 // and send the caller on to the wrong dialect.
-func drushSetMaintenance(ctx context.Context, r db.Runner, root string, on, legacy bool) (ok bool, note string, err error) {
+func drushSetMaintenance(ctx context.Context, r remote.Runner, root string, on, legacy bool) (ok bool, note string, err error) {
 	value := "0"
 	if on {
 		value = "1"
 	}
 	if legacy {
-		cmd := "cd " + ssh.ShellQuote(root) + " && drush vset --exact maintenance_mode " + value + " 2>/dev/null"
+		cmd := "cd " + remote.ShellQuote(root) + " && drush vset --exact maintenance_mode " + value + " 2>/dev/null"
 		res, err := r.Run(ctx, cmd)
 		if err != nil {
 			return false, "", err
 		}
 		return res.ExitCode == 0, "", nil
 	}
-	set := "cd " + ssh.ShellQuote(root) + " && drush state:set system.maintenance_mode " + value + " --input-format=integer 2>/dev/null"
+	set := "cd " + remote.ShellQuote(root) + " && drush state:set system.maintenance_mode " + value + " --input-format=integer 2>/dev/null"
 	res, err := r.Run(ctx, set)
 	if err != nil {
 		return false, "", err
@@ -188,7 +188,7 @@ func drushSetMaintenance(ctx context.Context, r db.Runner, root string, on, lega
 	if res.ExitCode != 0 {
 		return false, "", nil
 	}
-	rebuild := "cd " + ssh.ShellQuote(root) + " && drush cache:rebuild 2>/dev/null"
+	rebuild := "cd " + remote.ShellQuote(root) + " && drush cache:rebuild 2>/dev/null"
 	res, err = r.Run(ctx, rebuild)
 	if err != nil {
 		return false, "", err
@@ -201,12 +201,12 @@ func drushSetMaintenance(ctx context.Context, r db.Runner, root string, on, lega
 
 // drushGetMaintenance reads the flag. The bool reports whether drush answered
 // (a clean exit); the caller falls through to the next dialect when it did not.
-func drushGetMaintenance(ctx context.Context, r db.Runner, root string, legacy bool) (MaintenanceState, bool, error) {
+func drushGetMaintenance(ctx context.Context, r remote.Runner, root string, legacy bool) (MaintenanceState, bool, error) {
 	var cmd string
 	if legacy {
-		cmd = "cd " + ssh.ShellQuote(root) + " && drush vget maintenance_mode --format=string 2>/dev/null"
+		cmd = "cd " + remote.ShellQuote(root) + " && drush vget maintenance_mode --format=string 2>/dev/null"
 	} else {
-		cmd = "cd " + ssh.ShellQuote(root) + " && drush state:get system.maintenance_mode --format=string 2>/dev/null"
+		cmd = "cd " + remote.ShellQuote(root) + " && drush state:get system.maintenance_mode --format=string 2>/dev/null"
 	}
 	res, err := r.Run(ctx, cmd)
 	if err != nil {

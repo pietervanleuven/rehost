@@ -12,14 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/state"
-	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -93,13 +93,13 @@ type migratePlan struct {
 	delete       bool
 	ontoExisting bool
 
-	srcStream db.Streamer // dump exec on the source; nil = database step disabled
-	destConn  db.Conn     // import sessions on the destination
-	srcHost   db.Host     // maintenance toggles on the source
-	destHost  db.Host     // config rewrite + post-steps on the destination
-	srcCreds  map[string]*db.Credentials
-	srcDBs    map[string]*db.Inspection
-	destCreds map[string]*db.Credentials
+	srcStream hostdb.Streamer // dump exec on the source; nil = database step disabled
+	destConn  hostdb.Conn     // import sessions on the destination
+	srcHost   recipe.Host     // maintenance toggles on the source
+	destHost  recipe.Host     // config rewrite + post-steps on the destination
+	srcCreds  map[string]*hostdb.Credentials
+	srcDBs    map[string]*hostdb.Inspection
+	destCreds map[string]*hostdb.Credentials
 	destGzip  bool // destination gunzips the relayed dump itself
 
 	compress   bool   // gzip on both hosts — pipe the relay through it
@@ -113,7 +113,7 @@ type migratePlan struct {
 
 // syncFn is the file-sync primitive, a package var so tests can substitute a
 // fake that captures endpoints/options without a real tar pipe. Production uses
-// the internal/transfer engine.
+// the go-transfer engine.
 var syncFn = transfer.Sync
 
 func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisting, del bool, dbPasswordFile string) error {
@@ -159,6 +159,9 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 	//    The destination run history feeds both the docroot and the database
 	//    policy, so it is read once here.
 	sites := migrateSites(f, h.source.installs, h.source.caps.Home, h.dest.caps.Home)
+	if err := checkDestCollisions(sites); err != nil {
+		return u.fail(err)
+	}
 	entries, err := state.History(cmd.Context(), h.dest.client, h.dest.caps.Home)
 	if err != nil {
 		return u.fail(fmt.Errorf("reading destination run history: %w", err))
@@ -220,8 +223,8 @@ func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisti
 		dest:         h.dest.client,
 		srcStream:    h.source.client,
 		destConn:     h.dest.client,
-		srcHost:      db.Host{Run: h.source.client, FS: detect.NewSSHFS(h.source.client), Caps: h.source.caps},
-		destHost:     db.Host{Run: h.dest.client, FS: detect.NewSSHFS(h.dest.client), Caps: h.dest.caps},
+		srcHost:      recipe.Host{Run: h.source.client, FS: detect.NewShellFS(h.source.client), Caps: h.source.caps},
+		destHost:     recipe.Host{Run: h.dest.client, FS: detect.NewShellFS(h.dest.client), Caps: h.dest.caps},
 		srcCreds:     h.source.creds,
 		srcDBs:       h.source.dbs,
 		destCreds:    destCreds,
@@ -432,6 +435,35 @@ func migrateSites(f *project.File, installs []detect.Install, srcHome, destHome 
 		sites = append(sites, siteDest{install: inst, destRoot: dest, destDB: cfg.DestDB})
 	}
 	return sites
+}
+
+// checkDestCollisions refuses a run whose sites resolve onto the same
+// destination. project.Validate catches collisions written into migrate.yaml;
+// this catches the ones only visible after resolution — an explicit dest_root
+// landing where another site's rebased default goes. Either way the second
+// site's sync would converge the shared docroot onto its own files (and with
+// --delete remove the first site's), and the second import's DROP TABLEs would
+// wipe the first site's tables — after both were reported converged.
+func checkDestCollisions(sites []siteDest) error {
+	roots := map[string]string{}
+	dbs := map[string]string{}
+	for _, s := range sites {
+		if prev, dup := roots[s.destRoot]; dup {
+			return fmt.Errorf("%s and %s both migrate into %s — set a distinct dest_root for each in %s",
+				prev, s.install.Root, s.destRoot, project.DefaultFilename)
+		}
+		roots[s.destRoot] = s.install.Root
+		if s.destDB == nil {
+			continue
+		}
+		key := s.destDB.Identity()
+		if prev, dup := dbs[key]; dup {
+			return fmt.Errorf("%s and %s both import into database %s — set a distinct dest_db for each in %s",
+				prev, s.install.Root, key, project.DefaultFilename)
+		}
+		dbs[key] = s.install.Root
+	}
+	return nil
 }
 
 // mapDestRoot rebases a source docroot onto the destination account: the same

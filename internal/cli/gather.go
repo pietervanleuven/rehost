@@ -7,9 +7,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/pietervanleuven/go-dns"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
@@ -22,8 +22,8 @@ type sourceGather struct {
 	client   *ssh.Client
 	caps     *ssh.Capabilities
 	installs []detect.Install
-	creds    map[string]*db.Credentials // install root → credentials (nil value = extraction failed)
-	dbs      map[string]*db.Inspection  // install root → inspection; nil when no mysql client
+	creds    map[string]*hostdb.Credentials // install root → credentials (nil value = extraction failed)
+	dbs      map[string]*hostdb.Inspection  // install root → inspection; nil when no mysql client
 	ip       string
 	sitesKB  int64
 }
@@ -151,7 +151,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 	if len(startRoots) == 0 {
 		startRoots = []string{homeOrDot(caps.Home)}
 	}
-	fsys := detect.NewSSHFS(client)
+	fsys := detect.NewShellFS(client)
 	installs, err := detect.Discover(ctx, fsys, startRoots, recipe.All(),
 		detect.FindOptions{Prune: detect.DefaultPrune})
 	if err != nil {
@@ -173,8 +173,8 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 
 	// Credentials stay in memory for this run only — never stored, never
 	// printed; the check gate only reports whether they were readable.
-	host := db.Host{Run: client, FS: fsys, Caps: caps}
-	creds := map[string]*db.Credentials{}
+	host := recipe.Host{Run: client, FS: fsys, Caps: caps}
+	creds := map[string]*hostdb.Credentials{}
 	for _, inst := range installs {
 		ex := recipe.ExtractorFor(inst.Framework)
 		if ex == nil {
@@ -190,7 +190,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 		if c != nil {
 			// Resolve the client binaries once per credentials — hosts with
 			// MariaDB-only naming or a PostgreSQL site both hinge on this.
-			c.Tools = db.ResolveClientTools(c.Driver, caps.Has)
+			c.Tools = hostdb.ResolveClientTools(c.Driver, caps.Has)
 		}
 		creds[inst.Root] = c
 	}
@@ -204,8 +204,8 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 	// the tooling gap.
 	if len(creds) > 0 {
 		announced := false
-		dbs := map[string]*db.Inspection{}
-		byIdentity := map[string]*db.Inspection{}
+		dbs := map[string]*hostdb.Inspection{}
+		byIdentity := map[string]*hostdb.Inspection{}
 		for root, c := range creds {
 			if c == nil || c.Name == "" || !caps.Has(c.Tools.Client) {
 				continue
@@ -217,7 +217,7 @@ func gatherSource(ctx context.Context, cfg ssh.Config, u ui, docroots []string) 
 			key := c.Name + "\x00" + c.Host + "\x00" + c.User
 			insp, seen := byIdentity[key]
 			if !seen {
-				insp, err = db.Inspect(ctx, client, c)
+				insp, err = hostdb.Inspect(ctx, client, c)
 				if err != nil {
 					return nil, fmt.Errorf("source: inspecting database %s: %w", c.Name, err)
 				}

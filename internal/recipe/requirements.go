@@ -3,7 +3,7 @@ package recipe
 import (
 	"strings"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -73,7 +73,7 @@ func RequirementsFor(in detect.Install) Requirements {
 // run on MySQL/MariaDB or PostgreSQL, and demanding mysqli of a PostgreSQL
 // site would false-block it.
 func dbDriverExt(in detect.Install, mysqlExt, pgExt string) []string {
-	if db.NormalizeDriver(in.Extra["db_driver"]) == db.DriverPostgres {
+	if hostdb.NormalizeDriver(in.Extra["db_driver"]) == hostdb.DriverPostgres {
 		return []string{pgExt}
 	}
 	return []string{mysqlExt}
