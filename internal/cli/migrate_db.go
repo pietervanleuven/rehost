@@ -462,9 +462,16 @@ func finalizeDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.S
 	// stream rather than buffering the whole dump. A strip-side error closes
 	// the pipe with it, surfacing on the rewrite's read.
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(hostdb.StripDefiners(gzIn, pw)) }()
+	stripped := make(chan struct{})
+	go func() {
+		defer close(stripped)
+		pw.CloseWithError(hostdb.StripDefiners(gzIn, pw))
+	}()
 	stats, err := searchreplace.RewriteDump(pr, gzOut, pairs)
+	// CloseWithError only unblocks the stripper at its next write, so it may
+	// still be inside gzIn.Read; wait for it before closing gzIn/in below.
 	_ = pr.CloseWithError(err)
+	<-stripped
 	if err == nil {
 		err = gzOut.Close()
 	}
