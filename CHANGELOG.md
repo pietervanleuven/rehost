@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/pietervanleuven/rehost/compare/v0.2.0...v0.2.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **cli:** wait for the DEFINER stripper before closing the dump reader ([c6b691e](https://github.com/pietervanleuven/rehost/commit/c6b691ebd953660f37643e9e33a1d75f4fef49f3))
+* **project:** refuse sites that share a destination ([0387307](https://github.com/pietervanleuven/rehost/commit/03873074d88fb78292ee33c2834638f2090db45c))
+* refuse sites that share a destination; close a dump-rewrite race ([07eeffd](https://github.com/pietervanleuven/rehost/commit/07eeffdb4ee758502d959445d72f067ce6b81efb))
+
 ## [0.2.0](https://github.com/pietervanleuven/rehost/compare/v0.1.0...v0.2.0) (2026-08-29)
 
 
