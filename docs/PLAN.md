@@ -252,7 +252,7 @@ through, not a state machine you can wedge.
 
 ### Phase 0 — Foundation (week 1)
 **Goal: a runnable skeleton with the right bones.**
-- Init Go module, repo layout (`cmd/`, `internal/ssh`, `internal/detect`, `internal/db`, `internal/transfer`, `internal/tui`, `internal/project`, `internal/dns`)
+- Init Go module, repo layout (`cmd/`, `internal/detect`, `internal/tui`, `internal/project`, `internal/check`, `internal/recipe`, `internal/inventory`, `internal/state`; the generic SSH, DB, transfer, DNS and search-replace layers were later extracted into the standalone `go-ssh`/`go-hostdb`/`go-transfer`/`go-dns`/`go-searchreplace` modules)
 - Cobra skeleton: `init`, `check`, `plan`, `migrate`, `status`, `unlock`, `version`; goreleaser + GitHub Actions CI (lint, test, cross-build) from day one
 - Conventional Commits from the first commit (see AGENTS.md); release automation (changelog, semver) added later on top
 - SSH connection layer: key/agent/password auth, `~/.ssh/config` + known_hosts respect, capability probe (`which rsync mysqldump tar gzip php wp drush`, shell type, PHP version)

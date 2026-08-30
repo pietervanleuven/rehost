@@ -113,7 +113,7 @@ type migratePlan struct {
 
 // syncFn is the file-sync primitive, a package var so tests can substitute a
 // fake that captures endpoints/options without a real tar pipe. Production uses
-// the internal/transfer engine.
+// the go-transfer engine.
 var syncFn = transfer.Sync
 
 func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisting, del bool, dbPasswordFile string) error {

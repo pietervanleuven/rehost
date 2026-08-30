@@ -135,7 +135,7 @@ func checkSites(in Input, add addFunc) {
 	add("sites", title, Ok, strings.Join(parts, ", "))
 }
 
-// checkTransfer mirrors what internal/transfer actually does: every sync is
+// checkTransfer mirrors what go-transfer actually does: every sync is
 // a manifest-driven tar pipe, so tar and find are needed on both hosts and
 // there is no other transport to fall back to.
 func checkTransfer(in Input, add addFunc) {
