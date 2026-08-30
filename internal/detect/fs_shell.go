@@ -31,7 +31,7 @@ func (f shellFS) IsDir(ctx context.Context, p string) (bool, error) {
 // test runs `test <flag> <path>`: exit 0 means true, exit 1 means false, and
 // anything else (or a transport error) is a real failure.
 func (f shellFS) test(ctx context.Context, flag, p string) (bool, error) {
-	res, err := f.r.Run(ctx, fmt.Sprintf("test %s %s", flag, shellQuote(p)))
+	res, err := f.r.Run(ctx, fmt.Sprintf("test %s %s", flag, remote.ShellQuote(p)))
 	if err != nil {
 		return false, err
 	}
@@ -47,7 +47,7 @@ func (f shellFS) test(ctx context.Context, flag, p string) (bool, error) {
 
 func (f shellFS) ReadFile(ctx context.Context, p string) ([]byte, error) {
 	// head -c bounds the transfer; a missing file yields a non-zero exit.
-	res, err := f.r.Run(ctx, fmt.Sprintf("head -c %d %s", maxReadBytes, shellQuote(p)))
+	res, err := f.r.Run(ctx, fmt.Sprintf("head -c %d %s", maxReadBytes, remote.ShellQuote(p)))
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (f shellFS) List(ctx context.Context, dir string) ([]string, error) {
 	// NUL-separate portably. The `dir/. ! -name . -prune` idiom lists the
 	// immediate children, dotfiles included.
 	base := strings.TrimSuffix(dir, "/")
-	res, err := f.r.Run(ctx, "find "+shellQuote(base+"/.")+" ! -name . -prune -print0")
+	res, err := f.r.Run(ctx, "find "+remote.ShellQuote(base+"/.")+" ! -name . -prune -print0")
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (f shellFS) List(ctx context.Context, dir string) ([]string, error) {
 // degraded path.
 func (f shellFS) listLS(ctx context.Context, dir string) ([]string, error) {
 	// -A lists dotfiles but omits . and ..; -1 is one per line.
-	res, err := f.r.Run(ctx, fmt.Sprintf("ls -1A %s", shellQuote(dir)))
+	res, err := f.r.Run(ctx, fmt.Sprintf("ls -1A %s", remote.ShellQuote(dir)))
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (f shellFS) Find(ctx context.Context, roots, markers []string, opts FindOpt
 // RealPath resolves symlinks with `readlink -f`. When that is unavailable or
 // fails, it returns the path unchanged so detection still proceeds.
 func (f shellFS) RealPath(ctx context.Context, p string) (string, error) {
-	res, err := f.r.Run(ctx, "readlink -f "+shellQuote(p))
+	res, err := f.r.Run(ctx, "readlink -f "+remote.ShellQuote(p))
 	if err != nil {
 		return "", err
 	}
@@ -164,7 +164,7 @@ func findCommand(roots, markers []string, maxDepth int, prune []string) string {
 	var b strings.Builder
 	b.WriteString("find")
 	for _, r := range roots {
-		b.WriteString(" " + shellQuote(r))
+		b.WriteString(" " + remote.ShellQuote(r))
 	}
 	fmt.Fprintf(&b, " -maxdepth %d", maxDepth+markerDepth(markers))
 
@@ -174,7 +174,7 @@ func findCommand(roots, markers []string, maxDepth int, prune []string) string {
 			if i > 0 {
 				b.WriteString(" -o")
 			}
-			b.WriteString(" -name " + shellQuote(name))
+			b.WriteString(" -name " + remote.ShellQuote(name))
 		}
 		b.WriteString(` \) -prune -o`)
 	}
@@ -184,7 +184,7 @@ func findCommand(roots, markers []string, maxDepth int, prune []string) string {
 		if i > 0 {
 			b.WriteString(" -o")
 		}
-		b.WriteString(" -path " + shellQuote("*/"+m))
+		b.WriteString(" -path " + remote.ShellQuote("*/"+m))
 	}
 	// -print0: a newline in a directory name along a marker path would split
 	// one hit into two bogus ones; NUL keeps hits byte-exact. Hosts whose
@@ -204,7 +204,3 @@ func markerDepth(markers []string) int {
 	}
 	return max
 }
-
-// shellQuote wraps a path in single quotes so spaces and shell
-// metacharacters in paths are inert.
-func shellQuote(s string) string { return remote.ShellQuote(s) }
