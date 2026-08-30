@@ -144,7 +144,26 @@ func (f *File) Validate() error {
 			return err
 		}
 	}
+	seenRoot := map[string]int{}
+	seenDestRoot := map[string]int{}
+	seenDestDB := map[string]int{}
 	for i, s := range f.Sites {
+		// Two entries for one docroot would silently collapse (last wins),
+		// dropping the first entry's dest_root/dest_db with no trace.
+		if j, dup := seenRoot[s.Root]; dup {
+			return fmt.Errorf("sites[%d].root %q repeats sites[%d].root — list each docroot once", i, s.Root, j)
+		}
+		seenRoot[s.Root] = i
+		// Two sites sharing a destination would overwrite each other during
+		// migrate: the second sync converges the docroot onto its own files
+		// (and with --delete removes the first site's), and the second
+		// import's DROP TABLEs wipe the first site's data.
+		if s.DestRoot != "" {
+			if j, dup := seenDestRoot[s.DestRoot]; dup {
+				return fmt.Errorf("sites[%d].dest_root %q is already used by sites[%d] — each site needs its own destination docroot", i, s.DestRoot, j)
+			}
+			seenDestRoot[s.DestRoot] = i
+		}
 		if s.DestDB == nil {
 			continue
 		}
@@ -162,8 +181,34 @@ func (f *File) Validate() error {
 		if !validDBDriver[strings.ToLower(s.DestDB.Driver)] {
 			return fmt.Errorf("sites[%d].dest_db.driver must be one of mysql, mariadb, pgsql (or omitted to follow the source), got %q", i, s.DestDB.Driver)
 		}
+		key := s.DestDB.Identity()
+		if j, dup := seenDestDB[key]; dup {
+			return fmt.Errorf("sites[%d].dest_db names the same database as sites[%d] (%s) — importing both would drop the first site's tables", i, j, key)
+		}
+		seenDestDB[key] = i
 	}
 	return nil
+}
+
+// Identity names the destination database this entry points at, so two
+// entries can be compared for "same database". Host is folded to lower case
+// (hostnames are case-insensitive) while the name is not: MySQL database
+// names are case-sensitive on Linux.
+func (d SiteDB) Identity() string {
+	host := strings.ToLower(d.Host)
+	if host == "" {
+		host = "localhost"
+	}
+	port := d.Port
+	if port == 0 {
+		switch strings.ToLower(d.Driver) {
+		case "pgsql", "postgres", "postgresql":
+			port = 5432
+		default:
+			port = 3306
+		}
+	}
+	return fmt.Sprintf("%s:%d/%s", host, port, d.Name)
 }
 
 func (h Host) validate(section string) error {
