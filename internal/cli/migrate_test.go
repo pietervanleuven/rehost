@@ -572,3 +572,53 @@ func TestRunSyncRecordsConvergedSitesOnPartialFailure(t *testing.T) {
 		t.Errorf("source summary should cover the one converged site:\n%s", src)
 	}
 }
+
+func TestCheckDestCollisions(t *testing.T) {
+	site := func(root, dest string, db *project.SiteDB) siteDest {
+		return siteDest{install: detect.Install{Root: root}, destRoot: dest, destDB: db}
+	}
+	tests := []struct {
+		name  string
+		sites []siteDest
+		want  string
+	}{
+		{
+			name: "distinct destinations pass",
+			sites: []siteDest{
+				site("/home/u/a", "/home/d/a", &project.SiteDB{Name: "db1"}),
+				site("/home/u/b", "/home/d/b", &project.SiteDB{Name: "db2"}),
+				site("/home/u/c", "/home/d/c", nil),
+				site("/home/u/d", "/home/d/d", nil),
+			},
+		},
+		{
+			// The case project.Validate cannot see: an explicit dest_root
+			// landing exactly where another site's default rebase goes.
+			name: "explicit dest_root collides with a rebased default",
+			sites: []siteDest{
+				site("/home/u/public_html", "/home/d/public_html", nil),
+				site("/home/u/other", "/home/d/public_html", nil),
+			},
+			want: "both migrate into /home/d/public_html",
+		},
+		{
+			name: "shared destination database",
+			sites: []siteDest{
+				site("/home/u/a", "/home/d/a", &project.SiteDB{Name: "db123"}),
+				site("/home/u/b", "/home/d/b", &project.SiteDB{Name: "db123"}),
+			},
+			want: "both import into database",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkDestCollisions(tt.sites)
+			switch {
+			case tt.want == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
+				t.Fatalf("want error containing %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
