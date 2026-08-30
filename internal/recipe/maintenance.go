@@ -5,8 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -41,14 +40,14 @@ type MaintenanceResult struct {
 }
 
 // Maintainer is the maintenance-mode capability a recipe may implement, the
-// same pluggable-strategy shape as db.Extractor. Enable and Disable layer a
+// same pluggable-strategy shape as Extractor. Enable and Disable layer a
 // framework CLI over a file fallback like credential extraction does: a
 // transport error aborts the chain, a tool failure falls through. Every Enable
 // pairs with a Disable that is safe to call when maintenance is already off.
 type Maintainer interface {
-	EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error)
-	DisableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error)
-	MaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error)
+	EnableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error)
+	DisableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error)
+	MaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error)
 }
 
 // MaintainerFor returns the maintenance strategy of a framework's recipe, or
@@ -67,8 +66,8 @@ func MaintainerFor(framework string) Maintainer {
 
 // remoteExists reports whether path exists on the host via `test -e`. A
 // transport error propagates; a non-zero exit means absent.
-func remoteExists(ctx context.Context, r db.Runner, path string) (bool, error) {
-	res, err := r.Run(ctx, "test -e "+ssh.ShellQuote(path))
+func remoteExists(ctx context.Context, r remote.Runner, path string) (bool, error) {
+	res, err := r.Run(ctx, "test -e "+remote.ShellQuote(path))
 	if err != nil {
 		return false, err
 	}
@@ -83,27 +82,27 @@ const maintHeredoc = "REHOST_MAINT"
 // passes through the shell literally. A transport error propagates; a non-zero
 // exit (an unwritable docroot) is returned as an error — there is no next
 // layer once the file write itself fails.
-func writeRemoteFile(ctx context.Context, r db.Runner, path, content string) error {
-	cmd := "cat > " + ssh.ShellQuote(path) + " <<'" + maintHeredoc + "'\n" + content + "\n" + maintHeredoc
+func writeRemoteFile(ctx context.Context, r remote.Runner, path, content string) error {
+	cmd := "cat > " + remote.ShellQuote(path) + " <<'" + maintHeredoc + "'\n" + content + "\n" + maintHeredoc
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%w: writing %s: %s", ErrMaintenanceTool, path, ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("%w: writing %s: %s", ErrMaintenanceTool, path, remote.FirstLine(res.Stderr))
 	}
 	return nil
 }
 
 // removeRemoteFile deletes path with `rm -f`, which exits cleanly whether or
 // not the file exists — the idempotence a safe disable relies on.
-func removeRemoteFile(ctx context.Context, r db.Runner, path string) error {
-	res, err := r.Run(ctx, "rm -f "+ssh.ShellQuote(path))
+func removeRemoteFile(ctx context.Context, r remote.Runner, path string) error {
+	res, err := r.Run(ctx, "rm -f "+remote.ShellQuote(path))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%w: removing %s: %s", ErrMaintenanceTool, path, ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("%w: removing %s: %s", ErrMaintenanceTool, path, remote.FirstLine(res.Stderr))
 	}
 	return nil
 }

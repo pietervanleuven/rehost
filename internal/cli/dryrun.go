@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/state"
-	"github.com/pietervanleuven/rehost/internal/transfer"
 )
 
 // collectDryRun proves the collection pipeline for each detected site: a
@@ -29,7 +29,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 	add := func(id, title string, sev check.Severity, detail string) {
 		results = append(results, check.Result{ID: id, Title: title, Severity: sev, Detail: detail})
 	}
-	fsys := detect.NewSSHFS(client)
+	fsys := detect.NewShellFS(client)
 	stateDir := filepath.Join(filepath.Dir(projectFile), ".rehost")
 	dumpDir := filepath.Join(stateDir, "dumps")
 
@@ -68,7 +68,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		if ex == nil {
 			continue // static site: no database to dump
 		}
-		creds, err := ex.ExtractCredentials(ctx, db.Host{Run: client, FS: fsys, Caps: caps}, inst)
+		creds, err := ex.ExtractCredentials(ctx, recipe.Host{Run: client, FS: fsys, Caps: caps}, inst)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +79,7 @@ func collectDryRun(ctx context.Context, client *ssh.Client, caps *ssh.Capabiliti
 		dump, method, usable := dumpStrategy(creds, caps)
 		if !usable {
 			add("dryrun.dump:"+site, "Database dump", check.Warning,
-				fmt.Sprintf("%s: no tool on the source can dump this database (driver %s) — cannot dump", site, db.NormalizeDriver(creds.Driver)))
+				fmt.Sprintf("%s: no tool on the source can dump this database (driver %s) — cannot dump", site, hostdb.NormalizeDriver(creds.Driver)))
 			continue
 		}
 		progress("source: dumping database %s (%s)…", creds.Name, method)
@@ -149,8 +149,8 @@ func manifestResult(ctx context.Context, client *ssh.Client, source string, inst
 // dumpToFile streams one verified dump to disk (0600 — it holds site data)
 // and describes the outcome. A failed verification removes the file so a
 // truncated dump can never be mistaken for a good one.
-func dumpToFile(ctx context.Context, client *ssh.Client, creds *db.Credentials, dumpDir string,
-	dump func(context.Context, db.Streamer, *db.Credentials, io.Writer) (*db.DumpStats, error)) (detail string, ok bool) {
+func dumpToFile(ctx context.Context, client *ssh.Client, creds *hostdb.Credentials, dumpDir string,
+	dump func(context.Context, hostdb.Streamer, *hostdb.Credentials, io.Writer) (*hostdb.DumpStats, error)) (detail string, ok bool) {
 	if err := os.MkdirAll(dumpDir, 0o700); err != nil {
 		return err.Error(), false
 	}

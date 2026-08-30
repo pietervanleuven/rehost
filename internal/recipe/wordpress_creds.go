@@ -4,8 +4,8 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -14,15 +14,15 @@ import (
 // echo-helper that evaluates wp-config.php, then a plain regex over the file.
 // Each layer hands over to the next on any failure; only transport errors
 // abort.
-func (w WordPress) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (w WordPress) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
-		{h.Run != nil && h.HasTool("wp"), func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("wp"), func(ctx context.Context) (*hostdb.Credentials, error) {
 			return wpCLICredentials(ctx, h.Run, in.Root)
 		}},
-		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			return wpPHPCredentials(ctx, h.Run, in.ConfigFile)
 		}},
-		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
 			if err != nil {
 				return nil, err
@@ -34,8 +34,8 @@ func (w WordPress) ExtractCredentials(ctx context.Context, h db.Host, in detect.
 
 // wpCLICredentials asks wp-cli for the config. --skip-plugins/--skip-themes
 // keeps site code out of the way; stderr is dropped (PHP notices).
-func wpCLICredentials(ctx context.Context, r db.Runner, root string) (*db.Credentials, error) {
-	cmd := "cd " + ssh.ShellQuote(root) + " && wp config list --format=json --skip-plugins --skip-themes 2>/dev/null"
+func wpCLICredentials(ctx context.Context, r remote.Runner, root string) (*hostdb.Credentials, error) {
+	cmd := "cd " + remote.ShellQuote(root) + " && wp config list --format=json --skip-plugins --skip-themes 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func wpCLICredentials(ctx context.Context, r db.Runner, root string) (*db.Creden
 }
 
 // parseWPConfigList reads `wp config list --format=json` output.
-func parseWPConfigList(stdout string) *db.Credentials {
+func parseWPConfigList(stdout string) *hostdb.Credentials {
 	var entries []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
@@ -62,7 +62,7 @@ func parseWPConfigList(stdout string) *db.Credentials {
 	if m["DB_NAME"] == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Name:        m["DB_NAME"],
 		User:        m["DB_USER"],
 		Password:    m["DB_PASSWORD"],
@@ -93,8 +93,8 @@ echo '::REHOST-DB::' . json_encode(array(
 ));
 `
 
-func wpPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(wpPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func wpPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*hostdb.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(wpPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -117,13 +117,13 @@ func wpDefine(masked []byte, key string) string {
 // parseWPConfig is the last-resort regex layer over wp-config.php. Comments
 // are masked first so a commented-out define (common after hand edits) can
 // never shadow the live one.
-func parseWPConfig(content []byte) *db.Credentials {
+func parseWPConfig(content []byte) *hostdb.Credentials {
 	masked := maskPHPComments(content)
 	name := wpDefine(masked, "DB_NAME")
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Name:        name,
 		User:        wpDefine(masked, "DB_USER"),
 		Password:    wpDefine(masked, "DB_PASSWORD"),

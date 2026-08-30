@@ -3,8 +3,8 @@ package recipe
 import (
 	"context"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -12,12 +12,12 @@ import (
 // echo-helper that instantiates JConfig (dynamic configs work), then a regex
 // over configuration.php. Joomla has no ubiquitous site CLI on shared hosts,
 // so there is no CLI layer.
-func (j Joomla) ExtractCredentials(ctx context.Context, h db.Host, in detect.Install) (*db.Credentials, error) {
+func (j Joomla) ExtractCredentials(ctx context.Context, h Host, in detect.Install) (*hostdb.Credentials, error) {
 	return extractLayered(ctx, []credLayer{
-		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.Run != nil && h.HasTool("php") && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			return joomlaPHPCredentials(ctx, h.Run, in.ConfigFile)
 		}},
-		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*db.Credentials, error) {
+		{h.FS != nil && in.ConfigFile != "", func(ctx context.Context) (*hostdb.Credentials, error) {
 			content, err := h.FS.ReadFile(ctx, in.ConfigFile)
 			if err != nil {
 				return nil, err
@@ -46,8 +46,8 @@ echo '::REHOST-DB::' . json_encode(array(
 ));
 `
 
-func joomlaPHPCredentials(ctx context.Context, r db.Runner, configFile string) (*db.Credentials, error) {
-	cmd := "php -d display_errors=0 -r " + ssh.ShellQuote(joomlaPHPHelper) + " " + ssh.ShellQuote(configFile) + " 2>/dev/null"
+func joomlaPHPCredentials(ctx context.Context, r remote.Runner, configFile string) (*hostdb.Credentials, error) {
+	cmd := "php -d display_errors=0 -r " + remote.ShellQuote(joomlaPHPHelper) + " " + remote.ShellQuote(configFile) + " 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -56,13 +56,13 @@ func joomlaPHPCredentials(ctx context.Context, r db.Runner, configFile string) (
 }
 
 // parseJoomlaConfig is the last-resort regex layer over configuration.php.
-func parseJoomlaConfig(content []byte) *db.Credentials {
+func parseJoomlaConfig(content []byte) *hostdb.Credentials {
 	masked := maskPHPComments(content)
 	name := joomlaProperty(masked, "db")
 	if name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver:      joomlaProperty(masked, "dbtype"),
 		Name:        name,
 		User:        joomlaProperty(masked, "user"),

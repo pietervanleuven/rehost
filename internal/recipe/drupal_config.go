@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // RewriteConfig points the synced settings.php at the destination database:
@@ -18,7 +18,7 @@ import (
 // everything else stay byte-exact — the salt must survive the migration or
 // every session and one-time login link breaks. When drush is available on
 // the destination a cache rebuild runs afterwards, as Drupal requires.
-func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
+func (d Drupal) RewriteConfig(ctx context.Context, h Host, rw ConfigRewrite) (ConfigRewriteResult, error) {
 	confPath, ok := destConfigPath(rw)
 	if !ok {
 		return ConfigRewriteResult{Supported: false,
@@ -49,14 +49,14 @@ func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) 
 			strings.Join(missing, " and "), confPath))
 	}
 	if h.HasTool("drush") {
-		cr, err := h.Run.Run(ctx, "cd "+ssh.ShellQuote(rw.DestRoot)+" && drush cr 2>&1")
+		cr, err := h.Run.Run(ctx, "cd "+remote.ShellQuote(rw.DestRoot)+" && drush cr 2>&1")
 		switch {
 		case err != nil:
 			return res, err
 		case cr.ExitCode == 0:
 			res.PostSteps = append(res.PostSteps, "drush cr")
 		default:
-			res.PostSteps = append(res.PostSteps, "drush cr FAILED — run it by hand: "+ssh.FirstLine(cr.Stdout))
+			res.PostSteps = append(res.PostSteps, "drush cr FAILED — run it by hand: "+remote.FirstLine(cr.Stdout))
 		}
 	} else {
 		res.PostSteps = append(res.PostSteps, "run 'drush cr' (or clear caches via the UI) — no drush on the destination")
@@ -71,7 +71,7 @@ func (d Drupal) RewriteConfig(ctx context.Context, h db.Host, rw ConfigRewrite) 
 // so the destination would still authenticate the source's way. port is
 // rewritten only when the config declares one; database is the only key whose
 // absence is an error (no $databases entry at all).
-func rewriteDrupalSettings(content []byte, creds db.Credentials) ([]byte, []string, error) {
+func rewriteDrupalSettings(content []byte, creds hostdb.Credentials) ([]byte, []string, error) {
 	host := creds.Host
 	if host == "" {
 		host = "localhost"

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 const craftEnvFile = `# Craft environment
@@ -58,13 +58,13 @@ func TestParseCraftEnv(t *testing.T) {
 		creds.Host != "127.0.0.1" || creds.Port != 5432 {
 		t.Errorf("creds = %+v", creds)
 	}
-	if db.NormalizeDriver(creds.Driver) != db.DriverPostgres {
+	if hostdb.NormalizeDriver(creds.Driver) != hostdb.DriverPostgres {
 		t.Errorf("driver should normalize to pgsql: %+v", creds)
 	}
 
 	// Craft 3 plain-prefix layout.
 	legacy := parseCraftEnv([]byte("DB_DRIVER=mysql\nDB_SERVER=localhost\nDB_DATABASE=c3\nDB_USER=u\nDB_PASSWORD=p\n"))
-	if legacy == nil || legacy.Name != "c3" || db.NormalizeDriver(legacy.Driver) != db.DriverMySQL {
+	if legacy == nil || legacy.Name != "c3" || hostdb.NormalizeDriver(legacy.Driver) != hostdb.DriverMySQL {
 		t.Errorf("legacy creds = %+v", legacy)
 	}
 
@@ -76,7 +76,7 @@ func TestParseCraftEnv(t *testing.T) {
 }
 
 func TestRewriteCraftEnv(t *testing.T) {
-	out, missing, err := rewriteCraftEnv([]byte(craftEnvFile), db.Credentials{
+	out, missing, err := rewriteCraftEnv([]byte(craftEnvFile), hostdb.Credentials{
 		Name: "new_db", User: "new_u", Password: `p"w\d`, Host: "db.internal", Port: 5433,
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestRewriteCraftEnv(t *testing.T) {
 	}
 
 	// URL/DSN form degrades to guidance rather than a mangled splice.
-	if _, _, err := rewriteCraftEnv([]byte("CRAFT_DB_URL=mysql://u:p@h/db\n"), db.Credentials{Name: "x"}); err == nil {
+	if _, _, err := rewriteCraftEnv([]byte("CRAFT_DB_URL=mysql://u:p@h/db\n"), hostdb.Credentials{Name: "x"}); err == nil {
 		t.Error("URL-configured env must be a by-hand edit")
 	}
 }
