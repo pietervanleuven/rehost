@@ -136,7 +136,7 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   fields rejected with guidance), atomic 0600 writes.
 - `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
   `NonInteractivePrompter` + the init/plan wizard forms (huh stays out of cli);
-  tui imports ssh, never the reverse.
+  tui imports go-ssh, never the reverse.
 - `internal/detect` — framework discovery over an `FS` abstraction
   (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
   with walk fallback, `Scan`, realpath de-dup.
@@ -249,10 +249,12 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
 - **Commits: Conventional Commits** (https://www.conventionalcommits.org). Format:
   `type(scope): description` — lowercase, imperative, no trailing period.
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`.
-  - Scopes (once code exists, mirror package names): `ssh`, `detect`, `db`, `transfer`,
-    `tui`, `project`, `dns`, `recipe/drupal`, `recipe/wordpress`, … Docs-only changes:
-    `docs: …` without scope is fine.
-  - Breaking changes: `!` after type/scope (`feat(ssh)!: …`) + `BREAKING CHANGE:` footer.
+  - Scopes mirror this repo's package names: `cli`, `detect`, `check`, `project`,
+    `tui`, `inventory`, `state`, `recipe/drupal`, `recipe/wordpress`, … Docs-only
+    changes: `docs: …` without scope is fine. `ssh`, `db`, `transfer`, `dns` and
+    `searchreplace` now name *other* repos — a change there is committed and
+    released in that repo, and the version bump lands here as `build(deps): …`.
+  - Breaking changes: `!` after type/scope (`feat(cli)!: …`) + `BREAKING CHANGE:` footer.
   - **Releases are automated from these commits** (`.github/workflows/release.yml`):
     release-please accumulates every `feat`/`fix`/`perf` (and breaking change) on
     `main` into a "release PR" that bumps the version and CHANGELOG; merging that PR
