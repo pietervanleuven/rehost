@@ -5,18 +5,18 @@ import (
 	"testing"
 
 	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
 // capsWith builds Capabilities with the named tools present.
-func capsWith(phpVersion string, tools ...string) *ssh.Capabilities {
-	m := map[string]ssh.Tool{}
+func capsWith(phpVersion string, tools ...string) *remote.Capabilities {
+	m := map[string]remote.Tool{}
 	for _, t := range tools {
-		m[t] = ssh.Tool{Name: t, Found: true}
+		m[t] = remote.Tool{Name: t, Found: true}
 	}
-	return &ssh.Capabilities{Host: "h", PHPVersion: phpVersion, Tools: m}
+	return &remote.Capabilities{Host: "h", PHPVersion: phpVersion, Tools: m}
 }
 
 func byID(t *testing.T, results []Result, id string) Result {
@@ -170,7 +170,7 @@ func TestCredentialRules(t *testing.T) {
 		t.Errorf("ungathered credentials should be info, got %+v", r)
 	}
 
-	in.SourceCreds = map[string]*db.Credentials{
+	in.SourceCreds = map[string]*hostdb.Credentials{
 		wpInstall.Root: {Name: "wpdb", Host: "localhost", Password: "topsecret", Method: "wp-cli"},
 	}
 	r := byID(t, Run(in), "db.credentials")
@@ -181,7 +181,7 @@ func TestCredentialRules(t *testing.T) {
 		t.Fatalf("detail must never contain the password: %q", r.Detail)
 	}
 
-	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	in.SourceCreds = map[string]*hostdb.Credentials{wpInstall.Root: nil}
 	if r := byID(t, Run(in), "db.credentials"); r.Severity != Warning || !strings.Contains(r.Detail, wpInstall.Root) {
 		t.Errorf("missing credentials should warn naming the root, got %+v", r)
 	}
@@ -202,14 +202,14 @@ func TestDBConnectRules(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb", Method: "wp-cli"}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb", Method: "wp-cli"}},
 	}
 
 	if r := byID(t, Run(in), "db.connect"); r.Severity != Info {
 		t.Errorf("uninspected databases should be info, got %+v", r)
 	}
 
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: true, ServerVersion: "8.0.36", Tables: 12, SizeKB: 2048, Charset: "utf8mb4"},
 	}
 	r := byID(t, Run(in), "db.connect")
@@ -217,7 +217,7 @@ func TestDBConnectRules(t *testing.T) {
 		t.Errorf("connected inspection should be ok with stats, got %+v", r)
 	}
 
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: false, Reason: "Access denied for user"},
 	}
 	r = byID(t, Run(in), "db.connect")
@@ -227,7 +227,7 @@ func TestDBConnectRules(t *testing.T) {
 
 	// Without extracted credentials there is no connect rule (the
 	// credentials rule already covers the failure).
-	in.SourceCreds = map[string]*db.Credentials{wpInstall.Root: nil}
+	in.SourceCreds = map[string]*hostdb.Credentials{wpInstall.Root: nil}
 	if hasID(Run(in), "db.connect") {
 		t.Error("no credentials → no connect result")
 	}
@@ -238,8 +238,8 @@ func TestCharsetRules(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
-		SourceDBs:   map[string]*db.Inspection{wpInstall.Root: {Connected: true, UTF8MB4Tables: 0}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb"}},
+		SourceDBs:   map[string]*hostdb.Inspection{wpInstall.Root: {Connected: true, UTF8MB4Tables: 0}},
 	}
 
 	// No utf8mb4 in use: no charset result.
@@ -250,7 +250,7 @@ func TestCharsetRules(t *testing.T) {
 	in.SourceDBs[wpInstall.Root].UTF8MB4Tables = 9
 
 	// Modern MariaDB client on the destination: ok, using the Distrib number.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 15.1 Distrib 10.6.18-MariaDB, for Linux"}
 	r := byID(t, Run(in), "db.charset")
 	if r.Severity != Ok || !strings.Contains(r.Detail, "10.6.18") {
@@ -258,28 +258,28 @@ func TestCharsetRules(t *testing.T) {
 	}
 
 	// Ancient destination client: blocker.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Blocker {
 		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
 	}
 
 	// Debian/Ubuntu-packaged MySQL 8: the package revision after the dash
 	// ("0ubuntu0.22.04.1") must not be read as the version.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64 ((Ubuntu))"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "8.0.36") {
 		t.Errorf("distro-packaged MySQL 8 should be ok as 8.0.36, got %+v", r)
 	}
 
 	// Debian-packaged MariaDB: Distrib still wins over the client version.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 15.1 Distrib 10.11.6-MariaDB, for debian-linux-gnu (x86_64) using  EditLine wrapper"}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Ok || !strings.Contains(r.Detail, "10.11.6") {
 		t.Errorf("debian MariaDB should be ok as 10.11.6, got %+v", r)
 	}
 
 	// Unparseable version: info, not a false pass.
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true, Version: ""}
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true, Version: ""}
 	if r := byID(t, Run(in), "db.charset"); r.Severity != Info {
 		t.Errorf("unknown destination version should be info, got %+v", r)
 	}
@@ -291,7 +291,7 @@ func TestDiskSplitsDatabaseFromHomeQuota(t *testing.T) {
 		Destination:   capsWith("", "rsync"),
 		SourceSitesKB: 1000,
 		DestFreeKB:    1100,
-		SourceDBs:     map[string]*db.Inspection{"/a": {Connected: true, SizeKB: 500}},
+		SourceDBs:     map[string]*hostdb.Inspection{"/a": {Connected: true, SizeKB: 500}},
 	}
 	// The database lands on MySQL storage, not the home quota: 1000 KiB of
 	// files against 1100 KiB free is tight, not blocked by the DB's 500.
@@ -560,7 +560,7 @@ func TestDatabaseRulesPostgres(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "php"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{{Framework: "wordpress", Root: "/home/u/craft"}},
-		SourceCreds: map[string]*db.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
+		SourceCreds: map[string]*hostdb.Credentials{"/home/u/craft": {Name: "craftdb", Driver: "pgsql"}},
 	}
 	if r := byID(t, Run(in), "db.dump.pgsql"); r.Severity != Blocker || !strings.Contains(r.Detail, "no PHP fallback") {
 		t.Errorf("missing pg_dump must block without a PHP-fallback promise, got %+v", r)
@@ -590,7 +590,7 @@ func TestEngineRule(t *testing.T) {
 		Source:      capsWith("8.2", "rsync", "find", "mysqldump", "mysql"),
 		Destination: capsWith("8.2", "rsync", "mysql"),
 		Installs:    []detect.Install{wpInstall},
-		SourceCreds: map[string]*db.Credentials{wpInstall.Root: {Name: "wpdb"}},
+		SourceCreds: map[string]*hostdb.Credentials{wpInstall.Root: {Name: "wpdb"}},
 	}
 
 	// No inspection: engines unknown, rule silent.
@@ -599,10 +599,10 @@ func TestEngineRule(t *testing.T) {
 	}
 
 	// MariaDB source → MySQL destination: warn, as-is import named.
-	in.SourceDBs = map[string]*db.Inspection{
+	in.SourceDBs = map[string]*hostdb.Inspection{
 		wpInstall.Root: {Connected: true, ServerVersion: "10.11.6-MariaDB"},
 	}
-	in.Destination.Tools["mysql"] = ssh.Tool{Name: "mysql", Found: true,
+	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true,
 		Version: "mysql  Ver 8.0.36-0ubuntu0.22.04.1 for Linux on x86_64"}
 	r := byID(t, Run(in), "db.engine")
 	if r.Severity != Warning || !strings.Contains(r.Detail, "MariaDB") || !strings.Contains(r.Detail, "no conversion") {
@@ -611,7 +611,7 @@ func TestEngineRule(t *testing.T) {
 
 	// MariaDB → MariaDB (via the mariadb-named client): ok.
 	in.Destination = capsWith("8.2", "rsync", "mariadb")
-	in.Destination.Tools["mariadb"] = ssh.Tool{Name: "mariadb", Found: true,
+	in.Destination.Tools["mariadb"] = remote.Tool{Name: "mariadb", Found: true,
 		Version: "mariadb  Ver 15.1 Distrib 10.11.6-MariaDB"}
 	if r := byID(t, Run(in), "db.engine"); r.Severity != Ok || !strings.Contains(r.Detail, "MariaDB") {
 		t.Errorf("matching engines should confirm, got %+v", r)

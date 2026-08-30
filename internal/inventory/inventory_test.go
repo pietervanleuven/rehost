@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // rule maps the first matching substring (checked in order) to a result.
 type rule struct {
 	substr string
-	res    ssh.Result
+	res    remote.Result
 }
 
 type fakeRunner struct {
@@ -21,17 +21,17 @@ type fakeRunner struct {
 	cmds  []string
 }
 
-func (f *fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.cmds = append(f.cmds, cmd)
 	if f.err != nil {
-		return ssh.Result{}, f.err
+		return remote.Result{}, f.err
 	}
 	for _, r := range f.rules {
 		if strings.Contains(cmd, r.substr) {
 			return r.res, nil
 		}
 	}
-	return ssh.Result{ExitCode: 127}, nil
+	return remote.Result{ExitCode: 127}, nil
 }
 
 func TestTakeNULFirst(t *testing.T) {
@@ -43,9 +43,9 @@ func TestTakeNULFirst(t *testing.T) {
 		"61000\t/home/u/public_html/.git/\x00" +
 		"0\t/home/u/public_html/empty/\x00"
 	r := &fakeRunner{rules: []rule{
-		{"-0", ssh.Result{Stdout: nulOut}},
-		{"wp-content/cache", ssh.Result{Stdout: "200000\t/home/u/public_html/wp-content/cache\n"}},
-		{"'/home/u/public_html'", ssh.Result{Stdout: "1200000\t/home/u/public_html\n"}},
+		{"-0", remote.Result{Stdout: nulOut}},
+		{"wp-content/cache", remote.Result{Stdout: "200000\t/home/u/public_html/wp-content/cache\n"}},
+		{"'/home/u/public_html'", remote.Result{Stdout: "1200000\t/home/u/public_html\n"}},
 	}}
 	inv, err := Take(context.Background(), r, root, []string{"wp-content/cache", "wp-content/updraft"})
 	if err != nil {
@@ -76,9 +76,9 @@ func TestTakeNewlineFallbackKeepsPathsByteExact(t *testing.T) {
 	// No du -0 (busybox/BSD): exit 1, no output → newline pipeline. A
 	// directory with leading/trailing spaces is a real directory.
 	r := &fakeRunner{rules: []rule{
-		{"-0", ssh.Result{ExitCode: 1, Stderr: "du: unrecognized option: 0\n"}},
-		{"sort -rn", ssh.Result{Stdout: "912000\t/site/wp-content/\n300\t/site/ spacey /\n"}},
-		{"'/site'", ssh.Result{Stdout: "1000000\t/site\n"}},
+		{"-0", remote.Result{ExitCode: 1, Stderr: "du: unrecognized option: 0\n"}},
+		{"sort -rn", remote.Result{Stdout: "912000\t/site/wp-content/\n300\t/site/ spacey /\n"}},
+		{"'/site'", remote.Result{Stdout: "1000000\t/site\n"}},
 	}}
 	inv, err := Take(context.Background(), r, "/site", nil)
 	if err != nil {
@@ -93,9 +93,9 @@ func TestTakeKilledDuYieldsNothing(t *testing.T) {
 	// A du killed mid-run (exit above 1) printed a size that measured only
 	// part of the tree — it must not be reported.
 	r := &fakeRunner{rules: []rule{
-		{"-0", ssh.Result{ExitCode: 137, Stdout: "912000\t/site/wp-content/\x00"}},
-		{"sort -rn", ssh.Result{ExitCode: 137, Stdout: "912000\t/site/wp-content/\n"}},
-		{"'/site'", ssh.Result{ExitCode: 137, Stdout: "1200000\t/site\n"}},
+		{"-0", remote.Result{ExitCode: 137, Stdout: "912000\t/site/wp-content/\x00"}},
+		{"sort -rn", remote.Result{ExitCode: 137, Stdout: "912000\t/site/wp-content/\n"}},
+		{"'/site'", remote.Result{ExitCode: 137, Stdout: "1200000\t/site\n"}},
 	}}
 	inv, err := Take(context.Background(), r, "/site", nil)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestTakePermissionNoiseAccepted(t *testing.T) {
 	// Exit 1 with output is du's unreadable-subdir case: the totals it did
 	// print are real.
 	r := &fakeRunner{rules: []rule{
-		{"'/site'", ssh.Result{Stdout: "800\t/site\n", Stderr: "du: /site/private: Permission denied\n", ExitCode: 1}},
+		{"'/site'", remote.Result{Stdout: "800\t/site\n", Stderr: "du: /site/private: Permission denied\n", ExitCode: 1}},
 	}}
 	inv, err := Take(context.Background(), r, "/site", nil)
 	if err != nil {

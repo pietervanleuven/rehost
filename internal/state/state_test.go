@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeRunner captures every command and replies with one canned result.
 type fakeRunner struct {
 	cmds []string
-	res  ssh.Result
+	res  remote.Result
 	err  error
 }
 
-func (f *fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f *fakeRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	f.cmds = append(f.cmds, cmd)
 	return f.res, f.err
 }
@@ -98,7 +98,7 @@ func TestRecordStampsZeroTime(t *testing.T) {
 }
 
 func TestRecordAppendFailure(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{ExitCode: 1, Stderr: "cannot create directory: Disk quota exceeded\nmore noise"}}
+	r := &fakeRunner{res: remote.Result{ExitCode: 1, Stderr: "cannot create directory: Disk quota exceeded\nmore noise"}}
 	err := Record(context.Background(), r, "/home/u", Entry{Event: "dry-run"})
 	if err == nil {
 		t.Fatal("Record on exit 1 should error — state must not be silently lost")
@@ -120,7 +120,7 @@ func TestRecordTransportError(t *testing.T) {
 }
 
 func TestHistoryParsesEntriesInOrder(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{Stdout: `{"time":"2026-07-26T10:00:00Z","event":"dry-run","site":"/home/u/site-a"}
+	r := &fakeRunner{res: remote.Result{Stdout: `{"time":"2026-07-26T10:00:00Z","event":"dry-run","site":"/home/u/site-a"}
 {"time":"2026-07-27T11:30:00Z","event":"dry-run","site":"/home/u/site-b","details":{"files":"120"}}
 `}}
 	entries, err := History(context.Background(), r, "/home/u")
@@ -146,14 +146,14 @@ func TestHistoryParsesEntriesInOrder(t *testing.T) {
 
 func TestHistoryNoFileYet(t *testing.T) {
 	// cat on a missing file: non-zero exit, stderr swallowed by 2>/dev/null.
-	r := &fakeRunner{res: ssh.Result{ExitCode: 1}}
+	r := &fakeRunner{res: remote.Result{ExitCode: 1}}
 	entries, err := History(context.Background(), r, "/home/u")
 	if err != nil || entries != nil {
 		t.Errorf("no history file should yield (nil, nil), got (%v, %v)", entries, err)
 	}
 
 	// An existing but empty file is the same non-story.
-	r = &fakeRunner{res: ssh.Result{Stdout: "\n"}}
+	r = &fakeRunner{res: remote.Result{Stdout: "\n"}}
 	entries, err = History(context.Background(), r, "/home/u")
 	if err != nil || entries != nil {
 		t.Errorf("empty history should yield (nil, nil), got (%v, %v)", entries, err)
@@ -161,7 +161,7 @@ func TestHistoryNoFileYet(t *testing.T) {
 }
 
 func TestHistorySkipsCorruptLine(t *testing.T) {
-	r := &fakeRunner{res: ssh.Result{Stdout: `{"time":"2026-07-26T10:00:00Z","event":"dry-run"}
+	r := &fakeRunner{res: remote.Result{Stdout: `{"time":"2026-07-26T10:00:00Z","event":"dry-run"}
 {"time":"2026-07-26T11:00:00Z","event":"dry-r
 {"time":"2026-07-27T11:30:00Z","event":"dry-run"}
 `}}
@@ -359,7 +359,7 @@ func TestCompactHistoryKeepsOnlyLatestMaintenancePerSite(t *testing.T) {
 func TestCompactBelowThresholdDoesNotRewrite(t *testing.T) {
 	// History returns three entries (< CompactThreshold): Compact reads once and
 	// issues no rewrite.
-	r := &fakeRunner{res: ssh.Result{Stdout: `{"event":"dry-run"}
+	r := &fakeRunner{res: remote.Result{Stdout: `{"event":"dry-run"}
 {"event":"dry-run"}
 {"event":"dry-run"}
 `}}
@@ -381,7 +381,7 @@ func TestCompactAboveThresholdRewritesAtomically(t *testing.T) {
 	for i := 0; i < CompactThreshold; i++ {
 		b.WriteString(`{"event":"dry-run"}` + "\n")
 	}
-	r := &fakeRunner{res: ssh.Result{Stdout: b.String()}}
+	r := &fakeRunner{res: remote.Result{Stdout: b.String()}}
 	if err := Compact(context.Background(), r, "/home/u"); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
@@ -410,14 +410,14 @@ func TestAcquireLock(t *testing.T) {
 		t.Errorf("lock should be an atomic mkdir: %v", r.cmds)
 	}
 
-	held := &fakeRunner{res: ssh.Result{ExitCode: lockHeldExit, Stdout: "started 2026-08-28T10:00:00Z\n"}}
+	held := &fakeRunner{res: remote.Result{ExitCode: lockHeldExit, Stdout: "started 2026-08-28T10:00:00Z\n"}}
 	err := AcquireLock(context.Background(), held, "/home/d")
 	if err == nil || !strings.Contains(err.Error(), "another rehost run") ||
 		!strings.Contains(err.Error(), "/home/d/.rehost/lock") || !strings.Contains(err.Error(), "2026-08-28T10:00:00Z") {
 		t.Errorf("held lock should explain holder and cleanup, got %v", err)
 	}
 
-	broken := &fakeRunner{res: ssh.Result{ExitCode: 2, Stderr: "mkdir: permission denied"}}
+	broken := &fakeRunner{res: remote.Result{ExitCode: 2, Stderr: "mkdir: permission denied"}}
 	if err := AcquireLock(context.Background(), broken, "/home/d"); err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Errorf("other mkdir failures should surface stderr, got %v", err)
 	}

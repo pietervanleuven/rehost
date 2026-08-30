@@ -4,8 +4,7 @@ import (
 	"context"
 	"path"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -27,7 +26,7 @@ func wpMaintFile(root string) string { return path.Join(root, ".maintenance") }
 // WordPress, which keys only on the file's presence and $upgrading value. A
 // crashed WP core upgrade leaves the same file, so a site already showing the
 // maintenance page stays consistent.
-func (WordPress) EnableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (WordPress) EnableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	if h.Run == nil {
 		return MaintenanceResult{Supported: false, Note: "no command runner to reach the source"}, nil
 	}
@@ -41,7 +40,7 @@ func (WordPress) EnableMaintenance(ctx context.Context, h db.Host, in detect.Ins
 // removing .maintenance succeeds whether or not it exists, so it also clears a
 // .maintenance a crashed WP upgrade left behind. wp-cli runs first; the file
 // removal is the fallback and the always-safe cleanup.
-func (WordPress) DisableMaintenance(ctx context.Context, h db.Host, in detect.Install) (MaintenanceResult, error) {
+func (WordPress) DisableMaintenance(ctx context.Context, h Host, in detect.Install) (MaintenanceResult, error) {
 	if h.Run == nil {
 		return MaintenanceResult{Supported: false, Note: "no command runner to reach the source"}, nil
 	}
@@ -66,7 +65,7 @@ func (WordPress) DisableMaintenance(ctx context.Context, h db.Host, in detect.In
 // MaintenanceStatus reports whether .maintenance is present — the file wp-cli
 // and WordPress core both key on, so it is the ground truth without needing a
 // working wp-cli.
-func (WordPress) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Install) (MaintenanceState, error) {
+func (WordPress) MaintenanceStatus(ctx context.Context, h Host, in detect.Install) (MaintenanceState, error) {
 	if h.Run == nil {
 		return MaintenanceUnknown, nil
 	}
@@ -82,8 +81,8 @@ func (WordPress) MaintenanceStatus(ctx context.Context, h db.Host, in detect.Ins
 
 // wpMaintCLI runs `wp maintenance-mode <action>` in root, returning whether it
 // exited cleanly. --skip-plugins/--skip-themes keeps site code out of the way.
-func wpMaintCLI(ctx context.Context, r db.Runner, root, action string) (bool, error) {
-	cmd := "cd " + ssh.ShellQuote(root) + " && wp maintenance-mode " + action + " --skip-plugins --skip-themes 2>/dev/null"
+func wpMaintCLI(ctx context.Context, r remote.Runner, root, action string) (bool, error) {
+	cmd := "cd " + remote.ShellQuote(root) + " && wp maintenance-mode " + action + " --skip-plugins --skip-themes 2>/dev/null"
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return false, err

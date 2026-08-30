@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/rehost/internal/db"
+	hostdb "github.com/pietervanleuven/go-hostdb"
 )
 
 // credSentinel prefixes the JSON payload the PHP echo-helpers print, so
@@ -17,12 +17,12 @@ const credSentinel = "::REHOST-DB::"
 
 // ExtractorFor returns the credential extractor of a framework's recipe, or
 // nil when the framework has none (static) or is unknown.
-func ExtractorFor(framework string) db.Extractor {
+func ExtractorFor(framework string) Extractor {
 	for _, r := range All() {
 		if r.Name() != framework {
 			continue
 		}
-		if e, ok := r.(db.Extractor); ok {
+		if e, ok := r.(Extractor); ok {
 			return e
 		}
 	}
@@ -34,14 +34,14 @@ func ExtractorFor(framework string) db.Extractor {
 // a weaker layer), returning on a non-nil result, falling through otherwise.
 type credLayer struct {
 	available bool
-	extract   func(ctx context.Context) (*db.Credentials, error)
+	extract   func(ctx context.Context) (*hostdb.Credentials, error)
 }
 
 // extractLayered walks the ladder every recipe's ExtractCredentials shares:
 // framework CLI (authoritative) → PHP echo-helper → config-file parse.
 // Keeping the fall-through contract here means a change to the layering
 // rules cannot reach one framework and miss another.
-func extractLayered(ctx context.Context, layers []credLayer) (*db.Credentials, error) {
+func extractLayered(ctx context.Context, layers []credLayer) (*hostdb.Credentials, error) {
 	for _, l := range layers {
 		if !l.available {
 			continue
@@ -77,7 +77,7 @@ type phpCredPayload struct {
 
 // parseSentinelCreds extracts the credentials JSON a PHP helper printed
 // after credSentinel, or nil if the sentinel or a database name is absent.
-func parseSentinelCreds(stdout, method string) *db.Credentials {
+func parseSentinelCreds(stdout, method string) *hostdb.Credentials {
 	i := strings.Index(stdout, credSentinel)
 	if i < 0 {
 		return nil
@@ -86,7 +86,7 @@ func parseSentinelCreds(stdout, method string) *db.Credentials {
 	if err := decodeFirstJSON(stdout[i+len(credSentinel):], &p); err != nil || p.Name == "" {
 		return nil
 	}
-	creds := &db.Credentials{
+	creds := &hostdb.Credentials{
 		Driver:      p.Driver,
 		Name:        p.Name,
 		User:        p.User,
@@ -103,7 +103,7 @@ func parseSentinelCreds(stdout, method string) *db.Credentials {
 // Port. A non-numeric suffix (a socket path like "localhost:/tmp/mysql.sock")
 // stays in Host untouched. IPv6 literals are only split in the bracketed
 // [addr]:port form — a bare "::1" must never be read as host ":" port 1.
-func applyHost(creds *db.Credentials, host string) {
+func applyHost(creds *hostdb.Credentials, host string) {
 	if strings.HasPrefix(host, "[") {
 		if i := strings.Index(host, "]"); i >= 0 {
 			addr, rest := host[1:i], host[i+1:]

@@ -95,7 +95,7 @@ hosting and verify:
       local dump into `gunzip -c | mysql` (password over a 0600 FIFO,
       never argv/env/disk; progress from local byte offsets; post-import
       table-count verification) — wired into `migrate` 2026-07-29
-- [x] Serialized-safe search-replace core: `internal/searchreplace`
+- [x] Serialized-safe search-replace core: `go-searchreplace` (extracted from `internal/searchreplace`)
       (`--precise` semantics, fuzzed round-trip, URL/docroot pair planner)
       — applied via `RewriteDump` to the dump stream locally between dump
       and import (no destination framework CLI needed), wired 2026-07-29

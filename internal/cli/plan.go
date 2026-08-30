@@ -83,7 +83,7 @@ func runPlan(cmd *cobra.Command, opts *options, args []string, docroots []string
 		u.progress("%s: connected to %s (%s) — scanning for websites…", t.role, caps.Target(), caps.Summary())
 
 		// 3. Scan for sites — the potentially slow recursive step.
-		fsys := detect.NewSSHFS(client)
+		fsys := detect.NewShellFS(client)
 		startRoots := docroots
 		if len(startRoots) == 0 {
 			startRoots = []string{homeOrDot(caps.Home)}

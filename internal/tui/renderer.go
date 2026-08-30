@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
@@ -29,7 +29,7 @@ const (
 // (keyed by install root; entries may be missing when not measured).
 type HostReport struct {
 	Role        string // "source" or "destination"
-	Caps        *ssh.Capabilities
+	Caps        *remote.Capabilities
 	Installs    []detect.Install
 	Inventories map[string]*inventory.Inventory
 }

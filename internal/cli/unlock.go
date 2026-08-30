@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
@@ -39,7 +38,7 @@ source cannot be reached or a locked site could not be cleared.`,
 
 func runUnlock(cmd *cobra.Command, opts *options) error {
 	return withSource(cmd, opts, func(ctx context.Context, u ui, f *project.File, client *ssh.Client, caps *ssh.Capabilities) error {
-		view, failed, err := unlockSites(ctx, db.Host{Run: client, FS: detect.NewSSHFS(client), Caps: caps}, caps.Home, caps.Target(), f)
+		view, failed, err := unlockSites(ctx, recipe.Host{Run: client, FS: detect.NewShellFS(client), Caps: caps}, caps.Home, caps.Target(), f)
 		if err != nil {
 			return u.fail(err)
 		}
@@ -54,7 +53,7 @@ func runUnlock(cmd *cobra.Command, opts *options) error {
 }
 
 // unlockSites clears maintenance mode across a source's sites and is the
-// SSH-free seam the tests drive with a fake db.Host. It returns the report
+// SSH-free seam the tests drive with a fake recipe.Host. It returns the report
 // view, the roots it could not unlock, and a transport error (which aborts the
 // whole command). Ordinary per-site failures are carried in the view and the
 // failed slice, not as an error — the run still reports every site.
@@ -62,7 +61,7 @@ func runUnlock(cmd *cobra.Command, opts *options) error {
 // A site is treated as locked when the live probe says so, or when the probe
 // cannot tell (Unknown) but history recorded it locked. History is the
 // recovery hint; the live probe overrides it.
-func unlockSites(ctx context.Context, h db.Host, home, source string, f *project.File) (tui.UnlockView, []string, error) {
+func unlockSites(ctx context.Context, h recipe.Host, home, source string, f *project.File) (tui.UnlockView, []string, error) {
 	entries, err := state.History(ctx, h.Run, home)
 	if err != nil {
 		return tui.UnlockView{}, nil, fmt.Errorf("reading run history: %w", err)
@@ -105,7 +104,7 @@ func unlockSites(ctx context.Context, h db.Host, home, source string, f *project
 
 // unlockOne resolves one site's outcome. ok is false when the site was locked
 // and could not be cleared; a non-nil error is a transport failure.
-func unlockOne(ctx context.Context, h db.Host, s project.Site, historyLocked bool) (tui.UnlockSite, bool, error) {
+func unlockOne(ctx context.Context, h recipe.Host, s project.Site, historyLocked bool) (tui.UnlockSite, bool, error) {
 	row := tui.UnlockSite{Site: s.Root, Framework: s.Framework}
 	m := recipe.MaintainerFor(s.Framework)
 	if m == nil {

@@ -5,28 +5,28 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // fakeRunner maps command strings to canned results.
 type fakeRunner struct {
-	results map[string]ssh.Result
+	results map[string]remote.Result
 	err     error
 }
 
-func (f fakeRunner) Run(_ context.Context, cmd string) (ssh.Result, error) {
+func (f fakeRunner) Run(_ context.Context, cmd string) (remote.Result, error) {
 	if f.err != nil {
-		return ssh.Result{}, f.err
+		return remote.Result{}, f.err
 	}
 	res, ok := f.results[cmd]
 	if !ok {
-		return ssh.Result{ExitCode: 127}, nil
+		return remote.Result{ExitCode: 127}, nil
 	}
 	return res, nil
 }
 
 func TestPHPExtensions(t *testing.T) {
-	r := fakeRunner{results: map[string]ssh.Result{
+	r := fakeRunner{results: map[string]remote.Result{
 		"php -m": {Stdout: "[PHP Modules]\ncurl\ngd\nmysqli\n\n[Zend Modules]\nZend OPcache\n"},
 	}}
 	exts := PHPExtensions(context.Background(), r)
@@ -49,7 +49,7 @@ func TestPHPExtensions(t *testing.T) {
 }
 
 func TestFreeKB(t *testing.T) {
-	r := fakeRunner{results: map[string]ssh.Result{
+	r := fakeRunner{results: map[string]remote.Result{
 		"df -P -k '/home/u'": {Stdout: "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 1000000 400000 600000 40% /home\n"},
 	}}
 	if kb := FreeKB(context.Background(), r, "/home/u"); kb != 600000 {
@@ -61,7 +61,7 @@ func TestFreeKB(t *testing.T) {
 }
 
 func TestDirsSizeKB(t *testing.T) {
-	r := fakeRunner{results: map[string]ssh.Result{
+	r := fakeRunner{results: map[string]remote.Result{
 		"du -sk '/a' 2>/dev/null": {Stdout: "1024\t/a\n"},
 		// /b prints a total despite exit 1 (permission warnings) — still counted.
 		"du -sk '/b' 2>/dev/null": {Stdout: "2048\t/b\n", ExitCode: 1},
@@ -74,7 +74,7 @@ func TestDirsSizeKB(t *testing.T) {
 // A site nested under another's docroot must be counted once: du of the parent
 // already includes the child, so the child dir is dropped before summing.
 func TestDirsSizeKBSkipsNested(t *testing.T) {
-	r := fakeRunner{results: map[string]ssh.Result{
+	r := fakeRunner{results: map[string]remote.Result{
 		"du -sk '/home/u/public_html' 2>/dev/null": {Stdout: "5000\t/home/u/public_html\n"},
 		// The nested blog's du must never run — counting it double-counts.
 		"du -sk '/home/u/public_html/blog' 2>/dev/null": {Stdout: "2000\t/home/u/public_html/blog\n"},

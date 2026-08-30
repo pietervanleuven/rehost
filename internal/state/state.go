@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
 )
 
 // historyFile is the append-only run log inside Dir, one JSON object per line.
@@ -63,11 +63,6 @@ type Entry struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
-// runner is the slice of ssh.Client the state store needs; tests use a fake.
-type runner interface {
-	Run(ctx context.Context, cmd string) (ssh.Result, error)
-}
-
 // Dir returns the state directory for a home ("<home>/.rehost"). An empty
 // home means the SSH account's home directory, so the path stays relative
 // (like homeOrDot elsewhere).
@@ -85,7 +80,7 @@ func Dir(home string) string {
 // failed append is a real error — silently losing state would defeat the
 // history's purpose — so a non-zero exit comes back as an error carrying
 // the first stderr line; transport errors propagate as-is.
-func Record(ctx context.Context, r runner, home string, e Entry) error {
+func Record(ctx context.Context, r remote.Runner, home string, e Entry) error {
 	if e.Time.IsZero() {
 		e.Time = time.Now().UTC()
 	}
@@ -94,8 +89,8 @@ func Record(ctx context.Context, r runner, home string, e Entry) error {
 		return fmt.Errorf("encoding state entry: %w", err)
 	}
 
-	dir := ssh.ShellQuote(Dir(home))
-	file := ssh.ShellQuote(path.Join(Dir(home), historyFile))
+	dir := remote.ShellQuote(Dir(home))
+	file := remote.ShellQuote(path.Join(Dir(home), historyFile))
 	cmd := "mkdir -p " + dir + " && chmod 700 " + dir +
 		" && cat >> " + file + " <<'" + heredocMarker + "' && chmod 600 " + file + "\n" +
 		string(line) + "\n" + heredocMarker
@@ -105,7 +100,7 @@ func Record(ctx context.Context, r runner, home string, e Entry) error {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("recording state on host: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("recording state on host: %s", remote.FirstLine(res.Stderr))
 	}
 	return nil
 }
@@ -122,7 +117,7 @@ const (
 // Rewrite atomically replaces the on-host history file with entries, one JSON
 // line each, via a temp file and mv so a crash never leaves it half-written.
 // It is the counterpart to Record's append for the rare compaction rewrite.
-func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error {
+func Rewrite(ctx context.Context, r remote.Runner, home string, entries []Entry) error {
 	var b strings.Builder
 	for _, e := range entries {
 		line, err := json.Marshal(e) // one line: json.Marshal emits no newlines
@@ -133,9 +128,9 @@ func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error 
 		b.WriteByte('\n')
 	}
 
-	dir := ssh.ShellQuote(Dir(home))
-	file := ssh.ShellQuote(path.Join(Dir(home), historyFile))
-	tmp := ssh.ShellQuote(path.Join(Dir(home), historyFile+".tmp"))
+	dir := remote.ShellQuote(Dir(home))
+	file := remote.ShellQuote(path.Join(Dir(home), historyFile))
+	tmp := remote.ShellQuote(path.Join(Dir(home), historyFile+".tmp"))
 	cmd := "mkdir -p " + dir + " && cat > " + tmp + " <<'" + heredocMarker +
 		"' && chmod 600 " + tmp + " && mv " + tmp + " " + file + "\n" +
 		b.String() + heredocMarker
@@ -145,7 +140,7 @@ func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error 
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("rewriting state on host: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("rewriting state on host: %s", remote.FirstLine(res.Stderr))
 	}
 	return nil
 }
@@ -156,7 +151,7 @@ func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error 
 // what MigratedSites, MigratedDatabases or LockedSites read back — it refuses
 // to rewrite if it somehow would. A file at or under the threshold is left
 // untouched, so the common case is one History read and no write.
-func Compact(ctx context.Context, r runner, home string) error {
+func Compact(ctx context.Context, r remote.Runner, home string) error {
 	entries, err := History(ctx, r, home)
 	if err != nil {
 		return err
@@ -233,8 +228,8 @@ func sameSet(a, b map[string]bool) bool {
 // A host without the file yields (nil, nil) — no history yet is not an
 // error. Corrupt lines are skipped so one bad record never hides the rest;
 // transport errors propagate.
-func History(ctx context.Context, r runner, home string) ([]Entry, error) {
-	file := ssh.ShellQuote(path.Join(Dir(home), historyFile))
+func History(ctx context.Context, r remote.Runner, home string) ([]Entry, error) {
+	file := remote.ShellQuote(path.Join(Dir(home), historyFile))
 	res, err := r.Run(ctx, "cat "+file+" 2>/dev/null")
 	if err != nil {
 		return nil, err
@@ -351,13 +346,13 @@ func LockPath(home string) string {
 // AcquireLock takes the advisory per-host run lock. A held lock is an error
 // telling the user who to check and how to clear a stale one — rehost cannot
 // tell a live concurrent run from a crashed one, so it never steals the lock.
-func AcquireLock(ctx context.Context, r runner, home string) error {
-	dir := ssh.ShellQuote(Dir(home))
-	lock := ssh.ShellQuote(LockPath(home))
-	info := ssh.ShellQuote(path.Join(LockPath(home), "info"))
+func AcquireLock(ctx context.Context, r remote.Runner, home string) error {
+	dir := remote.ShellQuote(Dir(home))
+	lock := remote.ShellQuote(LockPath(home))
+	info := remote.ShellQuote(path.Join(LockPath(home), "info"))
 	stamp := time.Now().UTC().Format(time.RFC3339)
 	cmd := "mkdir -p " + dir + " && { mkdir " + lock + " 2>/dev/null || { cat " + info + " 2>/dev/null; exit " + fmt.Sprint(lockHeldExit) + "; }; }" +
-		" && echo " + ssh.ShellQuote("started "+stamp) + " > " + info
+		" && echo " + remote.ShellQuote("started "+stamp) + " > " + info
 	res, err := r.Run(ctx, cmd)
 	if err != nil {
 		return err
@@ -370,20 +365,20 @@ func AcquireLock(ctx context.Context, r runner, home string) error {
 		}
 		return fmt.Errorf("another rehost run appears to be active on this host (%s) — wait for it to finish; if it crashed, remove %s there and rerun", holder, LockPath(home))
 	case res.ExitCode != 0:
-		return fmt.Errorf("taking the run lock: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("taking the run lock: %s", remote.FirstLine(res.Stderr))
 	}
 	return nil
 }
 
 // ReleaseLock clears the advisory run lock. Best-effort by nature: a failure
 // only means the next run sees a stale lock and its error explains the fix.
-func ReleaseLock(ctx context.Context, r runner, home string) error {
-	res, err := r.Run(ctx, "rm -rf "+ssh.ShellQuote(LockPath(home)))
+func ReleaseLock(ctx context.Context, r remote.Runner, home string) error {
+	res, err := r.Run(ctx, "rm -rf "+remote.ShellQuote(LockPath(home)))
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return fmt.Errorf("releasing the run lock: %s", ssh.FirstLine(res.Stderr))
+		return fmt.Errorf("releasing the run lock: %s", remote.FirstLine(res.Stderr))
 	}
 	return nil
 }

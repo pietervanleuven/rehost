@@ -257,3 +257,71 @@ func TestValidateDestDBDriver(t *testing.T) {
 		t.Errorf("unknown driver must fail loudly, got %v", err)
 	}
 }
+
+// Two sites pointing at one destination would overwrite each other during
+// migrate: the second import's DROP TABLEs wipe the first site's data, and a
+// --delete sync removes the first site's files. Validate must refuse them.
+func TestValidateRejectsDestinationCollisions(t *testing.T) {
+	tests := []struct {
+		name  string
+		sites []Site
+		want  string
+	}{
+		{
+			name: "duplicate root",
+			sites: []Site{
+				{Framework: "wordpress", Root: "/home/u/site", DestRoot: "/home/d/a"},
+				{Framework: "wordpress", Root: "/home/u/site", DestRoot: "/home/d/b"},
+			},
+			want: "repeats",
+		},
+		{
+			name: "duplicate dest_root",
+			sites: []Site{
+				{Framework: "wordpress", Root: "/home/u/a", DestRoot: "/home/d/www"},
+				{Framework: "drupal", Root: "/home/u/b", DestRoot: "/home/d/www"},
+			},
+			want: "dest_root",
+		},
+		{
+			name: "duplicate dest_db",
+			sites: []Site{
+				{Framework: "wordpress", Root: "/home/u/a", DestDB: &SiteDB{Name: "db123"}},
+				{Framework: "drupal", Root: "/home/u/b", DestDB: &SiteDB{Name: "db123"}},
+			},
+			want: "same database",
+		},
+		{
+			name: "duplicate dest_db across explicit and default port",
+			sites: []Site{
+				{Framework: "wordpress", Root: "/home/u/a", DestDB: &SiteDB{Name: "db123", Host: "localhost"}},
+				{Framework: "drupal", Root: "/home/u/b", DestDB: &SiteDB{Name: "db123", Host: "LocalHost", Port: 3306}},
+			},
+			want: "same database",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &File{Version: SchemaVersion, Source: Host{Host: "src.example.com"}, Sites: tt.sites}
+			err := f.Validate()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("want error containing %q, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestValidateAllowsDistinctDestinations(t *testing.T) {
+	f := &File{Version: SchemaVersion, Source: Host{Host: "src.example.com"}, Sites: []Site{
+		{Framework: "wordpress", Root: "/home/u/a", DestRoot: "/home/d/a", DestDB: &SiteDB{Name: "db1"}},
+		{Framework: "drupal", Root: "/home/u/b", DestRoot: "/home/d/b", DestDB: &SiteDB{Name: "db2"}},
+		// No dest_root/dest_db is the common case and must never collide.
+		{Framework: "static", Root: "/home/u/c"},
+		{Framework: "static", Root: "/home/u/d"},
+		// Same name on different hosts is two distinct databases.
+		{Framework: "joomla", Root: "/home/u/e", DestDB: &SiteDB{Name: "db1", Host: "db2.example.com"}},
+	}}
+	if err := f.Validate(); err != nil {
+		t.Errorf("distinct destinations must validate: %v", err)
+	}
+}

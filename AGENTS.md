@@ -60,7 +60,7 @@ mechanism — Joomla's `$offline` splice, Craft's `craft off/on`; PrestaShop's
 is a DB setting, honestly left to the back office). **MariaDB is explicit**
 (the `mariadb`/`mariadb-dump` binary names are probed and used when the
 mysql-named symlinks are absent) and **PostgreSQL is a second engine** in
-`internal/db` (psql/pg_dump, pgpass-file credential staging under umask 077,
+`go-hostdb` (psql/pg_dump, pgpass-file credential staging under umask 077,
 verified dump footer, ON_ERROR_STOP import; no PHP dump fallback; the
 stored-URL rewrite is skipped for pg dumps — COPY-format data — with an
 explicit warning). Credentials carry a normalized driver + resolved client
@@ -109,11 +109,11 @@ runtime.
 
 ## Architecture
 
-Three generic packages were extracted (2026-08-29) into standalone public
-modules that rehost imports like any dependency: `go-ssh`, `go-dns` and
-`go-searchreplace` (repos under github.com/pietervanleuven/, working copies
-under ~/Projects/). Package names are unchanged (`ssh`, `dns`,
-`searchreplace`), only import paths moved. A change these packages need now
+Five generic packages were extracted (2026-08-29) into standalone public
+modules that rehost imports like any dependency: `go-ssh`, `go-dns`,
+`go-searchreplace`, `go-transfer` and `go-hostdb` (repos under
+github.com/pietervanleuven/, working copies under ~/Projects/). Package
+names are unchanged except `db` → `hostdb`. A change these packages need now
 lands in its own repo, gets a version tag, and is pulled into rehost via
 `go get` — remember to tag and push the library before bumping rehost.
 
@@ -125,15 +125,21 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   error); `Dial` auth chain agent → keys → password prompts via the `Prompter`
   interface; known_hosts strict + TOFU (key mismatch always hard-fails); `Run`
   (non-zero exit ≠ Go error); `Probe` = one sentinel-delimited POSIX script with
-  a per-command sequential fallback for restricted shells.
+  a per-command sequential fallback for restricted shells. The transport-free
+  contract (`Result`, `Runner`, `ShellQuote`, `FirstLine`, `Tool`/
+  `Capabilities` and the probe) lives in the `go-ssh/remote` subpackage; the
+  root package aliases those names, so both paths name identical types. Every
+  internal package except `cli` and `project` imports only `go-ssh/remote` —
+  keep it that way: nothing below the orchestrator should compile the dial
+  stack.
 - `internal/project` — migrate.yaml schema v1, strict decode (unknown/secret
   fields rejected with guidance), atomic 0600 writes.
 - `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
   `NonInteractivePrompter` + the init/plan wizard forms (huh stays out of cli);
-  tui imports ssh, never the reverse.
-- `internal/detect` — framework discovery over an `FS` abstraction (shell-based
-  `SSHFS` + local for tests): marker `Find` with walk fallback, `Scan`,
-  realpath de-dup.
+  tui imports go-ssh, never the reverse.
+- `internal/detect` — framework discovery over an `FS` abstraction
+  (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
+  with walk fallback, `Scan`, realpath de-dup.
 - `internal/recipe` — pluggable framework recipes (drupal, wordpress, joomla,
   prestashop, craft, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
@@ -141,23 +147,32 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   echo-helper with sentinel → config regex; transport errors abort, tool
   failures fall through), and the `Maintainer` seam (same layering;
   per-site tool failures are typed `ErrMaintenanceTool` so callers keep
-  going).
+  going). The capability seams' shared input lives here too: `Host`
+  (runner + FS + capabilities) and the `Extractor` interface recipes
+  implement.
 - `searchreplace` (**external module: github.com/pietervanleuven/go-searchreplace**,
   at ~/Projects/go-searchreplace) — pure serialized-safe replacement core
   (wp search-replace --precise semantics, fuzzed round-trip invariant) +
   the URL/docroot replacement-pair planner + `RewriteDump`, which applies
   pairs inside a SQL dump's string literals (the local application point
   migrate uses between dump and import).
-- `internal/db` — `Credentials` (Password excluded from JSON, in-memory only)
-  + the `Extractor` seam recipes implement; `Inspect` learns version, size,
+- `hostdb` (**external module: github.com/pietervanleuven/go-hostdb**, at
+  ~/Projects/go-hostdb; imported as `hostdb`) — `Credentials` (Password
+  excluded from JSON, in-memory only); `Inspect` learns version, size,
   charset and table counts in one round trip, feeding the password to mysql
   via a defaults file on stdin (never argv/env); `Import` streams a verified
   local dump into the destination's mysql, password over a 0600 FIFO.
-  Driver-aware throughout: `NormalizeDriver` folds config spellings to
-  mysql/pgsql, `ResolveClientTools` picks mysql/mariadb/psql binary names
-  from the probe, and the PostgreSQL paths (`postgres.go`) stage the
-  password in a umask-077 pgpass file under `~/.rehost` (libpq refuses
-  FIFOs) removed on the same command line.
+  `Dump` streams `mysqldump | gzip` while gunzipping in memory to verify the
+  completion footer — the shell reports gzip's exit, not mysqldump's, so the
+  footer is the truncation guard; `DumpPHP` is the same contract via a PHP
+  helper (mysqli → PDO, gzip from PHP itself, creds over stdin) for hosts
+  without mysqldump. Driver-aware throughout: `NormalizeDriver` folds config
+  spellings to mysql/pgsql, `ResolveClientTools` picks mysql/mariadb/psql
+  binary names from the probe, and the PostgreSQL paths stage the password
+  in a umask-077 pgpass file (libpq refuses FIFOs) removed on the same
+  command line. Transient staging lives under `$HOME`/`StageDir` — the
+  library defaults to `.hostdb`; cli's init() pins it to `.rehost`. Helper
+  diagnostics are prefixed `hostdb:`.
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
@@ -167,18 +182,15 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   rehost never changes DNS.
 - `internal/inventory` — per-site size picture over `du` (total, largest
   subdirectories, framework cache/backup dirs worth excluding), best-effort.
-- `internal/transfer` — tar-pipe throughput measurement (capped sample over
-  the pipe the real migration would use) + file manifests (size/mtime via
-  GNU `find -printf`, paths-only degradation, pure `Diff`, atomic gzipped
+- `transfer` (**external module: github.com/pietervanleuven/go-transfer**, at
+  ~/Projects/go-transfer) — tar-pipe throughput measurement (capped sample
+  over the pipe the real migration would use) + file manifests (size/mtime
+  via GNU `find -printf`, paths-only degradation, pure `Diff`, atomic gzipped
   persistence) + `Sync`, the manifest-driven tar-pipe relay (delta-only
   transfer through the orchestrator, opt-in deletions with path-safety
-  guards, post-sync destination manifest as the convergence proof).
-- `internal/db` dump side: `Dump` streams `mysqldump | gzip` while gunzipping
-  in memory to verify the completion footer — the shell reports gzip's exit,
-  not mysqldump's, so the footer is the truncation guard. `DumpPHP` is the
-  same contract via a PHP helper (mysqli → PDO, gzip from PHP itself, creds
-  over stdin) for hosts without mysqldump. `ssh.Client.Stream` is the
-  streaming exec primitive (`Run` wraps it).
+  guards, post-sync destination manifest as the convergence proof). The
+  `.rehost-partial-transfer` marker name is part of the on-host contract —
+  do not rename it.
 - `internal/state` — append-only run history in `<home>/.rehost/` on the
   source (JSON lines, corrupt lines skipped on read); feeds status/history.
   `Record` is one atomic append; `Compact` bounds the file (atomic temp+mv
@@ -237,10 +249,12 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
 - **Commits: Conventional Commits** (https://www.conventionalcommits.org). Format:
   `type(scope): description` — lowercase, imperative, no trailing period.
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`.
-  - Scopes (once code exists, mirror package names): `ssh`, `detect`, `db`, `transfer`,
-    `tui`, `project`, `dns`, `recipe/drupal`, `recipe/wordpress`, … Docs-only changes:
-    `docs: …` without scope is fine.
-  - Breaking changes: `!` after type/scope (`feat(ssh)!: …`) + `BREAKING CHANGE:` footer.
+  - Scopes mirror this repo's package names: `cli`, `detect`, `check`, `project`,
+    `tui`, `inventory`, `state`, `recipe/drupal`, `recipe/wordpress`, … Docs-only
+    changes: `docs: …` without scope is fine. `ssh`, `db`, `transfer`, `dns` and
+    `searchreplace` now name *other* repos — a change there is committed and
+    released in that repo, and the version bump lands here as `build(deps): …`.
+  - Breaking changes: `!` after type/scope (`feat(cli)!: …`) + `BREAKING CHANGE:` footer.
   - **Releases are automated from these commits** (`.github/workflows/release.yml`):
     release-please accumulates every `feat`/`fix`/`perf` (and breaking change) on
     `main` into a "release PR" that bumps the version and CHANGELOG; merging that PR

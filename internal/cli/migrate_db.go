@@ -11,14 +11,15 @@ import (
 	"strconv"
 	"time"
 
+	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/go-searchreplace"
 	"github.com/pietervanleuven/go-ssh"
+	"github.com/pietervanleuven/go-ssh/remote"
+	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
-	"github.com/pietervanleuven/rehost/internal/db"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
 	"github.com/pietervanleuven/rehost/internal/state"
-	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -29,10 +30,10 @@ const destDBIDPrefix = "migrate.destdb:"
 // Seams for the database choreography, package vars so tests can substitute
 // fakes the same way syncFn works.
 var (
-	dumpFn    = db.Dump
-	dumpPHPFn = db.DumpPHP
-	importFn  = db.Import
-	inspectFn = db.Inspect
+	dumpFn    = hostdb.Dump
+	dumpPHPFn = hostdb.DumpPHP
+	importFn  = hostdb.Import
+	inspectFn = hostdb.Inspect
 )
 
 // dumpStrategy picks the dump function and its display label for one site's
@@ -40,9 +41,9 @@ var (
 // tools onto the credentials on the way. ok=false when nothing on the host
 // can dump this database (the check gate blocks before this in migrate; the
 // dry run reports it as a warning).
-func dumpStrategy(creds *db.Credentials, caps *ssh.Capabilities) (fn func(context.Context, db.Streamer, *db.Credentials, io.Writer) (*db.DumpStats, error), method string, ok bool) {
-	creds.Tools = db.ResolveClientTools(creds.Driver, caps.Has)
-	if db.NormalizeDriver(creds.Driver) == db.DriverPostgres {
+func dumpStrategy(creds *hostdb.Credentials, caps *ssh.Capabilities) (fn func(context.Context, hostdb.Streamer, *hostdb.Credentials, io.Writer) (*hostdb.DumpStats, error), method string, ok bool) {
+	creds.Tools = hostdb.ResolveClientTools(creds.Driver, caps.Has)
+	if hostdb.NormalizeDriver(creds.Driver) == hostdb.DriverPostgres {
 		// No PHP fallback exists for PostgreSQL — the helper speaks mysqli/PDO-mysql.
 		return dumpFn, "pg_dump", caps.Has("pg_dump")
 	}
@@ -67,7 +68,7 @@ func dbIdentity(c *project.SiteDB) string {
 // dbCredIdentity is dbIdentity over resolved credentials. destDBResults gates
 // its overwrite guard on this, and migrateSiteDB records it after a successful
 // import, so the two agree on which database rehost has filled.
-func dbCredIdentity(c *db.Credentials) string {
+func dbCredIdentity(c *hostdb.Credentials) string {
 	return identityKey(c.Name, c.User, c.Host, c.Port)
 }
 
@@ -87,9 +88,9 @@ func identityKey(name, user, host string, port int) string {
 // site's source database (a PostgreSQL site imports into PostgreSQL — rehost
 // never converts engines) unless dest_db.driver overrides it, and the client
 // binaries are resolved from the destination's capability probe.
-func destDBCredentials(sites []siteDest, srcCreds map[string]*db.Credentials, destHas func(string) bool, password func(string) (string, error)) (map[string]*db.Credentials, error) {
+func destDBCredentials(sites []siteDest, srcCreds map[string]*hostdb.Credentials, destHas func(string) bool, password func(string) (string, error)) (map[string]*hostdb.Credentials, error) {
 	prompted := map[string]string{}
-	var out map[string]*db.Credentials
+	var out map[string]*hostdb.Credentials
 	for _, s := range sites {
 		cfg := s.destDB
 		if cfg == nil {
@@ -116,12 +117,12 @@ func destDBCredentials(sites []siteDest, srcCreds map[string]*db.Credentials, de
 			}
 		}
 		if out == nil {
-			out = map[string]*db.Credentials{}
+			out = map[string]*hostdb.Credentials{}
 		}
-		out[s.install.Root] = &db.Credentials{
+		out[s.install.Root] = &hostdb.Credentials{
 			Name: cfg.Name, User: cfg.User, Host: cfg.Host, Port: cfg.Port, Password: pw,
 			Driver: driver,
-			Tools:  db.ResolveClientTools(driver, destHas),
+			Tools:  hostdb.ResolveClientTools(driver, destHas),
 		}
 	}
 	return out, nil
@@ -133,9 +134,9 @@ func destDBCredentials(sites []siteDest, srcCreds map[string]*db.Credentials, de
 // has no record of filling is refused unless --onto-existing, because the
 // import's DROP TABLE statements overwrite it. A site without dest_db gets a
 // warning row: files will sync, the database will not.
-func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map[string]*db.Credentials, migratedDBs map[string]bool, ontoExisting bool) ([]check.Result, error) {
+func destDBResults(ctx context.Context, r remote.Runner, sites []siteDest, creds map[string]*hostdb.Credentials, migratedDBs map[string]bool, ontoExisting bool) ([]check.Result, error) {
 	const title = "Destination database"
-	inspected := map[string]*db.Inspection{}
+	inspected := map[string]*hostdb.Inspection{}
 	var rows []check.Result
 	for _, s := range sites {
 		root := s.install.Root
@@ -169,10 +170,10 @@ func destDBResults(ctx context.Context, r db.Runner, sites []siteDest, creds map
 		case verdict == destRerun:
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
 				Detail: fmt.Sprintf("%s reachable (%s %s) — %d tables from a previous rehost run, import re-converges them",
-					c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion, insp.Tables)})
+					c.Name, hostdb.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion, insp.Tables)})
 		default: // destFresh
 			rows = append(rows, check.Result{ID: id, Title: title, Severity: check.Ok,
-				Detail: fmt.Sprintf("%s reachable (%s %s)", c.Name, db.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion)})
+				Detail: fmt.Sprintf("%s reachable (%s %s)", c.Name, hostdb.EngineLabel(c.Driver, insp.ServerVersion), insp.ServerVersion)})
 		}
 	}
 	return rows, nil
@@ -282,7 +283,7 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 	// PostgreSQL dumps skip both stages honestly: DEFINER is a MySQL
 	// construct, and pg_dump carries row data in COPY blocks the SQL-literal
 	// rewriter would corrupt rather than rewrite.
-	if db.NormalizeDriver(srcCreds.Driver) == db.DriverPostgres {
+	if hostdb.NormalizeDriver(srcCreds.Driver) == hostdb.DriverPostgres {
 		if root != s.destRoot {
 			warnings = append(warnings, fmt.Sprintf("%s: stored paths/URLs are NOT rewritten inside PostgreSQL dumps yet — the data imports unchanged; update any stored docroot references (%s → %s) after cutover", root, root, s.destRoot))
 		}
@@ -309,7 +310,7 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 		charset = insp.Charset
 	}
 	lastPct := -1
-	res, err := importFn(ctx, p.destConn, destCreds, dumpPath, db.ImportOptions{
+	res, err := importFn(ctx, p.destConn, destCreds, dumpPath, hostdb.ImportOptions{
 		RemoteGunzip: p.destGzip,
 		Charset:      charset,
 		Progress: func(sent, total int64) {
@@ -398,7 +399,7 @@ func migrateSiteDB(ctx context.Context, u ui, p migratePlan, s siteDest, src, ds
 // pg_dump per driver, or the PHP helper when a MySQL-family source lacks a
 // dumper) to .rehost/dumps/<db>.sql.gz. A failed verification removes the
 // file so a truncated dump can never be imported.
-func dumpForImport(ctx context.Context, p migratePlan, creds *db.Credentials) (string, *db.DumpStats, error) {
+func dumpForImport(ctx context.Context, p migratePlan, creds *hostdb.Credentials) (string, *hostdb.DumpStats, error) {
 	dir := filepath.Join(p.stateDir, "dumps")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", nil, err
@@ -412,7 +413,7 @@ func dumpForImport(ctx context.Context, p migratePlan, creds *db.Credentials) (s
 	if !ok {
 		_ = f.Close()
 		_ = os.Remove(path)
-		return "", nil, fmt.Errorf("no tool on the source can dump %s (driver %s)", creds.Name, db.NormalizeDriver(creds.Driver))
+		return "", nil, fmt.Errorf("no tool on the source can dump %s (driver %s)", creds.Name, hostdb.NormalizeDriver(creds.Driver))
 	}
 	stats, dumpErr := dump(ctx, p.srcStream, creds, f)
 	closeErr := f.Close()
@@ -461,9 +462,16 @@ func finalizeDumpFile(path string, pairs []searchreplace.Pair) (*searchreplace.S
 	// stream rather than buffering the whole dump. A strip-side error closes
 	// the pipe with it, surfacing on the rewrite's read.
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(db.StripDefiners(gzIn, pw)) }()
+	stripped := make(chan struct{})
+	go func() {
+		defer close(stripped)
+		pw.CloseWithError(hostdb.StripDefiners(gzIn, pw))
+	}()
 	stats, err := searchreplace.RewriteDump(pr, gzOut, pairs)
+	// CloseWithError only unblocks the stripper at its next write, so it may
+	// still be inside gzIn.Read; wait for it before closing gzIn/in below.
 	_ = pr.CloseWithError(err)
+	<-stripped
 	if err == nil {
 		err = gzOut.Close()
 	}

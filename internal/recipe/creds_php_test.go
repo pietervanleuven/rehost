@@ -7,8 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/rehost/internal/db"
+	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
 )
 
@@ -17,9 +16,9 @@ import (
 // real php binary. Skipped where php is not installed.
 type localRunner struct{}
 
-func (localRunner) Run(ctx context.Context, cmd string) (ssh.Result, error) {
+func (localRunner) Run(ctx context.Context, cmd string) (remote.Result, error) {
 	out, err := exec.CommandContext(ctx, "sh", "-c", cmd).Output()
-	res := ssh.Result{Stdout: string(out)}
+	res := remote.Result{Stdout: string(out)}
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		res.ExitCode = exitErr.ExitCode()
 		res.Stderr = string(exitErr.Stderr)
@@ -36,7 +35,7 @@ func requirePHP(t *testing.T) {
 }
 
 // phpOnly makes the extractors skip the CLI layer and land on the PHP helper.
-var phpOnly = &ssh.Capabilities{Tools: map[string]ssh.Tool{"php": {Name: "php", Found: true}}}
+var phpOnly = &remote.Capabilities{Tools: map[string]remote.Tool{"php": {Name: "php", Found: true}}}
 
 func TestWPPHPHelperWithRealPHP(t *testing.T) {
 	requirePHP(t)
@@ -57,7 +56,7 @@ require_once ABSPATH . 'wp-settings.php';
 	}
 
 	install := detect.Install{Framework: "wordpress", Root: dir, ConfigFile: config}
-	creds, err := WordPress{}.ExtractCredentials(context.Background(), db.Host{Run: localRunner{}, Caps: phpOnly}, install)
+	creds, err := WordPress{}.ExtractCredentials(context.Background(), Host{Run: localRunner{}, Caps: phpOnly}, install)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ $databases['default']['default'] = array(
 	}
 
 	install := detect.Install{Framework: "drupal", Root: dir, ConfigFile: config}
-	creds, err := Drupal{}.ExtractCredentials(context.Background(), db.Host{Run: localRunner{}, Caps: phpOnly}, install)
+	creds, err := Drupal{}.ExtractCredentials(context.Background(), Host{Run: localRunner{}, Caps: phpOnly}, install)
 	if err != nil {
 		t.Fatal(err)
 	}
