@@ -63,11 +63,6 @@ type Entry struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
-// runner is the slice of ssh.Client the state store needs; tests use a fake.
-type runner interface {
-	Run(ctx context.Context, cmd string) (remote.Result, error)
-}
-
 // Dir returns the state directory for a home ("<home>/.rehost"). An empty
 // home means the SSH account's home directory, so the path stays relative
 // (like homeOrDot elsewhere).
@@ -85,7 +80,7 @@ func Dir(home string) string {
 // failed append is a real error — silently losing state would defeat the
 // history's purpose — so a non-zero exit comes back as an error carrying
 // the first stderr line; transport errors propagate as-is.
-func Record(ctx context.Context, r runner, home string, e Entry) error {
+func Record(ctx context.Context, r remote.Runner, home string, e Entry) error {
 	if e.Time.IsZero() {
 		e.Time = time.Now().UTC()
 	}
@@ -122,7 +117,7 @@ const (
 // Rewrite atomically replaces the on-host history file with entries, one JSON
 // line each, via a temp file and mv so a crash never leaves it half-written.
 // It is the counterpart to Record's append for the rare compaction rewrite.
-func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error {
+func Rewrite(ctx context.Context, r remote.Runner, home string, entries []Entry) error {
 	var b strings.Builder
 	for _, e := range entries {
 		line, err := json.Marshal(e) // one line: json.Marshal emits no newlines
@@ -156,7 +151,7 @@ func Rewrite(ctx context.Context, r runner, home string, entries []Entry) error 
 // what MigratedSites, MigratedDatabases or LockedSites read back — it refuses
 // to rewrite if it somehow would. A file at or under the threshold is left
 // untouched, so the common case is one History read and no write.
-func Compact(ctx context.Context, r runner, home string) error {
+func Compact(ctx context.Context, r remote.Runner, home string) error {
 	entries, err := History(ctx, r, home)
 	if err != nil {
 		return err
@@ -233,7 +228,7 @@ func sameSet(a, b map[string]bool) bool {
 // A host without the file yields (nil, nil) — no history yet is not an
 // error. Corrupt lines are skipped so one bad record never hides the rest;
 // transport errors propagate.
-func History(ctx context.Context, r runner, home string) ([]Entry, error) {
+func History(ctx context.Context, r remote.Runner, home string) ([]Entry, error) {
 	file := remote.ShellQuote(path.Join(Dir(home), historyFile))
 	res, err := r.Run(ctx, "cat "+file+" 2>/dev/null")
 	if err != nil {
@@ -351,7 +346,7 @@ func LockPath(home string) string {
 // AcquireLock takes the advisory per-host run lock. A held lock is an error
 // telling the user who to check and how to clear a stale one — rehost cannot
 // tell a live concurrent run from a crashed one, so it never steals the lock.
-func AcquireLock(ctx context.Context, r runner, home string) error {
+func AcquireLock(ctx context.Context, r remote.Runner, home string) error {
 	dir := remote.ShellQuote(Dir(home))
 	lock := remote.ShellQuote(LockPath(home))
 	info := remote.ShellQuote(path.Join(LockPath(home), "info"))
@@ -377,7 +372,7 @@ func AcquireLock(ctx context.Context, r runner, home string) error {
 
 // ReleaseLock clears the advisory run lock. Best-effort by nature: a failure
 // only means the next run sees a stale lock and its error explains the fix.
-func ReleaseLock(ctx context.Context, r runner, home string) error {
+func ReleaseLock(ctx context.Context, r remote.Runner, home string) error {
 	res, err := r.Run(ctx, "rm -rf "+remote.ShellQuote(LockPath(home)))
 	if err != nil {
 		return err

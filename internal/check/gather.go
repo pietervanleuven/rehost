@@ -10,14 +10,9 @@ import (
 	"github.com/pietervanleuven/go-ssh/remote"
 )
 
-// runner is the slice of ssh.Client the gatherers need; tests use a fake.
-type runner interface {
-	Run(ctx context.Context, cmd string) (remote.Result, error)
-}
-
 // PHPExtensions lists the loaded PHP modules on a host via `php -m`, or nil
 // when that fails — every gatherer is best-effort, unknown never blocks.
-func PHPExtensions(ctx context.Context, r runner) []string {
+func PHPExtensions(ctx context.Context, r remote.Runner) []string {
 	res, err := r.Run(ctx, "php -m")
 	if err != nil || res.ExitCode != 0 {
 		return nil
@@ -36,7 +31,7 @@ func PHPExtensions(ctx context.Context, r runner) []string {
 
 // FreeKB measures the free space of the filesystem holding path via POSIX
 // `df -P -k`, or 0 when unknown.
-func FreeKB(ctx context.Context, r runner, path string) int64 {
+func FreeKB(ctx context.Context, r remote.Runner, path string) int64 {
 	res, err := r.Run(ctx, "df -P -k "+remote.ShellQuote(path))
 	if err != nil || res.ExitCode != 0 {
 		return 0
@@ -63,7 +58,7 @@ func FreeKB(ctx context.Context, r runner, path string) int64 {
 // A dir nested inside another in the list is dropped first: du of the parent
 // already counts the child, so summing both would double-count a site under
 // another site's docroot and inflate the disk-space need.
-func DirsSizeKB(ctx context.Context, r runner, dirs []string) int64 {
+func DirsSizeKB(ctx context.Context, r remote.Runner, dirs []string) int64 {
 	var total int64
 	for _, dir := range topLevelDirs(dirs) {
 		res, err := r.Run(ctx, "du -sk "+remote.ShellQuote(dir)+" 2>/dev/null")

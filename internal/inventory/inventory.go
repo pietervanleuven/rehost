@@ -31,11 +31,6 @@ type Inventory struct {
 	Suggested []Entry `json:"suggested,omitempty"`
 }
 
-// runner is the slice of ssh.Client this package needs; tests use a fake.
-type runner interface {
-	Run(ctx context.Context, cmd string) (remote.Result, error)
-}
-
 // topLimit bounds the breakdown so a vhost with hundreds of directories
 // stays readable.
 const topLimit = 10
@@ -43,7 +38,7 @@ const topLimit = 10
 // Take measures one install root. suggestions are root-relative directories
 // worth excluding when present (from the framework recipe). Only transport
 // errors are returned; missing tools or paths degrade to partial data.
-func Take(ctx context.Context, r runner, root string, suggestions []string) (*Inventory, error) {
+func Take(ctx context.Context, r remote.Runner, root string, suggestions []string) (*Inventory, error) {
 	inv := &Inventory{}
 
 	res, err := r.Run(ctx, "du -sk "+remote.ShellQuote(root)+" 2>/dev/null")
