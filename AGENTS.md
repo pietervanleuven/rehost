@@ -21,23 +21,24 @@ Main goal: lowering vendor lock-in for hosting a website.
 
 ## Current State
 
-`v0.1.0` shipped 2026-08-27 via release-please + goreleaser (GitHub Releases
-carries the cross-built archives); the repo is public at
-github.com/pietervanleuven/rehost. Phases 0–3 (PLAN.md §6) are
-feature-complete: SSH layer with capability probe, framework detection +
-recursive site discovery, the `init` wizard, `plan` (deep scan, dry-run
-`mysqldump | gzip` per site with PHP-helper fallback, tar-pipe throughput
-sample, file manifest, persists detected `sites:`), the `check` compatibility
-gate (blockers vs warnings in `internal/check`), layered DB credential
-extraction and inspection, the DNS snapshot, file inventories, and `migrate`
-(pre-flight, per-site file sync, maintenance choreography, dump rewrite, DB
-import + verify, config rewrite; a converged run exits 0) through `cutover`
-and `status`/`history`/`unlock` over `.rehost/history.jsonl`. Recent
-hardening: `check`'s transfer rule now reports the real manifest-driven
-tar-pipe (missing `tar`/`find` on either host is a blocker — no rsync/SFTP
-transport exists) and gained a `db.dest` warning per DB-backed site missing
-`dest_db`; history growth is bounded by semantic-safe `state.Compact`; the
-docroot/database destination policies share one `destPolicy` verdict.
+`v0.2.1` shipped 2026-08-30 via release-please + goreleaser (GitHub Releases
+carries the cross-built archives; v0.1.0 was 2026-08-27, v0.2.0 2026-08-29);
+the repo is public at github.com/pietervanleuven/rehost. Phases 0–3 (PLAN.md
+§6) are feature-complete: SSH layer with capability probe, framework
+detection + recursive site discovery, the `init` wizard, `plan` (deep scan,
+dry-run `mysqldump | gzip` per site with PHP-helper fallback, tar-pipe
+throughput sample, file manifest, persists detected `sites:`), the `check`
+compatibility gate (blockers vs warnings in `internal/check`), layered DB
+credential extraction and inspection, the DNS snapshot, file inventories,
+and `migrate` (pre-flight, per-site file sync, maintenance choreography,
+dump rewrite, DB import + verify, config rewrite; a converged run exits 0)
+through `cutover` and `status`/`history`/`unlock` over
+`.rehost/history.jsonl`. Recent hardening: `check`'s transfer rule now
+reports the real manifest-driven tar-pipe (missing `tar`/`find` on either
+host is a blocker — no rsync/SFTP transport exists) and gained a `db.dest`
+warning per DB-backed site missing `dest_db`; history growth is bounded by
+semantic-safe `state.Compact`; the docroot/database destination policies
+share one `destPolicy` verdict.
 
 A full pre-release code review (2026-08-28) was worked through end to end —
 all 5 criticals, all 14 majors and every listed minor are fixed with
@@ -69,9 +70,26 @@ gate is driver-aware and a `db.engine` rule warns on MySQL↔MariaDB
 cross-migrations — **rehost never converts between engines** (a PostgreSQL
 site needs a PostgreSQL destination; that mismatch is a blocker).
 
+v0.2.1 (2026-08-30) closed two correctness bugs: `finalizeDumpFile` now waits
+for the DEFINER-stripping goroutine before closing the dump reader (an early
+`RewriteDump` error could race the closes against an in-flight inflate —
+`gzip.Reader` is not safe for concurrent use), and two sites sharing a
+destination are refused in two layers (`project.Validate` on duplicate
+`root`/`dest_root`/`dest_db`, `checkDestCollisions` on an explicit `dest_root`
+landing where another site's rebased default goes) — previously the second
+site's import DROP TABLEd the first's tables and the run still exited 0.
+
 **Field validation against a real Drupal and a real WordPress site on shared
 hosting has still not happened** (docs/TODO.md §1) — this remains the top
-priority and the gate before the marketing launch push, v0.1.0 notwithstanding.
+priority and the gate before the marketing launch push, three releases
+notwithstanding.
+
+Release plumbing: the Homebrew cask in pietervanleuven/homebrew-tap is wired
+in `.goreleaser.yaml` but has never published — the `HOMEBREW_TAP_GITHUB_TOKEN`
+secret is unset, which 401'd and failed the whole v0.2.1 release run after the
+archives had already shipped. The workflow now passes `--skip=homebrew` when
+that secret is empty, so a tokenless release is green and merely cask-less;
+setting the secret needs no workflow change.
 
 Naming is final and shipped: CLI `rehost`, domain `rehost.sh`, repo and
 module path `github.com/pietervanleuven/rehost`. Secrets are never stored —
