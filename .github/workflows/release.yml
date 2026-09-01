@@ -36,6 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # Without the tap token the cask pipe 401s and fails the whole release
+      # *after* the archives are already published — a red run for a release
+      # that actually shipped. Skip that one pipe instead; set the secret and
+      # the cask starts publishing again with no change here. Hoisted to the job
+      # because `secrets` is not a context a step-level `if` can read.
+      CASK_SKIP: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN == '' && '--skip=homebrew' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,9 +60,14 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: release --clean ${{ env.CASK_SKIP }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Pushes the updated formula to pietervanleuven/homebrew-tap; the
           # built-in GITHUB_TOKEN cannot write to other repos.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Note a skipped Homebrew cask
+        if: ${{ env.CASK_SKIP != '' }}
+        run: |
+          echo "::warning::HOMEBREW_TAP_GITHUB_TOKEN is unset — the release shipped without updating the Homebrew cask in pietervanleuven/homebrew-tap."
