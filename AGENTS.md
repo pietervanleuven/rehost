@@ -82,6 +82,13 @@ only the exact literals it parsed (byte ranges from the comment mask), so
 positional credentials degrade to guidance rather than a guess; it has no
 Maintainer by design. v0.3.0 shipped 2026-09-02 with the Laravel recipe.
 
+A **container integration rig** landed 2026-09-02 (`test/integration/`,
+`make integration`, CI job `integration`). Its first full run found a shipped
+bug: `footerComplete` read only a dump's last non-blank line, but pg_dump
+closes its footer with a bare `--` and now appends `\unrestrict <token>`, so
+**every PostgreSQL dump was rejected as truncated** — PostgreSQL support has
+never worked since v0.2.0. Fixed in **go-hostdb v0.1.1** (rehost bumped).
+
 v0.2.1 (2026-08-30) closed two correctness bugs: `finalizeDumpFile` now waits
 for the DEFINER-stripping goroutine before closing the dump reader (an early
 `RewriteDump` error could race the closes against an in-flight inflate —
@@ -113,6 +120,12 @@ runtime.
 - `make build` / `go build -o rehost ./cmd/rehost` — build the binary.
 - `make test` (`go test -race ./...`), `make vet`, `make lint` (golangci-lint),
   `make snapshot` (goreleaser cross-build, publishes nothing).
+- `make integration` — the container rig in `test/integration/`: rehost's
+  host-facing plumbing against a real sshd and a real database (MariaDB with
+  and without the mysql-named symlinks, a no-dump-binary host forcing the PHP
+  fallback, PostgreSQL). Behind the `integration` build tag and needs Docker,
+  so `make test` stays fast and daemon-free. **Deliberately not a CMS
+  harness** — read its README before adding a stock WordPress to it.
 - `rehost plan [user@host[:port]]` — connect + capability + site detection +
   file inventory report; `--json` for machine output, plain text on non-TTY.
   When run from a project file it rewrites its `sites:` section; hand-written

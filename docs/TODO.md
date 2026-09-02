@@ -29,12 +29,15 @@ hosting and verify:
 - [ ] `check` produces a sensible verdict and correctly flags a genuinely
       incompatible destination (e.g. missing PHP extension) — try to
       provoke one
-- [ ] The **mysql invocation** (`--defaults-extra-file=/dev/stdin` heredoc)
-      works against a real client/server — never yet run outside unit tests
-- [ ] The **dump restores**: `gunzip < .rehost/dumps/<db>.sql.gz | mysql`
-      into a scratch database, compare table counts
-- [ ] The **PHP dump fallback** against a real database (locally only
-      syntax- and quoting-tested — no MySQL on the dev machine)
+- [x] The **mysql invocation** (`--defaults-extra-file=/dev/stdin` heredoc)
+      works against a real client/server — covered by the container rig
+      (`make integration`, 2026-09-02), including a password needing my.cnf
+      quoting. Real *shared hosting* is still untested
+- [x] The **dump restores** into a scratch database with table and row counts
+      compared — container rig. A genuinely truncated dump (a routine the
+      site account may not read) is caught by the footer check, not accepted
+- [x] The **PHP dump fallback** against a real database — container rig
+      (`nodump` environment), restoring to the same table and row counts
 - [ ] **Manifest convergence**: a second `plan --dry-run` right after the
       first reports a ~zero delta; the find degradation ladder on a
       restricted/busybox host if one is available
@@ -59,16 +62,28 @@ hosting and verify:
       (project-root sync incl. vendor/, `.env` credential extraction and
       rewrite, `php artisan down/up`, config:clear post-step; a sqlite app
       migrates as files only)
-- [ ] **Engines (2026-08-29, unit-tested only)**: a MariaDB-only host
-      (`mariadb`/`mariadb-dump` names, no mysql symlinks) end to end; a
-      PostgreSQL site (psql/pg_dump paths, pgpass staging, import with
-      ON_ERROR_STOP) — note the pg dump rewrite is intentionally skipped
-      (COPY data) and warned about
+- [x] **Engines**: the MariaDB-only host (`mariadb`/`mariadb-dump`, no mysql
+      symlinks) and the PostgreSQL paths (psql/pg_dump, pgpass staging,
+      ON_ERROR_STOP import, staging dir left clean) are covered by the
+      container rig (2026-09-02). This found a **shipped bug**: pg_dump's
+      completion footer is not its last line, so every PostgreSQL dump was
+      rejected as truncated and no PostgreSQL site could be migrated at all
+      (fixed in go-hostdb v0.1.1). The pg dump rewrite stays intentionally
+      skipped (COPY data) and warned about. A real PostgreSQL *host* is
+      still untested
 - [ ] Dest-root rebasing (no `dest_root` → home-relative path on the
       destination) lands files where the destination account actually
       serves them; `--delete` stand-down on a pruned (find exit 1) source
       listing behaves sanely on a host with unreadable directories
 - [ ] File issues found in the field here as new checkboxes
+
+The container rig (`test/integration/`, `make integration`) covers the items
+checked off above. It is deliberately not a CMS harness — a default install
+proves less than the adversarial fixtures do, and the plumbing it exercises
+does not care which CMS sits on top. It narrows this gate; it does not close
+it. A container is a cooperative Linux box, a shared host is an adversarial
+one: jailed shells, panel layouts, disabled PHP functions and process limits
+still need a real host.
 
 ## 2. Open decisions — do not code around these
 
@@ -215,7 +230,7 @@ hosting and verify:
 ## 5. Later phases (pointers only — see PLAN.md §6)
 
 - Phase 4: restricted-shell fallback matrix, retry/resume polish, exclusion
-  presets, docs site, install script, integration rig (the Laravel and
-  generic-PHP recipes shipped 2026-09-02)
+  presets, docs site, install script (the Laravel and generic-PHP recipes and
+  the container integration rig shipped 2026-09-02)
 - Phase 5+: multisite fleets, `history`/`cutover` polish, partnerships
   (MARKETING.md); marketing site plan lives in MARKETING-WEBSITE.md
