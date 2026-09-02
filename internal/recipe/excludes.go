@@ -58,6 +58,15 @@ func ExcludeSuggestionsFor(in detect.Install) []string {
 			"storage/backups",
 			"web/cpresources",
 		}, genericExcludes...)
+	case "laravel":
+		return append([]string{
+			// The file cache store re-creates its tree on write and Monolog
+			// creates the log directory. Compiled views, sessions and
+			// bootstrap/cache must travel — Laravel does not recreate those
+			// directories itself.
+			"storage/framework/cache",
+			"storage/logs",
+		}, genericExcludes...)
 	default:
 		return genericExcludes
 	}
