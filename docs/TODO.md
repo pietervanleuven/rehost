@@ -51,6 +51,10 @@ hosting and verify:
       (detection, JConfig extraction, `$offline` maintenance splice), a
       real PrestaShop (both config generations), a real Craft project
       (project-root sync incl. vendor/, `.env` rewrite, `craft off/on`)
+- [ ] **Generic PHP recipe (2026-09-02, unit-tested only)**: a real
+      hand-rolled PHP site — that the docroot-candidate scan reaches it, that
+      the config parse finds the right credentials among unrelated secrets,
+      and that the rewrite splices only the literals it read
 - [ ] **Laravel recipe (2026-09-02, unit-tested only)**: a real Laravel app
       (project-root sync incl. vendor/, `.env` credential extraction and
       rewrite, `php artisan down/up`, config:clear post-step; a sqlite app
@@ -204,7 +208,7 @@ hosting and verify:
 ## 5. Later phases (pointers only — see PLAN.md §6)
 
 - Phase 4: restricted-shell fallback matrix, retry/resume polish, exclusion
-  presets, docs site, install script, integration rig (the Laravel recipe
-  shipped 2026-09-02)
+  presets, docs site, install script, integration rig (the Laravel and
+  generic-PHP recipes shipped 2026-09-02)
 - Phase 5+: multisite fleets, `history`/`cutover` polish, partnerships
   (MARKETING.md); marketing site plan lives in MARKETING-WEBSITE.md
