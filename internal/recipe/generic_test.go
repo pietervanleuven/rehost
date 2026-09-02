@@ -356,3 +356,25 @@ func TestGenericExtractCredentials(t *testing.T) {
 		t.Fatalf("creds = %+v", creds)
 	}
 }
+
+func TestExcludesProtectAccountStateAtEveryFramework(t *testing.T) {
+	// A site root can turn out to be the account home. Syncing .ssh would
+	// hand the account's private keys to the destination; syncing .rehost
+	// would overwrite the destination's own run history, which is what marks
+	// a docroot as rehost-created and what unlock recovers from.
+	for _, framework := range []string{"wordpress", "drupal", "joomla", "prestashop", "craft", "laravel", "generic-php", "static", "unknown"} {
+		excludes := ExcludeSuggestionsFor(detect.Install{Framework: framework})
+		for _, want := range []string{".ssh", ".rehost"} {
+			found := false
+			for _, e := range excludes {
+				if e == want {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s excludes %v, missing %q", framework, excludes, want)
+			}
+		}
+	}
+}
