@@ -73,7 +73,7 @@ func parseCraftEnv(content []byte) *hostdb.Credentials {
 	env := parseEnvFile(content)
 
 	if raw := firstNonEmpty(env["CRAFT_DB_URL"], env["DB_DSN"], env["DB_URL"]); raw != "" {
-		if creds := parseCraftDBURL(raw); creds != nil {
+		if creds := parseDBURL(raw); creds != nil {
 			return creds
 		}
 	}
@@ -101,8 +101,9 @@ func parseCraftEnv(content []byte) *hostdb.Credentials {
 	return creds
 }
 
-// parseCraftDBURL decodes the single-URL form: mysql://user:pass@host:port/db.
-func parseCraftDBURL(raw string) *hostdb.Credentials {
+// parseDBURL decodes a single-URL database config (Craft's CRAFT_DB_URL,
+// Laravel's DB_URL/DATABASE_URL): mysql://user:pass@host:port/db.
+func parseDBURL(raw string) *hostdb.Credentials {
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil

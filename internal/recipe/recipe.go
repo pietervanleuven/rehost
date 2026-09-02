@@ -21,6 +21,7 @@ func All() []detect.Recipe {
 		Joomla{},
 		PrestaShop{},
 		Craft{},
+		Laravel{},
 		Static{},
 	}
 }
