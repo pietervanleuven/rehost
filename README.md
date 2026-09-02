@@ -17,7 +17,8 @@ over SSH — never through a third-party cloud.
   moves host-to-host over your own SSH connection.
 - **Framework auto-detection.** Recognizes WordPress, Drupal (7 / 8+, incl.
   multisite), Joomla, PrestaShop, Craft CMS, Laravel, and static sites from
-  file fingerprints — no manual configuration.
+  file fingerprints — plus hand-rolled PHP, by reading the database
+  credentials out of its config file. No manual configuration.
 - **Capability probing with graceful fallbacks.** Detects what each host offers
   (`tar`, `mysqldump`, framework CLIs, shell type, PHP version) and adapts —
   no `mysqldump`? A PHP dump helper takes over. No `wp`/`drush`? Credentials
@@ -115,8 +116,9 @@ source: u12345@your-host
 ```
 
 Detected frameworks so far: **WordPress**, **Drupal** (7 and 8+, incl.
-multisite), **Joomla**, **PrestaShop**, **Craft CMS**, **Laravel**, and static
-sites. Detection searches recursively from the SSH account's home
+multisite), **Joomla**, **PrestaShop**, **Craft CMS**, **Laravel**, static
+sites, and **hand-rolled PHP** with a readable database config. Detection
+searches recursively from the SSH account's home
 (or from `--docroot`), handles multiple sites per account, and measures each
 site's size with framework-aware exclusion suggestions (caches, backup dumps,
 regenerable artifacts). When run from a project file, `plan` records the
