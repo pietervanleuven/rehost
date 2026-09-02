@@ -257,10 +257,16 @@ func TestCharsetRules(t *testing.T) {
 		t.Errorf("modern destination should be ok naming its version, got %+v", r)
 	}
 
-	// Ancient destination client: blocker.
+	// Ancient destination client: a warning, not a blocker. Only the client
+	// version is knowable here, and a client cannot prove what its server
+	// supports — refusing the migration on that evidence would be a guess.
 	in.Destination.Tools["mysql"] = remote.Tool{Name: "mysql", Found: true, Version: "mysql Ver 14.14 Distrib 5.1.73"}
-	if r := byID(t, Run(in), "db.charset"); r.Severity != Blocker {
-		t.Errorf("pre-utf8mb4 destination must block, got %+v", r)
+	r = byID(t, Run(in), "db.charset")
+	if r.Severity != Warning {
+		t.Errorf("pre-utf8mb4 destination client should warn, got %+v", r)
+	}
+	if !strings.Contains(r.Detail, "client") {
+		t.Errorf("the detail must say the version is the client's, got %q", r.Detail)
 	}
 
 	// Debian/Ubuntu-packaged MySQL 8: the package revision after the dash
