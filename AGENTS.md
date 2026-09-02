@@ -69,6 +69,11 @@ tools end to end; `dest_db` grows an optional `driver:` override. The check
 gate is driver-aware and a `db.engine` rule warns on MySQL↔MariaDB
 cross-migrations — **rehost never converts between engines** (a PostgreSQL
 site needs a PostgreSQL destination; that mismatch is a blocker).
+A **Laravel recipe** followed 2026-09-02 (Craft-shaped: project root is the
+migration unit, `.env` credentials incl. the DB_URL form, `php artisan
+down/up` with status from `storage/framework/down`, config rewrite +
+`config:clear` post-step; `DB_CONNECTION=sqlite` — the 11+ skeleton default —
+is honestly treated as a file database that travels with the file sync).
 
 v0.2.1 (2026-08-30) closed two correctness bugs: `finalizeDumpFile` now waits
 for the DEFINER-stripping goroutine before closing the dump reader (an early
@@ -159,7 +164,7 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
   with walk fallback, `Scan`, realpath de-dup.
 - `internal/recipe` — pluggable framework recipes (drupal, wordpress, joomla,
-  prestashop, craft, static):
+  prestashop, craft, laravel, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
   needs-DB), layered credential extraction (framework CLI → PHP
   echo-helper with sentinel → config regex; transport errors abort, tool
