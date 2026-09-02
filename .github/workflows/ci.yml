@@ -46,6 +46,20 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
+  # The host-facing plumbing against a real sshd and a real database in a
+  # container: the shell pipelines, credential staging and stream verifiers
+  # that the mocked unit tests cannot reach. ubuntu-latest ships Docker;
+  # macOS and Windows runners do not, so this stays a single-OS job.
+  # See test/integration/README.md.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -tags integration -count=1 -timeout 30m -v ./test/integration/
+
   # Snapshot only — validates cross-compilation for all targets on every push
   # and PR; publishes nothing. The real release (tag + GitHub release +
   # archives) is release.yml, driven by release-please on merge to main.
