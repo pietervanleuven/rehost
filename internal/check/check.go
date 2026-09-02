@@ -409,17 +409,24 @@ func checkCharset(in Input, add addFunc) {
 	if mb4 == 0 || !ok {
 		return // nothing to compare, or db.import already blocked
 	}
+	// Only the destination's client version is knowable here: reading the
+	// server's own version means authenticating against it, and check is a
+	// rerunnable gate that asks for no database password. The client is a
+	// proxy, so this rule reports rather than blocks — a shared host pairing
+	// a pre-2010 client with a modern server would otherwise be refused on
+	// evidence that never described the server at all. The import verifies
+	// what actually matters.
 	version := mysqlToolVersion(tool.Version)
 	switch {
 	case version == "":
 		add("db.charset", title, Info,
-			fmt.Sprintf("source uses utf8mb4 (%d tables); could not read the destination MySQL version — verify it is 5.5.3+", mb4))
+			fmt.Sprintf("source uses utf8mb4 (%d tables); the destination's MySQL client version could not be read — confirm its server is 5.5.3+", mb4))
 	case !versionAtLeast(version, "5.5.3"):
-		add("db.charset", title, Blocker,
-			fmt.Sprintf("source uses utf8mb4 (%d tables) but the destination MySQL %s predates utf8mb4 (5.5.3)", mb4, version))
+		add("db.charset", title, Warning,
+			fmt.Sprintf("source uses utf8mb4 (%d tables) and the destination's MySQL client %s predates utf8mb4 (5.5.3) — confirm the destination server supports it before migrating", mb4, version))
 	default:
 		add("db.charset", title, Ok,
-			fmt.Sprintf("source uses utf8mb4 (%d tables); destination MySQL %s supports it", mb4, version))
+			fmt.Sprintf("source uses utf8mb4 (%d tables); the destination's MySQL client %s is utf8mb4-era (its server is confirmed at import)", mb4, version))
 	}
 }
 
