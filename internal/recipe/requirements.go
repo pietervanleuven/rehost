@@ -63,6 +63,15 @@ func RequirementsFor(in detect.Install) Requirements {
 			RecommendedExt: []string{"curl", "gd", "intl", "mbstring", "openssl", "zip"},
 			NeedsDB:        true,
 		}
+	case "laravel":
+		return Requirements{
+			MinPHP:         laravelMinPHP(in.Version),
+			RequiredExt:    laravelDBExt(in),
+			RecommendedExt: []string{"ctype", "curl", "fileinfo", "mbstring", "openssl", "tokenizer", "xml"},
+			// A sqlite app has no server database: the .sqlite file lives
+			// under the project root and travels with the file sync.
+			NeedsDB: in.Extra["db_driver"] != "sqlite",
+		}
 	default:
 		return Requirements{}
 	}
@@ -77,6 +86,15 @@ func dbDriverExt(in detect.Install, mysqlExt, pgExt string) []string {
 		return []string{pgExt}
 	}
 	return []string{mysqlExt}
+}
+
+// laravelDBExt handles Laravel's extra connection: sqlite must demand
+// pdo_sqlite, not be folded into MySQL by NormalizeDriver.
+func laravelDBExt(in detect.Install) []string {
+	if in.Extra["db_driver"] == "sqlite" {
+		return []string{"pdo_sqlite"}
+	}
+	return dbDriverExt(in, "pdo_mysql", "pdo_pgsql")
 }
 
 // drupalMinPHP maps a Drupal core version to its minimum PHP version.
