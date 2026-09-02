@@ -3,7 +3,16 @@ package recipe
 import "github.com/pietervanleuven/rehost/internal/detect"
 
 // genericExcludes never belong in a migration regardless of framework.
-var genericExcludes = []string{".git", "node_modules"}
+//
+// .ssh and .rehost matter when a site root turns out to be the account home
+// — some shared hosts serve ~ directly, and the docroot-candidate scan
+// reaches it. Without them the sync would carry the account's private keys
+// to the destination, and would overwrite the destination's own .rehost
+// state with the source's: that history is what marks a docroot as
+// rehost-created (the rerun exemption) and what unlock recovers from.
+// Excludes prune an exact root-relative path, so these only ever apply at
+// the site root, never to a nested directory that happens to share a name.
+var genericExcludes = []string{".git", "node_modules", ".ssh", ".rehost"}
 
 // ExcludeSuggestionsFor returns root-relative directories that are safe to
 // leave behind when they exist: caches and backup dumps the framework (or
