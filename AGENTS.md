@@ -74,6 +74,13 @@ migration unit, `.env` credentials incl. the DB_URL form, `php artisan
 down/up` with status from `storage/framework/down`, config rewrite +
 `config:clear` post-step; `DB_CONNECTION=sqlite` — the 11+ skeleton default —
 is honestly treated as a file database that travels with the file sync).
+The **generic-php recipe** (2026-09-02) closes Tier 2: the hand-rolled
+fallback, detected at docroot candidates by `index.php` plus a config file
+that yields a database name, parsing the four assignment forms and the
+positional `mysqli_connect`/`mysql_connect`/`new PDO` calls. It rewrites
+only the exact literals it parsed (byte ranges from the comment mask), so
+positional credentials degrade to guidance rather than a guess; it has no
+Maintainer by design. v0.3.0 shipped 2026-09-02 with the Laravel recipe.
 
 v0.2.1 (2026-08-30) closed two correctness bugs: `finalizeDumpFile` now waits
 for the DEFINER-stripping goroutine before closing the dump reader (an early
@@ -162,9 +169,14 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   tui imports go-ssh, never the reverse.
 - `internal/detect` — framework discovery over an `FS` abstraction
   (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
-  with walk fallback, `Scan`, realpath de-dup.
+  with walk fallback, `Scan`, realpath de-dup. `Discover` scans the
+  conventional docroot candidates under each start root as well as the
+  marker hits, which is what makes a markerless fallback recipe
+  (`generic-php`) reachable. Nothing is cached — every `Exists`/`List` is
+  one SSH round trip, so a recipe that runs at every candidate root must
+  stay cheap where it does not match (`generic-php` costs one `List`).
 - `internal/recipe` — pluggable framework recipes (drupal, wordpress, joomla,
-  prestashop, craft, laravel, static):
+  prestashop, craft, laravel, generic-php, static):
   detection fingerprints, destination `Requirements` (min PHP, extensions,
   needs-DB), layered credential extraction (framework CLI → PHP
   echo-helper with sentinel → config regex; transport errors abort, tool
