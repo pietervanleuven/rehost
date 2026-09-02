@@ -72,8 +72,52 @@ func RequirementsFor(in detect.Install) Requirements {
 			// under the project root and travels with the file sync.
 			NeedsDB: in.Extra["db_driver"] != "sqlite",
 		}
+	case "generic-php":
+		return Requirements{
+			// A hand-rolled app declares no PHP requirement anywhere, so
+			// there is nothing to read. 5.6 is a floor, not a guess at what
+			// the app wants: it makes "the destination has no PHP at all"
+			// a blocker without false-blocking a legacy app on a modern
+			// host. The php.drift Info covers the real risk — a major-version
+			// jump the app was never tested against.
+			MinPHP:         "5.6",
+			RequiredExt:    genericRequiredExt(in.Extra["db_api"]),
+			RecommendedExt: genericRecommendedExt(in.Extra["db_api"]),
+			NeedsDB:        true,
+		}
 	default:
 		return Requirements{}
+	}
+}
+
+// genericRequiredExt demands the database extension the config was seen
+// calling. An unrecognized API requires nothing: blocking a migration on a
+// guess would be worse than the warning genericRecommendedExt adds.
+func genericRequiredExt(api string) []string {
+	switch api {
+	case "mysqli":
+		return []string{"mysqli"}
+	case "pdo_mysql":
+		return []string{"pdo_mysql"}
+	case "pgsql":
+		return []string{"pgsql"}
+	default:
+		return nil
+	}
+}
+
+// genericRecommendedExt warns rather than blocks. The "mysql" case is the
+// removed mysql_* API: no modern destination has it, so requiring it would
+// hard-block every realistic migration of a site that in truth needs its
+// code updated — a warning naming the successor is the useful signal.
+func genericRecommendedExt(api string) []string {
+	switch api {
+	case "mysql":
+		return []string{"mysqli"}
+	case "":
+		return []string{"mysqli", "pdo_mysql"}
+	default:
+		return nil
 	}
 }
 
