@@ -25,8 +25,10 @@ archives:
 # release (a cask, not a formula — goreleaser deprecated `brews` for
 # pre-built binaries; casks are macOS-only, Linux users take the archive).
 # Needs the HOMEBREW_TAP_GITHUB_TOKEN secret (a token that can push to the
-# tap repo) in the release workflow's goreleaser step. The post-install hook
-# strips the quarantine attribute — the binaries are not notarized.
+# tap repo) in the release workflow's goreleaser step; without it the workflow
+# passes --skip=homebrew, so the release still ships its archives and only the
+# cask goes unupdated. The post-install hook strips the quarantine attribute —
+# the binaries are not notarized.
 homebrew_casks:
   - repository:
       owner: pietervanleuven

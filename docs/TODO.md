@@ -6,12 +6,14 @@ unfinished*. Check items off rather than deleting them; prune a section when
 it is fully done. Keep entries honest — a gap nobody wrote down is a gap
 that ships.
 
-Status snapshot (2026-08-27): Phases 0–3 are feature-complete
+Status snapshot (2026-09-01): Phases 0–3 are feature-complete
 (`init` / `plan` / `check` / `migrate` / `cutover` + `status` / `history` /
-`unlock`) and v0.1.0 is tagged and released (release-please + goreleaser
-binaries on GitHub Releases). Nothing has run against a real shared host
-end-to-end yet — field validation (§1) remains the gate for the public
-launch push (demo, Show HN), v0.1.0 notwithstanding.
+`unlock`) and v0.2.1 is tagged and released (release-please + goreleaser
+binaries on GitHub Releases; v0.2.0 added the Joomla/PrestaShop/Craft recipes,
+MariaDB tooling names and the PostgreSQL engine, and extracted the five
+`go-*` libraries). Nothing has run against a real shared host end-to-end yet
+— field validation (§1) remains the gate for the public launch push (demo,
+Show HN), three releases notwithstanding.
 
 ## 1. Field validation — the current gate (Phase 1 & 2 exit criteria)
 
@@ -169,6 +171,12 @@ hosting and verify:
 - [ ] Extension requirement lists (recipe/requirements.go) are a pragmatic
       first cut — revisit against real framework docs when field failures
       appear
+- [ ] The Homebrew cask has never published: `HOMEBREW_TAP_GITHUB_TOKEN` is
+      unset, so goreleaser 401s against pietervanleuven/homebrew-tap (which
+      exists but is empty). Since 2026-09-01 the release workflow passes
+      `--skip=homebrew` when the secret is empty, so a tokenless release is
+      green and merely cask-less — set a fine-grained PAT with
+      `contents: write` on the tap repo to turn it back on (issue #17)
 - [x] `check`'s transfer rule described rsync/SFTP paths that do not exist
       (2026-08-27): it now reports the real manifest-driven tar pipe, and
       missing `tar` or `find` on either host is a blocker (the sync engine
