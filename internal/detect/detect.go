@@ -147,35 +147,46 @@ func Scan(ctx context.Context, fs FS, roots []string, recipes []Recipe) ([]Insta
 // the recipes (Scan). It handles multiple sites per account — including nested
 // ones under a single vhost — in a single pass.
 //
-// Recipes that do not implement Fingerprinter contribute no markers, so they
-// only match roots another recipe discovered or roots passed to Scan directly.
+// The conventional docroots under each start root (and the start roots
+// themselves) are scanned too, so a recipe that declares no markers — a
+// fallback recognizing a site by its config rather than by a fingerprint —
+// is still reachable. Fingerprint markers remain the only way a site nested
+// at an unconventional path is found; point --docroot at those.
 func Discover(ctx context.Context, fs FS, startRoots []string, recipes []Recipe, opts FindOptions) ([]Install, error) {
-	markers := collectMarkers(recipes)
-	if len(markers) == 0 {
-		return nil, nil
-	}
-	hits, err := fs.Find(ctx, startRoots, markers, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	// Map each marker hit back to its install root and dedupe; several markers
-	// (or a marker plus a static index) can point at the same root.
 	var roots []string
 	seen := map[string]bool{}
-	for _, hit := range hits {
-		root := rootFromMarker(hit, markers)
+	appendRoot := func(root string) {
 		if root == "" || seen[root] {
-			continue
+			return
 		}
 		seen[root] = true
 		roots = append(roots, root)
 	}
 
+	// Map each marker hit back to its install root and dedupe; several markers
+	// (or a marker plus a static index) can point at the same root.
+	if markers := collectMarkers(recipes); len(markers) > 0 {
+		hits, err := fs.Find(ctx, startRoots, markers, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range hits {
+			appendRoot(rootFromMarker(hit, markers))
+		}
+	}
+
+	// Marker hits come first so a fingerprinted site keeps the path it was
+	// discovered at; the candidates only add roots nothing pointed at.
+	for _, start := range startRoots {
+		for _, candidate := range DocrootCandidates(start) {
+			appendRoot(candidate)
+		}
+	}
+
 	// Collapse roots that resolve to the same real directory — e.g. a
 	// deploy-tool symlink (current -> releases/N) and its target both under
 	// the search path — so a site is confirmed once, not once per link.
-	roots, err = dedupeByRealPath(ctx, fs, roots)
+	roots, err := dedupeByRealPath(ctx, fs, roots)
 	if err != nil {
 		return nil, err
 	}
