@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/pietervanleuven/rehost/compare/v0.2.1...v0.3.0) (2026-09-02)
+
+
+### Features
+
+* **recipe/laravel:** add the Laravel recipe ([86f1703](https://github.com/pietervanleuven/rehost/commit/86f1703517fdf45c9ccc16cbc809005695f2695a))
+* **recipe/laravel:** add the Laravel recipe ([5bfc215](https://github.com/pietervanleuven/rehost/commit/5bfc2151cf79d93a7ba17b514c73d042b4931886))
+
 ## [0.2.1](https://github.com/pietervanleuven/rehost/compare/v0.2.0...v0.2.1) (2026-08-30)
 
 
