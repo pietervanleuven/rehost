@@ -157,9 +157,16 @@ hosting and verify:
       YAML tree, keeping key order and comments on every section whose data
       did not change (a changed value subtree — e.g. `sites:` — is swapped;
       a fresh/unparseable file still writes header + full encode)
-- [ ] `check` charset rule uses the destination mysql *client* version as a
-      proxy for the server — replace with a real server check once migrate
-      can create the destination database
+- [x] `check`'s charset rule no longer presents the destination mysql
+      *client* version as the server's (2026-09-02): the wording names the
+      client, and a pre-utf8mb4 client warns instead of blocking — a client
+      cannot prove what its server supports, and the import verifies what
+      actually matters. A real server check is still possible but needs
+      authentication: `dest_db` configured **and** a password available
+      non-interactively (`REHOST_DB_PASSWORD` / `--db-password-file`), since
+      `check` must stay a rerunnable gate that prompts for nothing. (The old
+      note said "once migrate can create the destination database" — migrate
+      never creates one by design, so that precondition would never arrive.)
 - [x] DNS "lower your TTL now" advice: done in `check` output (`dns.ttl`
       warning above 3600s, ready-confirmation at ≤300s) and in the `cutover`
       report (per-A/AAAA record TTL note when above 3600s, advising 300 + one
