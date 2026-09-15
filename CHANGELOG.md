@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0](https://github.com/pietervanleuven/rehost/compare/v0.3.0...v0.4.0) (2026-09-15)
+
+
+### Features
+
+* **recipe:** add the generic PHP + database fallback recipe ([89b0c1e](https://github.com/pietervanleuven/rehost/commit/89b0c1ed88129f06302ad23f07f771a4cc7f4b5b))
+* **recipe:** add the generic PHP + database fallback recipe ([521f1f4](https://github.com/pietervanleuven/rehost/commit/521f1f440aa33ff86d2a42b5406104e410bab871))
+
+
+### Bug Fixes
+
+* **check:** stop presenting the destination mysql client version as the server's ([64a91e1](https://github.com/pietervanleuven/rehost/commit/64a91e129145a0b16448fff1935dfce6de4f644c))
+* **check:** stop presenting the destination mysql client version as the server's ([4bbfa0e](https://github.com/pietervanleuven/rehost/commit/4bbfa0e6209dd171752096822631580b6cc30db3))
+* **recipe:** never sync .ssh or .rehost out of a site root ([ec51719](https://github.com/pietervanleuven/rehost/commit/ec51719bcadb3d9cd69cebf4c206207cd5b21219))
+
 ## [0.3.0](https://github.com/pietervanleuven/rehost/compare/v0.2.1...v0.3.0) (2026-09-02)
 
 
