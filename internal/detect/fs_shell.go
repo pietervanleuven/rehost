@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh/remote"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // maxReadBytes bounds ReadFile so a stray huge file cannot exhaust memory.

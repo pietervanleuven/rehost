@@ -3,8 +3,8 @@ package recipe
 import (
 	"strings"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // Requirements is what a detected install needs from the destination host.

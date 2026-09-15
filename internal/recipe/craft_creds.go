@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // ExtractCredentials reads the Craft database credentials from .env — the

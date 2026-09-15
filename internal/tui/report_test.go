@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 func sampleReports() []HostReport {

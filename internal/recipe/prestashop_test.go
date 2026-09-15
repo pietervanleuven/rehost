@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 const psParameters = `<?php return array (

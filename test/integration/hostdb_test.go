@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	searchreplace "github.com/pietervanleuven/go-searchreplace"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	searchreplace "github.com/pietervanleuven/rehost/internal/searchreplace"
 )
 
 // tableCount reads the table count of a database straight from the server,
@@ -132,10 +132,10 @@ func TestMySQLEnvironment(t *testing.T) {
 		// only proof the flags survived into the real invocation.
 		for _, want := range []string{
 			"CREATE TABLE `options`",
-			"wide_chars_audit",       // trigger
-			"fill_bulk_rows",         // procedure
-			"site_url_of",            // function
-			"recent_options",         // view
+			"wide_chars_audit",        // trigger
+			"fill_bulk_rows",          // procedure
+			"site_url_of",             // function
+			"recent_options",          // view
 			"rocket \xf0\x9f\x9a\x80", // the four-byte emoji, byte-exact
 		} {
 			if !strings.Contains(sql, want) {

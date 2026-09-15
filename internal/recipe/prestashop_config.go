@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // RewriteConfig points the synced PrestaShop config at the destination

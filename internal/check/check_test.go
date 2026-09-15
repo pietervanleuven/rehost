@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-dns"
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/dns"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // capsWith builds Capabilities with the named tools present.

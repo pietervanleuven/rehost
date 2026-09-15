@@ -11,15 +11,15 @@ import (
 	"strconv"
 	"time"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-searchreplace"
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/go-ssh/remote"
-	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/searchreplace"
+	"github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/state"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
