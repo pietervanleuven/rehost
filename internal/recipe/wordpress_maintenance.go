@@ -4,8 +4,8 @@ import (
 	"context"
 	"path"
 
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // wpMaintContent is the drop-in WordPress reads to serve its maintenance page.

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // ExtractCredentials re-reads the config file detection settled on. There is

@@ -152,34 +152,32 @@ runtime.
 
 ## Architecture
 
-Five generic packages were extracted (2026-08-29) into standalone public
-modules that rehost imports like any dependency: `go-ssh`, `go-dns`,
-`go-searchreplace`, `go-transfer` and `go-hostdb` (repos under
-github.com/pietervanleuven/, working copies under ~/Projects/). Package
-names are unchanged except `db` → `hostdb`. A change these packages need now
-lands in its own repo, gets a version tag, and is pulled into rehost via
-`go get` — remember to tag and push the library before bumping rehost.
+Five generic packages (`ssh`, `dns`, `searchreplace`, `transfer`, `hostdb`)
+were extracted into standalone `go-*` modules on 2026-08-29 and **folded back
+into `internal/` on 2026-09-15** — the separate repos and the tag-then-bump
+cycle were more hassle than they paid for pre-1.0. Everything is one module
+again; the packages stay generic (no rehost-specific imports) so a future
+re-extraction stays cheap. The `db` → `hostdb` rename survived the round trip.
 
 - `cmd/rehost` — thin main; version via goreleaser ldflags.
 - `internal/cli` — cobra commands; output mode (styled/plain/JSON) resolved from
   `--json`/`--no-color`/`NO_COLOR`/TTY in one place (`options.outputMode`).
-- `ssh` (**external module: github.com/pietervanleuven/go-ssh**, at
-  ~/Projects/go-ssh) — `Config.Resolve()` honors `~/.ssh/config` (ProxyJump = honest
+- `internal/ssh` — `Config.Resolve()` honors `~/.ssh/config` (ProxyJump = honest
   error); `Dial` auth chain agent → keys → password prompts via the `Prompter`
   interface; known_hosts strict + TOFU (key mismatch always hard-fails); `Run`
   (non-zero exit ≠ Go error); `Probe` = one sentinel-delimited POSIX script with
   a per-command sequential fallback for restricted shells. The transport-free
   contract (`Result`, `Runner`, `ShellQuote`, `FirstLine`, `Tool`/
-  `Capabilities` and the probe) lives in the `go-ssh/remote` subpackage; the
+  `Capabilities` and the probe) lives in the `ssh/remote` subpackage; the
   root package aliases those names, so both paths name identical types. Every
-  internal package except `cli` and `project` imports only `go-ssh/remote` —
+  internal package except `cli` and `project` imports only `ssh/remote` —
   keep it that way: nothing below the orchestrator should compile the dial
   stack.
 - `internal/project` — migrate.yaml schema v1, strict decode (unknown/secret
   fields rejected with guidance), atomic 0600 writes.
 - `internal/tui` — `Renderer` (styled/plain/JSON) + `HuhPrompter`/
   `NonInteractivePrompter` + the init/plan wizard forms (huh stays out of cli);
-  tui imports go-ssh, never the reverse.
+  tui imports ssh, never the reverse.
 - `internal/detect` — framework discovery over an `FS` abstraction
   (`NewShellFS` over any `remote.Runner` + local for tests): marker `Find`
   with walk fallback, `Scan`, realpath de-dup. `Discover` scans the
@@ -198,14 +196,12 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
   going). The capability seams' shared input lives here too: `Host`
   (runner + FS + capabilities) and the `Extractor` interface recipes
   implement.
-- `searchreplace` (**external module: github.com/pietervanleuven/go-searchreplace**,
-  at ~/Projects/go-searchreplace) — pure serialized-safe replacement core
+- `internal/searchreplace` — pure serialized-safe replacement core
   (wp search-replace --precise semantics, fuzzed round-trip invariant) +
   the URL/docroot replacement-pair planner + `RewriteDump`, which applies
   pairs inside a SQL dump's string literals (the local application point
   migrate uses between dump and import).
-- `hostdb` (**external module: github.com/pietervanleuven/go-hostdb**, at
-  ~/Projects/go-hostdb; imported as `hostdb`) — `Credentials` (Password
+- `internal/hostdb` — `Credentials` (Password
   excluded from JSON, in-memory only); `Inspect` learns version, size,
   charset and table counts in one round trip, feeding the password to mysql
   via a defaults file on stdin (never argv/env); `Import` streams a verified
@@ -224,14 +220,12 @@ lands in its own repo, gets a version tag, and is pulled into rehost via
 - `internal/check` — pure compatibility rule engine (`Run(Input) []Result`,
   blockers vs warnings) + best-effort remote gatherers (php -m, df, du);
   all remote I/O stays in the caller or behind the `runner` seam.
-- `dns` (**external module: github.com/pietervanleuven/go-dns**, at
-  ~/Projects/go-dns) — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
+- `internal/dns` — read-only domain snapshot (A/AAAA/CNAME/MX/NS/TXT + TTLs,
   MX targets resolved to IPs) over miekg/dns using the system resolvers;
   rehost never changes DNS.
 - `internal/inventory` — per-site size picture over `du` (total, largest
   subdirectories, framework cache/backup dirs worth excluding), best-effort.
-- `transfer` (**external module: github.com/pietervanleuven/go-transfer**, at
-  ~/Projects/go-transfer) — tar-pipe throughput measurement (capped sample
+- `internal/transfer` — tar-pipe throughput measurement (capped sample
   over the pipe the real migration would use) + file manifests (size/mtime
   via GNU `find -printf`, paths-only degradation, pure `Diff`, atomic gzipped
   persistence) + `Sync`, the manifest-driven tar-pipe relay (delta-only
@@ -298,10 +292,9 @@ cobra · Charm v2 (bubbletea/bubbles/lipgloss/huh) · `golang.org/x/crypto/ssh` 
   `type(scope): description` — lowercase, imperative, no trailing period.
   - Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`.
   - Scopes mirror this repo's package names: `cli`, `detect`, `check`, `project`,
-    `tui`, `inventory`, `state`, `recipe/drupal`, `recipe/wordpress`, … Docs-only
-    changes: `docs: …` without scope is fine. `ssh`, `db`, `transfer`, `dns` and
-    `searchreplace` now name *other* repos — a change there is committed and
-    released in that repo, and the version bump lands here as `build(deps): …`.
+    `tui`, `inventory`, `state`, `ssh`, `dns`, `hostdb`, `transfer`,
+    `searchreplace`, `recipe/drupal`, `recipe/wordpress`, … Docs-only
+    changes: `docs: …` without scope is fine.
   - Breaking changes: `!` after type/scope (`feat(cli)!: …`) + `BREAKING CHANGE:` footer.
   - **Releases are automated from these commits** (`.github/workflows/release.yml`):
     release-please accumulates every `feat`/`fix`/`perf` (and breaking change) on

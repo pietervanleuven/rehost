@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // credSentinel prefixes the JSON payload the PHP echo-helpers print, so

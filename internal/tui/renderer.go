@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
 	"github.com/pietervanleuven/rehost/internal/inventory"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/state"
 )
 

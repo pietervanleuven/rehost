@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 const joomlaConfig = `<?php

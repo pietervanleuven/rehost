@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	searchreplace "github.com/pietervanleuven/go-searchreplace"
+	searchreplace "github.com/pietervanleuven/rehost/internal/searchreplace"
 )
 
 func TestDumpFileName(t *testing.T) {

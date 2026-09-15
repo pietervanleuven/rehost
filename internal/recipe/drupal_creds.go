@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // ExtractCredentials reads the Drupal database credentials in layers: drush

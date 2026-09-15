@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-transfer"
+	"github.com/pietervanleuven/rehost/internal/dns"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 

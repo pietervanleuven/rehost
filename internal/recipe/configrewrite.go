@@ -9,8 +9,8 @@ import (
 	"path"
 	"strings"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh/remote"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // ConfigRewrite describes one site's config move: where the config file sat
