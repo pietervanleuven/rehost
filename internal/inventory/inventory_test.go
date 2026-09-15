@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-ssh/remote"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // rule maps the first matching substring (checked in order) to a result.

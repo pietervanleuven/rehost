@@ -4,9 +4,9 @@ import (
 	"context"
 	"regexp"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // ExtractCredentials reads the WordPress database credentials in layers:

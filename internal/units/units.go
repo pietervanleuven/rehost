@@ -6,7 +6,7 @@ import "fmt"
 
 // HumanBytes renders a byte count as a compact human string.
 //
-// go-hostdb and go-transfer each carry an unexported clone of this function
+// hostdb and transfer each carry an unexported clone of this function
 // (they are standalone modules and will not depend on rehost for formatting).
 // A format change here — SI units, a TiB step — has to land in all three or
 // the CLI's report rows and the libraries' progress lines will disagree

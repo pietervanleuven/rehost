@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pietervanleuven/go-dns"
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh/remote"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/dns"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // Severity classifies one result.
@@ -135,7 +135,7 @@ func checkSites(in Input, add addFunc) {
 	add("sites", title, Ok, strings.Join(parts, ", "))
 }
 
-// checkTransfer mirrors what go-transfer actually does: every sync is
+// checkTransfer mirrors what transfer.Sync actually does: every sync is
 // a manifest-driven tar pipe, so tar and find are needed on both hosts and
 // there is no other transport to fall back to.
 func checkTransfer(in Input, add addFunc) {

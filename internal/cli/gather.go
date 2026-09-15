@@ -6,13 +6,13 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pietervanleuven/go-dns"
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	"github.com/pietervanleuven/rehost/internal/dns"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 )
 
 // sourceGather is everything the pre-flight learns from the source host. The

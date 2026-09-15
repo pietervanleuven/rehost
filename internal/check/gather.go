@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh/remote"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // PHPExtensions lists the loaded PHP modules on a host via `php -m`, or nil

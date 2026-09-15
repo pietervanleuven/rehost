@@ -4,7 +4,7 @@
 // sshd and a real database server in a container.
 //
 // It exists because the unit tests mock the transport: every shell pipeline,
-// credential-staging trick and stream verifier in go-hostdb is exercised here
+// credential-staging trick and stream verifier in hostdb is exercised here
 // against software that can actually reject it. It is deliberately not a CMS
 // harness — see README.md for why a default WordPress install would prove
 // less than the fixtures in this directory do.
@@ -29,9 +29,9 @@ import (
 
 	cryptossh "golang.org/x/crypto/ssh"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	sshpkg "github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/go-ssh/remote"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
+	sshpkg "github.com/pietervanleuven/rehost/internal/ssh"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 const (
@@ -107,7 +107,9 @@ func keypair(t *testing.T, dir string) (keyPath, pubLine string) {
 // across runs.
 type autoPrompter struct{}
 
-func (autoPrompter) Password(string) (string, error) { return "", fmt.Errorf("no password auth in the rig") }
+func (autoPrompter) Password(string) (string, error) {
+	return "", fmt.Errorf("no password auth in the rig")
+}
 func (autoPrompter) ConfirmHostKey(string, string, string) (bool, error) {
 	return true, nil
 }

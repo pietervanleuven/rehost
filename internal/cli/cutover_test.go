@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pietervanleuven/go-dns"
-	"github.com/pietervanleuven/go-transfer"
+	"github.com/pietervanleuven/rehost/internal/dns"
 	"github.com/pietervanleuven/rehost/internal/project"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 

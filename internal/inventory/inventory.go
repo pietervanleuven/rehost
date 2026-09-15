@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pietervanleuven/go-ssh/remote"
+	"github.com/pietervanleuven/rehost/internal/ssh/remote"
 )
 
 // Entry is one measured path.

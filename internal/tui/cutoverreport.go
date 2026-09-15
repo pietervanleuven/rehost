@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/pietervanleuven/go-dns"
+	"github.com/pietervanleuven/rehost/internal/dns"
 )
 
 // cutoverSchema versions the cutover JSON envelope.

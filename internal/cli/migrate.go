@@ -12,14 +12,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 	"github.com/pietervanleuven/rehost/internal/project"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 	"github.com/pietervanleuven/rehost/internal/state"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 	"github.com/pietervanleuven/rehost/internal/tui"
 )
 
@@ -113,7 +113,7 @@ type migratePlan struct {
 
 // syncFn is the file-sync primitive, a package var so tests can substitute a
 // fake that captures endpoints/options without a real tar pipe. Production uses
-// the go-transfer engine.
+// the transfer engine.
 var syncFn = transfer.Sync
 
 func runMigrate(cmd *cobra.Command, opts *options, docroots []string, ontoExisting, del bool, dbPasswordFile string) error {

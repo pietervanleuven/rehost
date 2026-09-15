@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 )
 
 // BuildInfo carries version metadata stamped by the build.
@@ -24,7 +24,7 @@ type options struct {
 }
 
 func newRootCmd(info BuildInfo) *cobra.Command {
-	// rehost predates go-hostdb's .hostdb default and already owns the
+	// rehost predates hostdb's .hostdb default and already owns the
 	// .rehost dotdir on users' hosts (run history lives there); keep
 	// credential staging in the same place. Set here rather than in an
 	// init() so it stays visible to anyone reading the wiring — and so a

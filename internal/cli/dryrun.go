@@ -8,14 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 
-	hostdb "github.com/pietervanleuven/go-hostdb"
-	"github.com/pietervanleuven/go-ssh"
-	"github.com/pietervanleuven/go-transfer"
 	"github.com/pietervanleuven/rehost/internal/check"
 	"github.com/pietervanleuven/rehost/internal/detect"
+	hostdb "github.com/pietervanleuven/rehost/internal/hostdb"
 	"github.com/pietervanleuven/rehost/internal/inventory"
 	"github.com/pietervanleuven/rehost/internal/recipe"
+	"github.com/pietervanleuven/rehost/internal/ssh"
 	"github.com/pietervanleuven/rehost/internal/state"
+	"github.com/pietervanleuven/rehost/internal/transfer"
 )
 
 // collectDryRun proves the collection pipeline for each detected site: a
